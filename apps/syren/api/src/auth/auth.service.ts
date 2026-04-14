@@ -1,0 +1,185 @@
+import { Injectable, Logger } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
+import { DbService } from '../db/db.service';
+import { RecordId } from 'surrealdb';
+import { UserRepository, PlatformSessionRepository } from './user.repository';
+
+@Injectable()
+export class AuthService {
+	private readonly logger = new Logger(AuthService.name);
+
+	constructor(
+		private readonly db: DbService,
+		private readonly config: ConfigService,
+		private readonly users: UserRepository,
+		private readonly sessions: PlatformSessionRepository
+	) {}
+
+	getPlatformOrigin(): string {
+		return this.config.get('PUBLIC_URL', 'http://localhost:5174');
+	}
+
+	getCallbackUrl(): string {
+		return `${this.getPlatformOrigin()}/api/auth/callback`;
+	}
+
+	isProduction(): boolean {
+		return this.config.get('NODE_ENV', 'development') === 'production';
+	}
+
+	async fetchInstanceManifest(instanceUrl: string) {
+		const base = instanceUrl.replace(/\/+$/, '');
+		const response = await fetch(`${base}/.well-known/syr`, {
+			headers: { Accept: 'application/json' },
+			signal: AbortSignal.timeout(5000)
+		});
+		if (!response.ok) return null;
+		return response.json() as Promise<{
+			platform?: {
+				consent: string;
+				token: string;
+				sign: string;
+				challenge: string;
+				delegations: string;
+				revoke: string;
+			};
+			[key: string]: unknown;
+		}>;
+	}
+
+	async getConsentUrl(
+		instanceUrl: string,
+		params: { platform_origin: string; platform_name: string; callback_url: string; scopes: string; state: string }
+	): Promise<string> {
+		const manifest = await this.fetchInstanceManifest(instanceUrl);
+		if (!manifest?.platform) throw new Error('Instance does not support platform delegation');
+
+		const url = new URL(manifest.platform.consent);
+		url.searchParams.set('platform_origin', params.platform_origin);
+		url.searchParams.set('platform_name', params.platform_name);
+		url.searchParams.set('callback_url', params.callback_url);
+		url.searchParams.set('scopes', params.scopes);
+		url.searchParams.set('state', params.state);
+		return url.toString();
+	}
+
+	async exchangePlatformCode(
+		instanceUrl: string,
+		code: string,
+		delegationId: string,
+		callbackUrl: string,
+		platformOrigin: string
+	) {
+		const manifest = await this.fetchInstanceManifest(instanceUrl);
+		if (!manifest?.platform) throw new Error('Instance does not support platform delegation');
+
+		this.logger.debug(`Exchanging code at ${manifest.platform.token}`);
+
+		const response = await fetch(manifest.platform.token, {
+			method: 'POST',
+			headers: { 'Content-Type': 'application/json' },
+			body: JSON.stringify({
+				code,
+				delegation_id: delegationId,
+				callback_url: callbackUrl,
+				platform_origin: platformOrigin
+			})
+		});
+
+		if (!response.ok) {
+			const error = await response.json().catch(() => ({}));
+			const msg = `Token exchange failed: ${response.status} ${(error as any).error_description || ''}`;
+			this.logger.error(msg);
+			throw new Error(msg);
+		}
+
+		return response.json() as Promise<{
+			access_token: string;
+			token_type: string;
+			expires_in: number;
+			did: string;
+			delegate_public_key: string;
+			scopes: string[];
+		}>;
+	}
+
+	/**
+	 * Record identity-only mapping. Profile data (username, avatar, bio) is NOT
+	 * stored — clients resolve profiles directly from the user's syr instance.
+	 */
+	async upsertUser(
+		tokens: { did: string; delegate_public_key: string },
+		syrInstanceUrl: string
+	) {
+		const surreal = this.db.getDb();
+		await surreal.query(
+			`UPSERT user SET
+				did = $did,
+				syr_instance_url = $syr_instance_url,
+				delegate_public_key = $delegate_public_key,
+				is_online = true,
+				last_seen_at = time::now(),
+				updated_at = time::now()
+			WHERE did = $did`,
+			{
+				did: tokens.did,
+				syr_instance_url: syrInstanceUrl,
+				delegate_public_key: tokens.delegate_public_key
+			}
+		);
+		this.logger.log(`Identity recorded: ${tokens.did.slice(0, 20)}...`);
+	}
+
+	async createSession(
+		tokens: { did: string; access_token: string; delegate_public_key: string; expires_in: number },
+		syrInstanceUrl: string
+	): Promise<string> {
+		const surreal = this.db.getDb();
+		const sessionId = crypto.randomUUID();
+		const tokenExpiresAt = new Date(Date.now() + tokens.expires_in * 1000);
+
+		await surreal.query(
+			`CREATE platform_session SET
+				id = $session_id,
+				user_id = $did,
+				platform_token = $platform_token,
+				delegate_public_key = $delegate_public_key,
+				did = $did,
+				token_expires_at = $token_expires_at,
+				syr_instance_url = $syr_instance_url,
+				created_at = time::now(),
+				updated_at = time::now()`,
+			{
+				session_id: sessionId,
+				did: tokens.did,
+				platform_token: tokens.access_token,
+				delegate_public_key: tokens.delegate_public_key,
+				token_expires_at: tokenExpiresAt.toISOString(),
+				syr_instance_url: syrInstanceUrl
+			}
+		);
+
+		this.logger.log(`Session created: ${sessionId.slice(0, 8)}...`);
+		return sessionId;
+	}
+
+	async deleteSession(sessionId: string): Promise<void> {
+		await this.sessions.delete(new RecordId('platform_session', sessionId));
+		this.logger.log(`Session deleted: ${sessionId.slice(0, 8)}...`);
+	}
+
+	async getSession(sessionId: string) {
+		return this.sessions.findById(new RecordId('platform_session', sessionId)) as Promise<{
+			user_id: string;
+			did: string;
+			delegate_public_key: string;
+			platform_token: string;
+			token_expires_at: string;
+			syr_instance_url: string;
+		} | null>;
+	}
+
+	async getUserByDid(did: string): Promise<Record<string, unknown> | null> {
+		return this.users.findOne({ did });
+	}
+}

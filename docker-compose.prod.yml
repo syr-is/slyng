@@ -1,0 +1,41 @@
+services:
+  surrealdb:
+    container_name: syren-surrealdb-prod
+    image: surrealdb/surrealdb:v2.3.10
+    command: start --log warn --user ${SURREALDB_USER} --pass ${SURREALDB_PASS} rocksdb://data
+    volumes:
+      - surrealdb-prod-data:/data
+    healthcheck:
+      test:
+        ["CMD-SHELL", "wget --spider -q http://localhost:8000/status || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    restart: unless-stopped
+
+  syren:
+    container_name: syren-app
+    build:
+      context: .
+      dockerfile: docker/prod/syren.dockerfile
+    ports:
+      - "${PORT:-5174}:${PORT:-5174}"
+    env_file:
+      - .env
+    environment:
+      - PORT=${PORT:-5174}
+      - SURREALDB_URL=ws://surrealdb:8000/rpc
+    depends_on:
+      surrealdb:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget --spider -q http://localhost:${PORT:-5174}/health || exit 1"]
+      interval: 30s
+      timeout: 3s
+      start_period: 5s
+      retries: 3
+    restart: unless-stopped
+
+volumes:
+  surrealdb-prod-data:

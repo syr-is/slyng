@@ -1,0 +1,48 @@
+{
+	"name": "syren",
+	"version": "1.0.0",
+	"description": "Syren - A syr-based chat application",
+	"private": true,
+	"scripts": {
+		"prepare": "husky",
+		"dev": "turbo dev",
+		"dev:syren": "pnpm --filter @syren/app dev",
+		"dev:api": "pnpm --filter @syren/api dev",
+		"build": "turbo build",
+		"preview": "turbo preview",
+		"format": "turbo format",
+		"format:check": "turbo format:check",
+		"lint": "turbo lint",
+		"check": "turbo check",
+		"test": "turbo test"
+	},
+	"keywords": [],
+	"author": "",
+	"license": "ISC",
+	"packageManager": "pnpm@10.29.3",
+	"dependencies": {
+		"@syren/types": "workspace:*",
+		"@syren/ui": "workspace:*"
+	},
+	"devDependencies": {
+		"husky": "^9.1.7",
+		"lint-staged": "^15.4.3",
+		"prettier": "^3.6.2",
+		"prettier-plugin-svelte": "^3.4.0",
+		"prettier-plugin-tailwindcss": "^0.6.14",
+		"turbo": "^2.8.0"
+	},
+	"lint-staged": {
+		"*.{js,ts,jsx,tsx,svelte,json,css,scss,md,html,yml,yaml}": "prettier --write"
+	},
+	"pnpm": {
+		"onlyBuiltDependencies": [
+			"@syren/types",
+			"@tailwindcss/oxide",
+			"esbuild"
+		]
+	},
+	"engines": {
+		"node": ">=20.0.0"
+	}
+}
