@@ -11,7 +11,11 @@
 
 	const code = $derived(page.params.code ?? '');
 
-	type Preview = Awaited<ReturnType<typeof api.invites.preview>>;
+	type Preview = Awaited<ReturnType<typeof api.invites.preview>> & {
+		target_kind?: 'open' | 'instance' | 'did';
+		target_value?: string | null;
+		label?: string | null;
+	};
 
 	let preview = $state<Preview | null>(null);
 	let loadingPreview = $state(true);
@@ -98,6 +102,16 @@
 						<Users class="h-3.5 w-3.5" />
 						<span>{preview.server.member_count} {preview.server.member_count === 1 ? 'member' : 'members'}</span>
 					</div>
+
+					{#if preview.target_kind === 'instance' && preview.target_value}
+						<p class="rounded-md border border-blue-500/40 bg-blue-500/10 px-3 py-2 text-xs text-blue-600 dark:text-blue-400">
+							This invite is restricted to users on <span class="font-mono">{preview.target_value}</span>.
+						</p>
+					{:else if preview.target_kind === 'did'}
+						<p class="rounded-md border border-purple-500/40 bg-purple-500/10 px-3 py-2 text-xs text-purple-600 dark:text-purple-400">
+							This invite is for a specific user only.
+						</p>
+					{/if}
 				</div>
 
 				{#if joined}

@@ -9,3 +9,4 @@ export * from './reaction.js';
 export * from './permission.js';
 export * from './presence.js';
 export * from './ws.js';
+export * from './audit-log.js';

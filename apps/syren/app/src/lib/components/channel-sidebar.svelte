@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { Hash, Volume2, ChevronDown, Settings, UserPlus, Plus, MoreVertical, Pencil, Trash2 } from '@lucide/svelte';
+	import { Hash, Volume2, ChevronDown, Settings, UserPlus, Plus, MoreVertical, Pencil, Trash2, ScrollText } from '@lucide/svelte';
 	import { goto } from '$app/navigation';
 	import { Separator } from '@syren/ui/separator';
 	import * as DropdownMenu from '@syren/ui/dropdown-menu';
@@ -108,6 +108,20 @@
 				<DropdownMenu.Item onclick={onSettings}>
 					<Settings class="mr-2 h-4 w-4" />
 					Server Settings
+				</DropdownMenu.Item>
+			{/if}
+			{#if perms.canViewAuditLog}
+				{#if perms.canCreateInvites || perms.canManageServer}
+					<DropdownMenu.Separator />
+				{/if}
+				<DropdownMenu.Item
+					onclick={() =>
+						goto(
+							`/channels/${encodeURIComponent(serverState.activeServerId ?? '')}/audit-log`
+						)}
+				>
+					<ScrollText class="mr-2 h-4 w-4" />
+					Audit Log
 				</DropdownMenu.Item>
 			{/if}
 		</DropdownMenu.Content>

@@ -4,7 +4,8 @@ import {
 	ServerRepository,
 	ServerMemberRepository,
 	ServerRoleRepository,
-	ServerInviteRepository
+	ServerInviteRepository,
+	ServerBanRepository
 } from '../server/server.repository';
 import {
 	ChannelRepository,
@@ -20,12 +21,14 @@ import {
 import { VoiceStateRepository } from '../voice/voice.repository';
 import { UserRepository, PlatformSessionRepository } from '../auth/user.repository';
 import { UploadRepository } from '../upload/upload.repository';
+import { AuditLogRepository } from '../audit-log/audit-log.repository';
 
 const repositories = [
 	ServerRepository,
 	ServerMemberRepository,
 	ServerRoleRepository,
 	ServerInviteRepository,
+	ServerBanRepository,
 	ChannelRepository,
 	ChannelParticipantRepository,
 	ChannelCategoryRepository,
@@ -36,7 +39,8 @@ const repositories = [
 	VoiceStateRepository,
 	UserRepository,
 	PlatformSessionRepository,
-	UploadRepository
+	UploadRepository,
+	AuditLogRepository
 ];
 
 @Global()

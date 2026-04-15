@@ -1,6 +1,8 @@
 import { Controller, Get, Post, Patch, Delete, Param, Body, Req, HttpException } from '@nestjs/common';
 import { ApiTags, ApiOperation } from '@nestjs/swagger';
 import { ChannelService } from './channel.service';
+import { RequirePermission } from '../auth/require-permission.decorator';
+import { SkipServerAccess } from '../auth/server-access.decorator';
 
 @ApiTags('channels')
 @Controller()
@@ -14,6 +16,7 @@ export class ChannelController {
 	}
 
 	@Post('servers/:serverId/channels')
+	@RequirePermission('MANAGE_CHANNELS')
 	@ApiOperation({ summary: 'Create a channel in a server' })
 	async create(
 		@Param('serverId') serverId: string,
@@ -30,6 +33,7 @@ export class ChannelController {
 	}
 
 	@Patch('channels/:channelId')
+	@RequirePermission('MANAGE_CHANNELS')
 	@ApiOperation({ summary: 'Update a channel' })
 	async update(
 		@Param('channelId') channelId: string,
@@ -46,6 +50,7 @@ export class ChannelController {
 	}
 
 	@Delete('channels/:channelId')
+	@RequirePermission('MANAGE_CHANNELS')
 	@ApiOperation({ summary: 'Delete a channel' })
 	async remove(@Param('channelId') channelId: string, @Req() req: any) {
 		const userId = req.user?.id;
@@ -59,6 +64,7 @@ export class ChannelController {
 	}
 
 	@Get('users/@me/channels')
+	@SkipServerAccess()
 	@ApiOperation({ summary: 'List DM channels for current user' })
 	async listDMs(@Req() req: any) {
 		const userId = req.user?.id;
@@ -67,6 +73,7 @@ export class ChannelController {
 	}
 
 	@Post('users/@me/channels')
+	@SkipServerAccess()
 	@ApiOperation({ summary: 'Create or get DM channel' })
 	async createDM(@Body() body: { recipient_id: string }, @Req() req: any) {
 		const userId = req.user?.id;

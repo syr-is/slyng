@@ -18,6 +18,7 @@ import { UploadModule } from './upload/upload.module';
 import { ProxyModule } from './proxy/proxy.module';
 import { UserModule } from './user/user.module';
 import { VoiceModule } from './voice/voice.module';
+import { AuditLogModule } from './audit-log/audit-log.module';
 import { join } from 'node:path';
 
 @Module({
@@ -42,7 +43,8 @@ import { join } from 'node:path';
 		UploadModule,
 		ProxyModule,
 		UserModule,
-		VoiceModule
+		VoiceModule,
+		AuditLogModule
 	],
 	providers: [
 		{ provide: APP_PIPE, useClass: ZodValidationPipe },

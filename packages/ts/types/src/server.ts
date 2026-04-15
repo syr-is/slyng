@@ -52,23 +52,55 @@ export type ServerRole = z.infer<typeof ServerRoleSchema>;
 
 // ── Server Invite ──
 
+export const InviteTargetKindSchema = z.enum(['open', 'instance', 'did']);
+export type InviteTargetKind = z.infer<typeof InviteTargetKindSchema>;
+
 export const ServerInviteSchema = BaseEntitySchema.extend({
 	server_id: z.string(),
 	code: z.string().min(6).max(16),
 	created_by: z.string(),
 	expires_at: z.date().optional(),
 	max_uses: z.number().int().min(0).default(0).describe('0 = unlimited'),
-	uses: z.number().int().min(0).default(0)
+	uses: z.number().int().min(0).default(0),
+	target_kind: InviteTargetKindSchema.default('open'),
+	target_value: z
+		.string()
+		.optional()
+		.describe('host for instance-scoped, DID for did-scoped, null for open'),
+	label: z.string().max(64).optional().describe('Human-readable "what this invite is for"')
 });
 
 export type ServerInvite = z.infer<typeof ServerInviteSchema>;
 
 export const CreateInviteSchema = z.object({
 	max_uses: z.number().int().min(0).default(0),
-	expires_in: z.number().int().min(0).optional().describe('Seconds until expiry, 0 or omit = never')
+	expires_in: z
+		.number()
+		.int()
+		.min(0)
+		.optional()
+		.describe('Seconds until expiry, 0 or omit = never'),
+	target_kind: InviteTargetKindSchema.default('open'),
+	target_value: z.string().optional(),
+	label: z.string().max(64).optional()
 });
 
 export type CreateInvite = z.infer<typeof CreateInviteSchema>;
+
+// ── Server Ban ──
+
+export const ServerBanSchema = BaseEntitySchema.extend({
+	server_id: z.string(),
+	user_id: z.string(),
+	banned_by: z.string(),
+	banned_at: z.date(),
+	reason: z.string().max(512).optional(),
+	active: z.boolean().default(true),
+	unbanned_at: z.date().optional(),
+	unbanned_by: z.string().optional()
+});
+
+export type ServerBan = z.infer<typeof ServerBanSchema>;
 
 // ── Channel Category ──
 

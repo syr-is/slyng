@@ -13,6 +13,7 @@ import { WsOp } from '@syren/types';
 import { VoiceService } from '../voice/voice.service';
 import { AuthService } from '../auth/auth.service';
 import { UserRepository } from '../auth/user.repository';
+import { MemberAccessService } from '../auth/member-access.service';
 import { ProfileWatcherService } from '../profile-watcher/profile-watcher.service';
 
 interface ClientState {
@@ -50,6 +51,7 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
 		private readonly users: UserRepository,
 		@Optional() @Inject(VoiceService) private readonly voiceService?: VoiceService,
 		@Optional() @Inject(AuthService) private readonly authService?: AuthService,
+		@Optional() @Inject(MemberAccessService) private readonly memberAccess?: MemberAccessService,
 		@Optional() @Inject(forwardRef(() => ProfileWatcherService))
 		private readonly profileWatcher?: ProfileWatcherService
 	) {}
@@ -240,11 +242,15 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
 		this.send(client, { op: WsOp.HEARTBEAT_ACK, d: null });
 	}
 
-	private handleSubscribe(client: WebSocket, data: { channel_ids: string[] }) {
+	private async handleSubscribe(client: WebSocket, data: { channel_ids: string[] }) {
 		const state = this.clients.get(client);
-		if (!state) return;
+		if (!state?.userId) return;
 		for (const id of data.channel_ids) {
-			state.subscribedChannels.add(id);
+			// Only subscribe to topics the user is actually allowed to read.
+			// The check short-circuits unrelated topics (e.g. DM channels if we
+			// add them later) by returning true when no server context applies.
+			const allowed = await this.canSubscribe(state.userId, id);
+			if (allowed) state.subscribedChannels.add(id);
 		}
 	}
 
@@ -253,6 +259,54 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
 		if (!state) return;
 		for (const id of data.channel_ids) {
 			state.subscribedChannels.delete(id);
+		}
+	}
+
+	/**
+	 * Authorisation check for a SUBSCRIBE topic. The topic may be a server id
+	 * (the layout subscribes to it for server-wide events) or a channel id.
+	 * Either way, the subscribing user must be a member of the resolved
+	 * server and not banned. Returns true on topics outside the server model
+	 * (no server resolved) so new topic types don't require guard updates.
+	 */
+	private async canSubscribe(userId: string, topicId: string): Promise<boolean> {
+		if (!this.memberAccess) return true;
+		try {
+			const serverId = await this.memberAccess.resolveServerId(topicId);
+			if (!serverId) return true;
+			return await this.memberAccess.isAllowed(userId, serverId);
+		} catch {
+			return false;
+		}
+	}
+
+	/**
+	 * Drop every server + channel topic for `userId`'s sockets and evict them
+	 * from any voice channel they're in within this server. Called right after
+	 * a kick / ban so the victim stops receiving events immediately.
+	 */
+	async evictUserFromServer(userId: string, serverId: string, channelIds: string[]): Promise<void> {
+		const topicSet = new Set<string>([serverId, ...channelIds]);
+		const sockets = this.userSockets.get(userId);
+		if (sockets) {
+			for (const sock of sockets) {
+				const state = this.clients.get(sock);
+				if (!state) continue;
+				for (const id of topicSet) state.subscribedChannels.delete(id);
+			}
+		}
+
+		// Voice eviction: if they're in a voice channel of this server, yank
+		// them out and broadcast the leave to remaining participants.
+		if (this.voiceService) {
+			const current = this.voiceService.getUserState(userId);
+			if (current && topicSet.has(current.channel_id)) {
+				await this.voiceService.leave(userId);
+				this.broadcastToChannel(current.server_id || serverId, {
+					op: WsOp.VOICE_STATE_UPDATE_BROADCAST,
+					d: { user_id: userId, channel_id: null, action: 'leave' }
+				});
+			}
 		}
 	}
 

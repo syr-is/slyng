@@ -80,6 +80,28 @@
 		if (channelId) loadChannel(channelId);
 	});
 
+	// Handle ?jump=<messageId> hand-off from the moderation sheet. When the
+	// target is already in the initially-loaded page we jump right away; when
+	// it's older we keep the param in the URL and let the user scroll up /
+	// infinite-load it into view.
+	$effect(() => {
+		const target = page.url.searchParams.get('jump');
+		if (!target) return;
+		// Wait a tick for the channel load to hydrate the DOM
+		const attempt = () => {
+			const el = document.querySelector(`[data-message-id="${CSS.escape(target)}"]`);
+			if (el) {
+				jumpToMessage(target);
+				// Strip the query param without adding a history entry
+				const url = new URL(page.url);
+				url.searchParams.delete('jump');
+				history.replaceState(history.state, '', url.toString());
+			}
+		};
+		const t = setTimeout(attempt, 250);
+		return () => clearTimeout(t);
+	});
+
 	// Auto-scroll on new messages (only if already near bottom).
 	// The ResizeObserver below also handles image-decode growth; this effect
 	// covers the case where a new message arrives but no image load follows.

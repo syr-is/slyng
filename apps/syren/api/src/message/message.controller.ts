@@ -1,6 +1,7 @@
 import { Controller, Get, Post, Patch, Delete, Param, Body, Query, Req, HttpException } from '@nestjs/common';
 import { ApiTags, ApiOperation } from '@nestjs/swagger';
 import { MessageService } from './message.service';
+import { RequirePermission } from '../auth/require-permission.decorator';
 
 @ApiTags('messages')
 @Controller('channels/:channelId')
@@ -12,12 +13,14 @@ export class MessageController {
 	async list(
 		@Param('channelId') channelId: string,
 		@Query('before') before?: string,
-		@Query('limit') limit?: string
+		@Query('limit') limit?: string,
+		@Req() req?: any
 	) {
-		return this.messageService.findByChannel(channelId, {
-			before,
-			limit: limit ? parseInt(limit, 10) : undefined
-		});
+		return this.messageService.findByChannel(
+			channelId,
+			{ before, limit: limit ? parseInt(limit, 10) : undefined },
+			req?.user?.id
+		);
 	}
 
 	@Post('messages')
@@ -134,6 +137,7 @@ export class MessageController {
 	}
 
 	@Post('pins')
+	@RequirePermission('MANAGE_MESSAGES')
 	@ApiOperation({ summary: 'Pin a message' })
 	async pin(
 		@Param('channelId') channelId: string,
@@ -151,6 +155,7 @@ export class MessageController {
 	}
 
 	@Delete('pins/:messageId')
+	@RequirePermission('MANAGE_MESSAGES')
 	@ApiOperation({ summary: 'Unpin a message' })
 	async unpin(
 		@Param('channelId') channelId: string,

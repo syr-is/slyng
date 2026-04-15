@@ -5,6 +5,7 @@
 
 import { WsOp } from '@syren/types';
 import { onWsEvent } from './ws.svelte';
+import { getAuth } from './auth.svelte';
 
 interface ServerData {
 	id: string;
@@ -139,4 +140,15 @@ onWsEvent(WsOp.SERVER_DELETE, (data) => {
 		serverChannels = [];
 		channelsLoaded = false;
 	}
+});
+
+// If the local user is kicked/banned from a server, MEMBER_REMOVE arrives on
+// the server topic. Strip the server from the rail so the user can't keep
+// pretending to be in it (layout-level guards handle the redirect).
+onWsEvent(WsOp.MEMBER_REMOVE, (data) => {
+	const { user_id, server_id } = data as { user_id?: string; server_id?: string };
+	if (!user_id || !server_id) return;
+	const selfDid = getAuth().identity?.did;
+	if (!selfDid || user_id !== selfDid) return;
+	removeServer(String(server_id));
 });

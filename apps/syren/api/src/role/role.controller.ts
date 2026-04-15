@@ -1,6 +1,7 @@
 import { Controller, Get, Post, Patch, Delete, Param, Body, Req, HttpException } from '@nestjs/common';
 import { ApiTags, ApiOperation } from '@nestjs/swagger';
 import { RoleService } from './role.service';
+import { RequirePermission } from '../auth/require-permission.decorator';
 
 @ApiTags('roles')
 @Controller()
@@ -14,6 +15,7 @@ export class RoleController {
 	}
 
 	@Post('servers/:serverId/roles')
+	@RequirePermission('MANAGE_ROLES')
 	@ApiOperation({ summary: 'Create a role' })
 	async create(
 		@Param('serverId') serverId: string,
@@ -30,6 +32,7 @@ export class RoleController {
 	}
 
 	@Patch('roles/:roleId')
+	@RequirePermission('MANAGE_ROLES')
 	@ApiOperation({ summary: 'Update a role' })
 	async update(
 		@Param('roleId') roleId: string,
@@ -46,6 +49,7 @@ export class RoleController {
 	}
 
 	@Post('roles/:roleId/swap/:otherRoleId')
+	@RequirePermission('MANAGE_ROLES')
 	@ApiOperation({ summary: 'Swap position with another role (hierarchy reorder)' })
 	async swap(
 		@Param('roleId') roleId: string,
@@ -62,6 +66,7 @@ export class RoleController {
 	}
 
 	@Delete('roles/:roleId')
+	@RequirePermission('MANAGE_ROLES')
 	@ApiOperation({ summary: 'Delete a role' })
 	async remove(@Param('roleId') roleId: string, @Req() req: any) {
 		const userId = req.user?.id;
@@ -75,6 +80,7 @@ export class RoleController {
 	}
 
 	@Post('servers/:serverId/members/:userId/roles/:roleId')
+	@RequirePermission('MANAGE_ROLES')
 	@ApiOperation({ summary: 'Assign a role to a member' })
 	async assign(
 		@Param('serverId') serverId: string,
@@ -92,6 +98,7 @@ export class RoleController {
 	}
 
 	@Delete('servers/:serverId/members/:userId/roles/:roleId')
+	@RequirePermission('MANAGE_ROLES')
 	@ApiOperation({ summary: 'Unassign a role from a member' })
 	async unassign(
 		@Param('serverId') serverId: string,

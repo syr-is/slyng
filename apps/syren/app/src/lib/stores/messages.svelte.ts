@@ -41,6 +41,9 @@ export interface MessageData {
 	edited_at?: string;
 	reply_to?: string[] | string;
 	pinned?: boolean;
+	deleted?: boolean;
+	deleted_at?: string;
+	deleted_by?: string;
 	attachments?: Attachment[];
 	embeds?: Embed[];
 	reactions?: Reaction[];
@@ -96,7 +99,23 @@ onWsEvent(WsOp.MESSAGE_UPDATE, (data) => {
 	if (channelMsgs) {
 		const idx = channelMsgs.findIndex((m) => m.id === msg.id);
 		if (idx >= 0) {
-			channelMsgs[idx] = msg;
+			// MESSAGE_UPDATE with `deleted: true` is our soft-delete signal and
+			// comes masked (no content). Merge onto the existing row so we
+			// don't inadvertently wipe fields the broadcast didn't carry, but
+			// when marking as deleted *do* scrub content locally — mods who
+			// need the original content re-fetch via the HTTP endpoint.
+			if ((msg as any).deleted) {
+				channelMsgs[idx] = {
+					...channelMsgs[idx],
+					...msg,
+					content: '',
+					attachments: [],
+					embeds: [],
+					reactions: []
+				};
+			} else {
+				channelMsgs[idx] = { ...channelMsgs[idx], ...msg };
+			}
 			if (msg.channel_id === currentChannelId) {
 				messages = [...channelMsgs];
 			}

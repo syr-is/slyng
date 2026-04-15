@@ -41,6 +41,7 @@ export const WsOp = {
 	REACTION_REMOVE: 41,
 	PIN_ADD: 42,
 	PIN_REMOVE: 43,
+	AUDIT_LOG_APPEND: 44,
 
 	// Profile watcher — federated hash polling
 	WATCH_PROFILES: 50,

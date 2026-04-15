@@ -4,6 +4,16 @@
 
 const API_BASE = '/api';
 
+function toQuery(params: Record<string, unknown>): string {
+	const usp = new URLSearchParams();
+	for (const [k, v] of Object.entries(params)) {
+		if (v === undefined || v === null || v === '') continue;
+		usp.set(k, String(v));
+	}
+	const q = usp.toString();
+	return q ? `?${q}` : '';
+}
+
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
 	const response = await fetch(`${API_BASE}${path}`, {
 		...options,
@@ -46,17 +56,199 @@ export const api = {
 			request(`/servers/${encodeURIComponent(id)}`, { method: 'DELETE' }),
 		channels: (id: string) => request<unknown[]>(`/servers/${encodeURIComponent(id)}/channels`),
 		members: (id: string) => request<unknown[]>(`/servers/${encodeURIComponent(id)}/members`),
-		voiceStates: (id: string) =>
-			request<Record<string, { user_id: string; channel_id: string; server_id: string; self_mute: boolean; self_deaf: boolean }[]>>(
-				`/servers/${encodeURIComponent(id)}/voice-states`
+		membersPage: (
+			id: string,
+			params: { limit?: number; offset?: number; sort?: string; order?: 'asc' | 'desc'; q?: string } = {}
+		) =>
+			request<{ items: any[]; total: number }>(
+				`/servers/${encodeURIComponent(id)}/members${toQuery(params)}`
 			),
-		kickMember: (serverId: string, userId: string) =>
-			request(`/servers/${encodeURIComponent(serverId)}/members/${encodeURIComponent(userId)}`, { method: 'DELETE' }),
-		createInvite: (id: string, data?: { max_uses?: number; expires_in?: number }) =>
+		voiceStates: (id: string) =>
+			request<
+				Record<
+					string,
+					{
+						user_id: string;
+						channel_id: string;
+						server_id: string;
+						self_mute: boolean;
+						self_deaf: boolean;
+						has_camera?: boolean;
+						has_screen?: boolean;
+					}[]
+				>
+			>(`/servers/${encodeURIComponent(id)}/voice-states`),
+		kickMember: (serverId: string, userId: string, opts: { delete_seconds?: number } = {}) =>
+			request(
+				`/servers/${encodeURIComponent(serverId)}/members/${encodeURIComponent(userId)}${toQuery(opts)}`,
+				{ method: 'DELETE' }
+			),
+		banMember: (
+			serverId: string,
+			data: { user_id: string; reason?: string; delete_seconds?: number }
+		) =>
+			request(`/servers/${encodeURIComponent(serverId)}/bans`, {
+				method: 'POST',
+				body: JSON.stringify(data)
+			}),
+		unbanMember: (serverId: string, userId: string) =>
+			request(`/servers/${encodeURIComponent(serverId)}/bans/${encodeURIComponent(userId)}`, {
+				method: 'DELETE'
+			}),
+		listBans: (
+			serverId: string,
+			params: { limit?: number; offset?: number; sort?: string; order?: 'asc' | 'desc'; q?: string } = {}
+		) =>
+			request<{
+				items: Array<{
+					id?: string;
+					server_id: string;
+					user_id: string;
+					syr_instance_url?: string;
+					banned_by: string;
+					banned_at: string;
+					reason: string | null;
+					active?: boolean;
+					unbanned_at?: string | null;
+					unbanned_by?: string | null;
+				}>;
+				total: number;
+			}>(`/servers/${encodeURIComponent(serverId)}/bans${toQuery(params)}`),
+		memberMessages: (
+			serverId: string,
+			userId: string,
+			params: { limit?: number; offset?: number; before?: string; q?: string } = {}
+		) =>
+			request<{
+				items: Array<{
+					id: string;
+					channel_id: string;
+					channel_name: string | null;
+					sender_id: string;
+					content: string;
+					created_at: string;
+					edited_at?: string;
+					attachments?: any[];
+				}>;
+				total: number;
+			}>(
+				`/servers/${encodeURIComponent(serverId)}/members/${encodeURIComponent(userId)}/messages${toQuery(params)}`
+			),
+		memberMessageStats: (serverId: string, userId: string) =>
+			request<{
+				total: number;
+				first_at: string | null;
+				last_at: string | null;
+				per_channel: Array<{ channel_id: string; channel_name: string | null; count: number }>;
+			}>(
+				`/servers/${encodeURIComponent(serverId)}/members/${encodeURIComponent(userId)}/message-stats`
+			),
+		purgeMemberMessages: (serverId: string, userId: string, data: { delete_seconds: number }) =>
+			request<{ success: boolean }>(
+				`/servers/${encodeURIComponent(serverId)}/members/${encodeURIComponent(userId)}/purge`,
+				{ method: 'POST', body: JSON.stringify(data) }
+			),
+		memberBanHistory: (serverId: string, userId: string) =>
+			request<
+				Array<{
+					id?: string;
+					banned_by: string;
+					banned_at: string;
+					reason: string | null;
+					active: boolean;
+					unbanned_at?: string | null;
+					unbanned_by?: string | null;
+				}>
+			>(`/servers/${encodeURIComponent(serverId)}/members/${encodeURIComponent(userId)}/ban-history`),
+		auditLog: (
+			serverId: string,
+			params: {
+				limit?: number;
+				offset?: number;
+				action?: string;
+				actor_id?: string;
+				target_user_id?: string;
+				since?: string;
+				until?: string;
+				q?: string;
+			} = {}
+		) =>
+			request<{
+				items: Array<{
+					id?: string;
+					server_id: string;
+					actor_id: string;
+					action: string;
+					target_kind: string;
+					target_id: string | null;
+					target_user_id: string | null;
+					metadata: Record<string, unknown>;
+					reason: string | null;
+					batch_id: string | null;
+					created_at: string;
+				}>;
+				total: number;
+			}>(`/servers/${encodeURIComponent(serverId)}/audit-log${toQuery(params)}`),
+		memberAuditLog: (
+			serverId: string,
+			userId: string,
+			params: { limit?: number; offset?: number; action?: string; q?: string } = {}
+		) =>
+			request<{
+				items: Array<{
+					id?: string;
+					actor_id: string;
+					action: string;
+					target_kind: string;
+					target_id: string | null;
+					target_user_id: string | null;
+					metadata: Record<string, unknown>;
+					reason: string | null;
+					batch_id: string | null;
+					created_at: string;
+				}>;
+				total: number;
+			}>(
+				`/servers/${encodeURIComponent(serverId)}/members/${encodeURIComponent(userId)}/audit-log${toQuery(params)}`
+			),
+		createInvite: (
+			id: string,
+			data?: {
+				max_uses?: number;
+				expires_in?: number;
+				target_kind?: 'open' | 'instance' | 'did';
+				target_value?: string;
+				label?: string;
+			}
+		) =>
 			request<{ code: string }>(`/servers/${encodeURIComponent(id)}/invites`, {
 				method: 'POST',
 				body: JSON.stringify(data || {})
 			}),
+		listInvites: (
+			id: string,
+			params: { limit?: number; offset?: number; sort?: string; order?: 'asc' | 'desc'; q?: string } = {}
+		) =>
+			request<{
+				items: Array<{
+					id?: string;
+					code: string;
+					created_by: string;
+					created_at: string;
+					expires_at: string | null;
+					max_uses: number;
+					uses: number;
+					target_kind: 'open' | 'instance' | 'did';
+					target_value: string | null;
+					label: string | null;
+				}>;
+				total: number;
+			}>(`/servers/${encodeURIComponent(id)}/invites${toQuery(params)}`),
+		deleteInvite: (id: string, code: string) =>
+			request<{ success: true }>(
+				`/servers/${encodeURIComponent(id)}/invites/${encodeURIComponent(code)}`,
+				{ method: 'DELETE' }
+			),
 		createChannel: (id: string, data: { name: string; type?: string }) =>
 			request(`/servers/${encodeURIComponent(id)}/channels`, { method: 'POST', body: JSON.stringify(data) })
 	},

@@ -1,8 +1,9 @@
 <script lang="ts">
 	import type { Snippet } from 'svelte';
-	import * as Tooltip from '@syren/ui/tooltip';
+	import * as HoverCard from '@syren/ui/hover-card';
 	import * as Avatar from '@syren/ui/avatar';
-	import { Crown, ExternalLink } from '@lucide/svelte';
+	import { Button } from '@syren/ui/button';
+	import { Crown, ExternalLink, ShieldAlert } from '@lucide/svelte';
 	import { resolveProfile, displayName, federatedHandle } from '$lib/stores/profiles.svelte';
 	import { resolveStories } from '$lib/stores/stories.svelte';
 	import { proxied } from '$lib/utils/proxy';
@@ -11,6 +12,9 @@
 	import { getRoles, type RoleData } from '$lib/stores/roles.svelte';
 	import { getServerState } from '$lib/stores/servers.svelte';
 	import { getPresenceData, type PresenceStatus } from '$lib/stores/presence.svelte';
+	import { getPerms } from '$lib/stores/perms.svelte';
+	import { getAuth } from '$lib/stores/auth.svelte';
+	import { openModeration } from '$lib/stores/moderation-target.svelte';
 
 	const STATUS_COLORS: Record<PresenceStatus, string> = {
 		online: 'bg-green-500',
@@ -76,22 +80,32 @@
 	const joinedAt = $derived(formatJoinDate((member as any)?.joined_at));
 	const nickname = $derived((member as any)?.nickname as string | undefined);
 
+	const perms = getPerms();
+	const auth = getAuth();
+	const isSelf = $derived(did === auth.identity?.did);
+	const canModerate = $derived(
+		!isSelf && (perms.canKick || perms.canBan || perms.canManageRoles || perms.canManageMessages)
+	);
+
 	let viewerOpen = $state(false);
+
+	function triggerModeration() {
+		openModeration(did, instanceUrl);
+	}
 </script>
 
-<Tooltip.Root delayDuration={300}>
-	<Tooltip.Trigger>
-		{#snippet child({ props })}
+<HoverCard.Root openDelay={300} closeDelay={150}>
+	<HoverCard.Trigger>
+		{#snippet child({ props }: { props: Record<string, unknown> })}
 			<span {...props} class={triggerClass}>
 				{@render children()}
 			</span>
 		{/snippet}
-	</Tooltip.Trigger>
-	<Tooltip.Content
+	</HoverCard.Trigger>
+	<HoverCard.Content
 		side="right"
 		sideOffset={8}
 		class="w-80 p-0 bg-popover text-popover-foreground border border-border shadow-lg"
-		arrowClasses="bg-popover border-l border-b border-border"
 	>
 		<!-- Banner -->
 		<div
@@ -201,9 +215,16 @@
 					<ExternalLink class="h-3 w-3" />
 				</a>
 			{/if}
+
+			{#if canModerate}
+				<Button variant="outline" size="sm" class="mt-1 w-full" onclick={triggerModeration}>
+					<ShieldAlert class="mr-1.5 h-4 w-4" />
+					Moderation View
+				</Button>
+			{/if}
 		</div>
-	</Tooltip.Content>
-</Tooltip.Root>
+	</HoverCard.Content>
+</HoverCard.Root>
 
 {#if viewerOpen}
 	<StoryViewer

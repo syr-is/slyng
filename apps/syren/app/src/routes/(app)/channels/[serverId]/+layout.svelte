@@ -7,7 +7,8 @@
 	import { onWsEvent } from '$lib/stores/ws.svelte';
 	import ChannelSidebar from '$lib/components/channel-sidebar.svelte';
 	import InviteDialog from '$lib/components/invite-dialog.svelte';
-	import ServerSettingsDialog from '$lib/components/server-settings-dialog.svelte';
+	import ModerationSheet from '$lib/components/moderation-sheet.svelte';
+	import { getModerationTarget, closeModeration } from '$lib/stores/moderation-target.svelte';
 	import {
 		getServerState,
 		setActiveServer,
@@ -38,7 +39,6 @@
 	const serverBannerUrl = $derived(active?.banner_url ?? null);
 	const serverInviteBgUrl = $derived(active?.invite_background_url ?? null);
 	let showInvite = $state(false);
-	let showSettings = $state(false);
 	let loadingServerId: string | null = null;
 	// DIDs currently registered for federated hash watching — unregistered
 	// when we switch servers so we don't grow the backend watchlist.
@@ -206,6 +206,18 @@
 		}
 	});
 
+	// If the local user is removed (kicked / banned) from the server we're
+	// currently viewing, bail out. Rail-level cleanup lives in the servers
+	// store; this handler just ejects the view.
+	onWsEvent(WsOp.MEMBER_REMOVE, (data) => {
+		const { user_id, server_id } = data as { user_id?: string; server_id?: string };
+		if (!user_id || !server_id) return;
+		if (String(server_id) !== serverId) return;
+		if (user_id !== auth.identity?.did) return;
+		toast.info('You were removed from this server');
+		goto('/channels/@me');
+	});
+
 	async function handleSignOut() {
 		await fetch('/api/auth/logout', { method: 'POST', credentials: 'include' });
 		window.location.href = '/login';
@@ -218,7 +230,7 @@
 	userDid={auth.identity?.did ?? ''}
 	userInstanceUrl={auth.identity?.syr_instance_url}
 	onInvite={() => (showInvite = true)}
-	onSettings={() => (showSettings = true)}
+	onSettings={() => goto(`/channels/${encodeURIComponent(serverId)}/settings`)}
 	handleSignOut={handleSignOut}
 	toggleTheme={toggleMode}
 />
@@ -233,26 +245,12 @@
 	onClose={() => (showInvite = false)}
 />
 
-<ServerSettingsDialog
-	open={showSettings}
-	{serverId}
-	{serverName}
-	{serverDescription}
-	serverIconUrl={serverIconUrl}
-	serverBannerUrl={serverBannerUrl}
-	serverInviteBackgroundUrl={serverInviteBgUrl}
-	{isOwner}
-	onClose={() => (showSettings = false)}
-	onUpdated={(s) => {
-		upsertServer({
-			id: serverId,
-			name: s.name,
-			description: s.description ?? null,
-			icon_url: s.icon_url ?? null,
-			banner_url: s.banner_url ?? null,
-			invite_background_url: s.invite_background_url ?? null,
-			owner_id: serverOwnerId,
-			member_count: active?.member_count ?? 0
-		});
-	}}
-/>
+{#if getModerationTarget().value}
+	{@const target = getModerationTarget().value!}
+	<ModerationSheet
+		{serverId}
+		userId={target.did}
+		instanceUrl={target.instance_url}
+		onClose={closeModeration}
+	/>
+{/if}

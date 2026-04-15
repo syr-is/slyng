@@ -35,6 +35,9 @@
 			edited_at?: string;
 			reply_to?: string[] | string;
 			pinned?: boolean;
+			deleted?: boolean;
+			deleted_at?: string;
+			deleted_by?: string;
 			attachments?: { url: string; filename: string; mime_type: string; size: number; width?: number; height?: number }[];
 			embeds?: { title?: string; description?: string; url?: string; thumbnail_url?: string; site_name?: string; embed_url?: string }[];
 			reactions?: { value: string; count: number; me: boolean; kind?: string; image_url?: string }[];
@@ -232,8 +235,28 @@
 			{/if}
 		</div>
 
+		<!-- Deleted banner — only visible to viewers who can see removed messages
+			 AND when the row still carries content (masking happened server-side
+			 otherwise). Keeps context that a removed message is displayed. -->
+		{#if message.deleted && message.content}
+			{@const deleterProfile = resolveProfile(message.deleted_by ?? '', undefined)}
+			<p class="mt-1 text-[10px] italic text-destructive/80">
+				Removed by {displayName(deleterProfile, message.deleted_by ?? '')}
+				{#if message.deleted_at} · {new Date(message.deleted_at).toLocaleString()}{/if}
+			</p>
+		{/if}
+
 		<!-- Content or edit mode -->
-		{#if editing}
+		{#if message.deleted && !message.content}
+			{@const deleterProfile = resolveProfile(message.deleted_by ?? '', undefined)}
+			<p class="mt-1 text-sm italic text-muted-foreground">
+				Message removed
+				{#if message.deleted_by}
+					by <span class="font-medium">{displayName(deleterProfile, message.deleted_by)}</span>
+				{/if}
+				{#if message.deleted_at} · {new Date(message.deleted_at).toLocaleString()}{/if}
+			</p>
+		{:else if editing}
 			<div class="mt-1 space-y-1">
 				<textarea
 					bind:value={editContent}
@@ -282,6 +305,7 @@
 			</p>
 		{/if}
 
+		{#if !message.deleted || message.content}
 		<!-- Attachments -->
 		{#if message.attachments?.length}
 			<div class="mt-1 flex flex-wrap gap-2">
@@ -400,10 +424,11 @@
 				{/each}
 			</div>
 		{/if}
+		{/if}
 	</div>
 
-	<!-- Hover actions -->
-	{#if showActions && !editing}
+	<!-- Hover actions — hidden once a message is removed (can't react to or re-delete) -->
+	{#if showActions && !editing && !message.deleted}
 		<div class="absolute -top-3 right-4 flex items-center gap-0.5 rounded-md border border-border bg-card p-0.5 shadow-sm">
 			<button onclick={() => (showEmojiPicker = !showEmojiPicker)} class="rounded p-1 text-muted-foreground hover:bg-accent hover:text-foreground" title="React">
 				<SmilePlus class="h-4 w-4" />

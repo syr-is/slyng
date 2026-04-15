@@ -53,7 +53,11 @@ export const MessageSchema = BaseEntitySchema.extend({
 	// Cryptographic signature fields
 	signature: z.string().optional(),
 	signer_did: z.string().optional(),
-	signer_delegate_key: z.string().optional()
+	signer_delegate_key: z.string().optional(),
+	// ── Soft-delete ──
+	deleted: z.boolean().default(false),
+	deleted_at: z.date().optional(),
+	deleted_by: z.string().optional().describe('DID of the moderator who removed this message')
 });
 
 export type Message = z.infer<typeof MessageSchema>;

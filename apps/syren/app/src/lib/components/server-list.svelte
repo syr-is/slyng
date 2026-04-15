@@ -58,7 +58,9 @@
 		</Tooltip.Root>
 	{/each}
 
-	<div class="mx-auto h-[2px] w-8 rounded-full bg-border"></div>
+	{#if state.servers.length > 0}
+		<div class="mx-auto h-[2px] w-8 rounded-full bg-border"></div>
+	{/if}
 
 	<!-- Add server -->
 	<Tooltip.Root>

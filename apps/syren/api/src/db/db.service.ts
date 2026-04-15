@@ -84,7 +84,21 @@ export class DbService implements OnModuleDestroy {
 			DEFINE TABLE IF NOT EXISTS upload SCHEMALESS;
 			DEFINE INDEX IF NOT EXISTS idx_upload_uploader ON TABLE upload COLUMNS uploader_id;
 			DEFINE INDEX IF NOT EXISTS idx_upload_channel ON TABLE upload COLUMNS channel_id;
+
+			DEFINE TABLE IF NOT EXISTS server_ban SCHEMALESS;
+			DEFINE INDEX IF NOT EXISTS idx_ban_server_user ON TABLE server_ban COLUMNS server_id, user_id;
+			DEFINE INDEX IF NOT EXISTS idx_ban_active ON TABLE server_ban COLUMNS active;
+
+			DEFINE TABLE IF NOT EXISTS audit_log SCHEMALESS;
+			DEFINE INDEX IF NOT EXISTS idx_audit_server_created ON TABLE audit_log COLUMNS server_id, created_at;
+			DEFINE INDEX IF NOT EXISTS idx_audit_target_user ON TABLE audit_log COLUMNS server_id, target_user_id;
+			DEFINE INDEX IF NOT EXISTS idx_audit_action ON TABLE audit_log COLUMNS server_id, action;
 		`);
+
+		// Backfill pre-existing rows that were created before new fields were added.
+		await this.db.query(`UPDATE server_ban SET active = true WHERE active = NONE;`);
+		await this.db.query(`UPDATE message SET deleted = false WHERE deleted = NONE;`);
+
 		this.logger.log('Schema initialized');
 	}
 

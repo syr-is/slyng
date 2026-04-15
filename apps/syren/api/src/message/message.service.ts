@@ -6,6 +6,7 @@ import { ChatGateway } from '../gateway/chat.gateway';
 import { ChannelRepository } from '../channel/channel.repository';
 import { UserRepository } from '../auth/user.repository';
 import { RoleService } from '../role/role.service';
+import { AuditLogService } from '../audit-log/audit-log.service';
 import {
 	MessageRepository,
 	MessageReactionRepository,
@@ -23,9 +24,37 @@ export class MessageService {
 		private readonly channels: ChannelRepository,
 		private readonly users: UserRepository,
 		private readonly roleService: RoleService,
+		private readonly audit: AuditLogService,
 		@Optional() private readonly embedService?: EmbedService,
 		@Optional() private readonly gateway?: ChatGateway
 	) {}
+
+	/**
+	 * Mask a message row for a caller who lacks `VIEW_REMOVED_MESSAGES`.
+	 * Only applies when the message is soft-deleted. Keeps id, sender,
+	 * timestamps, and the `deleted*` fields so the UI can render a
+	 * placeholder. Drops user-visible content + attachments + embeds.
+	 */
+	private maskIfDeleted<T extends Record<string, any>>(row: T, reveal: boolean): T {
+		if (!row?.deleted) return row;
+		if (reveal) return row;
+		return {
+			...row,
+			content: '',
+			attachments: [],
+			embeds: [],
+			reactions: []
+		} as T;
+	}
+
+	private async canRevealRemoved(userId: string | undefined, serverId: string | null): Promise<boolean> {
+		if (!userId || !serverId) return false;
+		return this.roleService.hasPermission(
+			userId,
+			serverId,
+			Permissions.VIEW_REMOVED_MESSAGES
+		);
+	}
 
 	private async getServerIdForChannel(channelRef: RecordId | string): Promise<string | null> {
 		const channel = await this.channels.findById(channelRef as any);
@@ -54,7 +83,118 @@ export class MessageService {
 		}));
 	}
 
-	async findByChannel(channelId: string, options: { before?: string; limit?: number } = {}) {
+	/**
+	 * Moderation-view helper: paginated messages by one sender across every
+	 * channel in the server, newest first. Includes `channel_name` on each row
+	 * so the UI doesn't have to look it up separately.
+	 */
+	async findBySender(
+		serverId: string,
+		senderId: string,
+		options: { limit?: number; offset?: number; before?: string; q?: string } = {},
+		actorUserId?: string
+	): Promise<{ items: any[]; total: number }> {
+		const limit = Math.min(options.limit ?? 50, 200);
+		const offset = options.offset ?? 0;
+		const serverRef = stringToRecordId.decode(serverId);
+
+		const channels = await this.channels.findMany({ server_id: serverRef });
+		if (!channels.length) return { items: [], total: 0 };
+
+		const channelIds = channels.map((c) => (c as any).id as RecordId);
+		const nameByChannel = new Map<string, string>(
+			channels.map((c) => [stringToRecordId.encode((c as any).id as RecordId), (c as any).name as string])
+		);
+
+		const db = (this.messages as any).db;
+		const bindings: Record<string, unknown> = {
+			sender: senderId,
+			channels: channelIds
+		};
+		const where = ['sender_id = $sender', 'channel_id IN $channels'];
+		if (options.before) {
+			bindings.before = new Date(options.before);
+			where.push('created_at < $before');
+		}
+		if (options.q?.trim()) {
+			bindings.q = options.q.trim().toLowerCase();
+			where.push('string::lowercase(content) CONTAINS $q');
+		}
+		const whereSql = `WHERE ${where.join(' AND ')}`;
+
+		// One query: fetch the full matching set (sorted), compute total from its
+		// length, slice the requested page. A separate `count() GROUP ALL` query
+		// was returning the wrong total on some SurrealDB versions, and the
+		// moderation-view scale (typically < a few thousand messages per user
+		// per server) doesn't justify the extra query anyway.
+		const allResult = (await db.query(
+			`SELECT * FROM message ${whereSql} ORDER BY created_at DESC`,
+			bindings
+		)) as any[];
+		const allRows = (allResult[0] ?? []) as any[];
+		const total = allRows.length;
+		const pageRows = allRows.slice(offset, offset + limit);
+
+		const enriched = await this.enrich(pageRows as any);
+		const reveal = await this.canRevealRemoved(actorUserId, serverId);
+		const withChannel = enriched.map((m) => {
+			const row = this.maskIfDeleted(m as any, reveal);
+			return {
+				...row,
+				channel_name: nameByChannel.get(stringToRecordId.encode((row as any).channel_id as RecordId)) ?? null
+			};
+		});
+		return { items: withChannel, total };
+	}
+
+	/**
+	 * Quick totals for the moderation view header. Counts + min/max timestamps
+	 * of a user's messages in every channel of the server.
+	 */
+	async statsForSender(serverId: string, senderId: string) {
+		const serverRef = stringToRecordId.decode(serverId);
+		const channels = await this.channels.findMany({ server_id: serverRef });
+		if (!channels.length) {
+			return { total: 0, first_at: null, last_at: null, per_channel: [] };
+		}
+		const channelIds = channels.map((c) => (c as any).id as RecordId);
+		const db = (this.messages as any).db;
+
+		const [aggResult, perChannelResult] = await Promise.all([
+			db.query(
+				`SELECT count() AS total, math::min(created_at) AS first_at, math::max(created_at) AS last_at FROM message WHERE sender_id = $sender AND channel_id IN $channels GROUP ALL`,
+				{ sender: senderId, channels: channelIds }
+			),
+			db.query(
+				`SELECT channel_id, count() AS count FROM message WHERE sender_id = $sender AND channel_id IN $channels GROUP BY channel_id`,
+				{ sender: senderId, channels: channelIds }
+			)
+		]);
+
+		const agg = ((aggResult as any)[0]?.[0] as any) ?? {};
+		const perChannelRows = ((perChannelResult as any)[0] ?? []) as any[];
+		const nameByChannel = new Map<string, string>(
+			channels.map((c) => [stringToRecordId.encode((c as any).id as RecordId), (c as any).name as string])
+		);
+
+		return {
+			total: (agg.total as number) ?? 0,
+			first_at: agg.first_at ?? null,
+			last_at: agg.last_at ?? null,
+			per_channel: perChannelRows
+				.map((r: any) => {
+					const cid = stringToRecordId.encode(r.channel_id as RecordId);
+					return { channel_id: cid, channel_name: nameByChannel.get(cid) ?? null, count: r.count as number };
+				})
+				.sort((a, b) => b.count - a.count)
+		};
+	}
+
+	async findByChannel(
+		channelId: string,
+		options: { before?: string; limit?: number } = {},
+		actorUserId?: string
+	) {
 		const limit = Math.min(options.limit || 50, 100);
 		const channelRef = stringToRecordId.decode(channelId);
 
@@ -66,7 +206,11 @@ export class MessageService {
 			? all.filter((m) => new Date((m as any).created_at).getTime() < new Date(options.before!).getTime())
 			: all;
 		const enriched = await this.enrich(filtered as any);
-		return enriched.reverse();
+
+		const serverId = await this.getServerIdForChannel(channelRef);
+		const reveal = await this.canRevealRemoved(actorUserId, serverId);
+		const masked = enriched.map((m) => this.maskIfDeleted(m as any, reveal));
+		return masked.reverse();
 	}
 
 	async create(
@@ -175,20 +319,53 @@ export class MessageService {
 
 		const chId = stringToRecordId.encode((existing as any).channel_id);
 		const isOwn = (existing as any).sender_id === actorUserId;
+		const senderId = (existing as any).sender_id as string;
 
-		// Sender can always delete their own; otherwise need MANAGE_MESSAGES in the server
+		// Sender can always delete their own; otherwise need MANAGE_MESSAGES in the server.
+		// Route-layer guard doesn't fit here (mixed identity) so the check stays inline.
+		const serverId = await this.getServerIdForChannel(chId);
 		if (!isOwn) {
-			const serverId = await this.getServerIdForChannel(chId);
 			if (!serverId) throw new Error("Cannot delete others' messages");
 			await this.roleService.requirePermission(actorUserId, serverId, Permissions.MANAGE_MESSAGES);
 		}
 
-		await this.messages.delete(messageId);
+		const now = new Date();
+		await this.messages.merge(messageId, {
+			deleted: true,
+			deleted_at: now,
+			deleted_by: actorUserId,
+			updated_at: now
+		});
 
 		if (this.gateway) {
+			// Masked payload — WS never leaks content of removed messages.
 			this.gateway.emitToChannel(chId, {
-				op: WsOp.MESSAGE_DELETE,
-				d: { id: messageId, channel_id: chId }
+				op: WsOp.MESSAGE_UPDATE,
+				d: {
+					id: messageId,
+					channel_id: chId,
+					deleted: true,
+					deleted_at: now.toISOString(),
+					deleted_by: actorUserId,
+					content: '',
+					attachments: [],
+					embeds: [],
+					reactions: []
+				}
+			});
+		}
+
+		// Audit only when a moderator deletes someone else's message.
+		// Self-delete is not audit-worthy (akin to an edit).
+		if (!isOwn && serverId) {
+			await this.audit.record({
+				serverId,
+				actorId: actorUserId,
+				action: 'message_delete',
+				targetKind: 'message',
+				targetId: messageId,
+				targetUserId: senderId,
+				metadata: { channel_id: chId }
 			});
 		}
 	}
@@ -228,11 +405,7 @@ export class MessageService {
 	}
 
 	async pin(channelId: string, messageId: string, pinnedBy: string) {
-		const serverId = await this.getServerIdForChannel(channelId);
-		if (serverId) {
-			await this.roleService.requirePermission(pinnedBy, serverId, Permissions.MANAGE_MESSAGES);
-		}
-
+		// Permission enforced at route layer via `@RequirePermission('MANAGE_MESSAGES')`.
 		const now = new Date();
 		const channelRef = stringToRecordId.decode(channelId);
 		const msgRef = stringToRecordId.decode(messageId);
@@ -262,11 +435,7 @@ export class MessageService {
 	}
 
 	async unpin(channelId: string, messageId: string, actorUserId: string) {
-		const serverId = await this.getServerIdForChannel(channelId);
-		if (serverId) {
-			await this.roleService.requirePermission(actorUserId, serverId, Permissions.MANAGE_MESSAGES);
-		}
-
+		// Permission enforced at route layer via `@RequirePermission('MANAGE_MESSAGES')`.
 		const channelRef = stringToRecordId.decode(channelId);
 		const msgRef = stringToRecordId.decode(messageId);
 

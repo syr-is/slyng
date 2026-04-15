@@ -25,6 +25,9 @@ export const Permissions = {
 	CREATE_INVITES: 1n << 23n,
 	KICK_MEMBERS: 1n << 24n,
 	BAN_MEMBERS: 1n << 25n,
+	MANAGE_INVITES: 1n << 26n, // list + revoke any invite (creator can always revoke their own)
+	VIEW_REMOVED_MESSAGES: 1n << 27n, // read content of soft-deleted messages
+	VIEW_AUDIT_LOG: 1n << 28n, // read the server audit log
 
 	ADMINISTRATOR: 1n << 30n // bypasses all permission checks
 } as const;

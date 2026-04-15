@@ -52,18 +52,43 @@ export abstract class BaseRepository<T extends Record<string, unknown> = Record<
 		return result[0]?.[0] ?? null;
 	}
 
+	/**
+	 * Build `WHERE …` predicate + query-param bag for a filter/search combo.
+	 * Returns an empty string when there's nothing to filter by.
+	 *
+	 *  - `filters`: `key = $key` AND-joined
+	 *  - `search` : `(field1 ~ $__q OR field2 ~ $__q …)` appended under AND,
+	 *    case-insensitive via SurrealDB's fuzzy-match operator (`~`).
+	 */
+	protected buildWhere(
+		filters: Record<string, unknown> = {},
+		search?: { fields: string[]; query: string }
+	): { where: string; bindings: Record<string, unknown> } {
+		const bindings: Record<string, unknown> = { ...filters };
+		const clauses: string[] = Object.keys(filters).map((key) => `${key} = $${key}`);
+
+		const q = search?.query?.trim();
+		if (q && search?.fields?.length) {
+			bindings.__q = q.toLowerCase();
+			const inner = search.fields.map((f) => `string::lowercase(${f}) CONTAINS $__q`).join(' OR ');
+			clauses.push(`(${inner})`);
+		}
+		return {
+			where: clauses.length ? `WHERE ${clauses.join(' AND ')}` : '',
+			bindings
+		};
+	}
+
 	async findMany(
 		filters: Record<string, unknown> = {},
 		options: {
 			sort?: { field: string; order?: 'asc' | 'desc' };
 			limit?: number;
 			offset?: number;
+			search?: { fields: string[]; query: string };
 		} = {}
 	): Promise<T[]> {
-		const conditions = Object.keys(filters)
-			.map((key) => `${key} = $${key}`)
-			.join(' AND ');
-		const where = conditions ? `WHERE ${conditions}` : '';
+		const { where, bindings } = this.buildWhere(filters, options.search);
 		const order = options.sort
 			? `ORDER BY ${options.sort.field} ${(options.sort.order ?? 'asc').toUpperCase()}`
 			: '';
@@ -72,8 +97,32 @@ export abstract class BaseRepository<T extends Record<string, unknown> = Record<
 		const sql = [`SELECT * FROM ${this.tableName}`, where, order, limit, start]
 			.filter(Boolean)
 			.join(' ');
-		const result = await this.db.query<[T[]]>(sql, filters);
+		const result = await this.db.query<[T[]]>(sql, bindings);
 		return result[0] ?? [];
+	}
+
+	/**
+	 * Paginated fetch with optional sort + multi-field fuzzy search.
+	 * Returns both the requested page and the total matching count in parallel.
+	 * Reused by admin tables (invites, members, messages pins, etc).
+	 */
+	async findPage(
+		filters: Record<string, unknown> = {},
+		options: {
+			sort?: { field: string; order?: 'asc' | 'desc' };
+			limit?: number;
+			offset?: number;
+			search?: { fields: string[]; query: string };
+		} = {}
+	): Promise<{ items: T[]; total: number }> {
+		const limit = Math.min(options.limit ?? 50, 200);
+		const offset = options.offset ?? 0;
+
+		const [items, total] = await Promise.all([
+			this.findMany(filters, { sort: options.sort, limit, offset, search: options.search }),
+			this.count(filters, options.search)
+		]);
+		return { items, total };
 	}
 
 	async findByIds(ids: (RecordId | string)[]): Promise<T[]> {
@@ -91,14 +140,14 @@ export abstract class BaseRepository<T extends Record<string, unknown> = Record<
 		return record !== null;
 	}
 
-	async count(filters: Record<string, unknown> = {}): Promise<number> {
-		const conditions = Object.keys(filters)
-			.map((key) => `${key} = $${key}`)
-			.join(' AND ');
-		const where = conditions ? `WHERE ${conditions}` : '';
+	async count(
+		filters: Record<string, unknown> = {},
+		search?: { fields: string[]; query: string }
+	): Promise<number> {
+		const { where, bindings } = this.buildWhere(filters, search);
 		const result = await this.db.query<[{ total: number }[]]>(
 			`SELECT count() AS total FROM ${this.tableName} ${where} GROUP ALL`,
-			filters
+			bindings
 		);
 		return result[0]?.[0]?.total ?? 0;
 	}

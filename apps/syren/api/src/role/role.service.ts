@@ -3,6 +3,7 @@ import { RecordId } from 'surrealdb';
 import { Permissions, WsOp, hasPermission, stringToRecordId } from '@syren/types';
 import { ServerRepository, ServerMemberRepository, ServerRoleRepository } from '../server/server.repository';
 import { ChatGateway } from '../gateway/chat.gateway';
+import { AuditLogService } from '../audit-log/audit-log.service';
 
 @Injectable()
 export class RoleService {
@@ -12,6 +13,7 @@ export class RoleService {
 		private readonly servers: ServerRepository,
 		private readonly members: ServerMemberRepository,
 		private readonly roles: ServerRoleRepository,
+		private readonly audit: AuditLogService,
 		@Optional() private readonly gateway?: ChatGateway
 	) {}
 
@@ -28,8 +30,6 @@ export class RoleService {
 	}
 
 	async create(serverId: string, userId: string, data: { name: string; color?: string | null; permissions?: string }) {
-		await this.requirePermission(userId, serverId, Permissions.MANAGE_ROLES);
-
 		const ref = stringToRecordId.decode(serverId);
 		const existing = await this.roles.findMany({ server_id: ref });
 		const position = existing.length;
@@ -46,6 +46,18 @@ export class RoleService {
 			updated_at: now
 		});
 		this.gateway?.emitToServer(serverId, { op: WsOp.ROLE_CREATE, d: role });
+		await this.audit.record({
+			serverId,
+			actorId: userId,
+			action: 'role_create',
+			targetKind: 'role',
+			targetId: stringToRecordId.encode((role as any).id),
+			metadata: {
+				name: data.name,
+				color: data.color ?? null,
+				permissions: data.permissions ?? '0'
+			}
+		});
 		this.logger.log(`Role created: ${(role as any).id}`);
 		return role;
 	}
@@ -54,8 +66,6 @@ export class RoleService {
 		const role = await this.roles.findById(roleId);
 		if (!role) throw new Error('Role not found');
 		const serverId = stringToRecordId.encode((role as any).server_id);
-		await this.requirePermission(userId, serverId, Permissions.MANAGE_ROLES);
-
 		if ((role as any).is_default && data.name !== undefined) {
 			throw new Error('Cannot rename the default role');
 		}
@@ -68,6 +78,14 @@ export class RoleService {
 
 		const updated = await this.roles.merge(roleId, merge);
 		this.gateway?.emitToServer(serverId, { op: WsOp.ROLE_UPDATE, d: updated });
+		await this.audit.record({
+			serverId,
+			actorId: userId,
+			action: 'role_update',
+			targetKind: 'role',
+			targetId: roleId,
+			metadata: { changes: data, name: (role as any).name }
+		});
 		return updated;
 	}
 
@@ -83,8 +101,6 @@ export class RoleService {
 			throw new Error('Roles belong to different servers');
 		}
 		const serverId = stringToRecordId.encode((a as any).server_id);
-		await this.requirePermission(userId, serverId, Permissions.MANAGE_ROLES);
-
 		const posA = (a as any).position as number;
 		const posB = (b as any).position as number;
 
@@ -101,8 +117,6 @@ export class RoleService {
 		if ((role as any).is_default) throw new Error('Cannot delete the default role');
 
 		const serverId = stringToRecordId.encode((role as any).server_id);
-		await this.requirePermission(userId, serverId, Permissions.MANAGE_ROLES);
-
 		// Remove this role from all members that have it
 		const ref = (role as any).id as RecordId;
 		const members = await this.members.findMany({ server_id: (role as any).server_id });
@@ -117,12 +131,18 @@ export class RoleService {
 
 		await this.roles.delete(roleId);
 		this.gateway?.emitToServer(serverId, { op: WsOp.ROLE_DELETE, d: { id: roleId, server_id: serverId } });
+		await this.audit.record({
+			serverId,
+			actorId: userId,
+			action: 'role_delete',
+			targetKind: 'role',
+			targetId: roleId,
+			metadata: { name: (role as any).name, color: (role as any).color ?? null }
+		});
 		this.logger.log(`Role deleted: ${roleId}`);
 	}
 
 	async assignToMember(serverId: string, targetUserId: string, roleId: string, actorUserId: string) {
-		await this.requirePermission(actorUserId, serverId, Permissions.MANAGE_ROLES);
-
 		const ref = stringToRecordId.decode(serverId);
 		const member = await this.members.findOne({ server_id: ref, user_id: targetUserId });
 		if (!member) throw new Error('Member not found');
@@ -140,24 +160,47 @@ export class RoleService {
 			updated_at: new Date()
 		});
 		this.gateway?.emitToServer(serverId, { op: WsOp.MEMBER_UPDATE, d: updated });
+		await this.audit.record({
+			serverId,
+			actorId: actorUserId,
+			action: 'member_role_add',
+			targetKind: 'member',
+			targetId: targetUserId,
+			targetUserId,
+			metadata: { role_id: roleId, role_name: (role as any).name, role_color: (role as any).color ?? null }
+		});
 		return updated;
 	}
 
 	async unassignFromMember(serverId: string, targetUserId: string, roleId: string, actorUserId: string) {
-		await this.requirePermission(actorUserId, serverId, Permissions.MANAGE_ROLES);
-
 		const ref = stringToRecordId.decode(serverId);
 		const member = await this.members.findOne({ server_id: ref, user_id: targetUserId });
 		if (!member) throw new Error('Member not found');
 
 		const roleIds = ((member as any).role_ids ?? []) as RecordId[];
 		const filtered = roleIds.filter((rid) => stringToRecordId.encode(rid) !== roleId);
+		// Skip the no-op case so we don't spam the audit log
+		if (filtered.length === roleIds.length) return member;
 
+		const role = await this.roles.findById(roleId);
 		const updated = await this.members.merge((member as any).id, {
 			role_ids: filtered,
 			updated_at: new Date()
 		});
 		this.gateway?.emitToServer(serverId, { op: WsOp.MEMBER_UPDATE, d: updated });
+		await this.audit.record({
+			serverId,
+			actorId: actorUserId,
+			action: 'member_role_remove',
+			targetKind: 'member',
+			targetId: targetUserId,
+			targetUserId,
+			metadata: {
+				role_id: roleId,
+				role_name: (role as any)?.name ?? null,
+				role_color: (role as any)?.color ?? null
+			}
+		});
 		return updated;
 	}
 

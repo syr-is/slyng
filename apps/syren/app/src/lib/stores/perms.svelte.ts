@@ -40,11 +40,20 @@ export function getPerms() {
 		get canCreateInvites() {
 			return hasPermission(bitmask, Permissions.CREATE_INVITES);
 		},
+		get canManageInvites() {
+			return hasPermission(bitmask, Permissions.MANAGE_INVITES);
+		},
 		get canKick() {
 			return hasPermission(bitmask, Permissions.KICK_MEMBERS);
 		},
 		get canBan() {
 			return hasPermission(bitmask, Permissions.BAN_MEMBERS);
+		},
+		get canViewAuditLog() {
+			return hasPermission(bitmask, Permissions.VIEW_AUDIT_LOG);
+		},
+		get canViewRemovedMessages() {
+			return hasPermission(bitmask, Permissions.VIEW_REMOVED_MESSAGES);
 		}
 	};
 }

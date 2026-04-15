@@ -25,3 +25,9 @@ export class ServerInviteRepository extends BaseRepository {
 	protected tableName = 'server_invite';
 	constructor(db: DbService) { super(db); }
 }
+
+@Injectable()
+export class ServerBanRepository extends BaseRepository {
+	protected tableName = 'server_ban';
+	constructor(db: DbService) { super(db); }
+}

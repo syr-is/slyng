@@ -73,6 +73,11 @@
 			"svelte": "./dist/components/ui/tooltip/index.js",
 			"default": "./dist/components/ui/tooltip/index.js"
 		},
+		"./hover-card": {
+			"types": "./dist/components/ui/hover-card/index.d.ts",
+			"svelte": "./dist/components/ui/hover-card/index.js",
+			"default": "./dist/components/ui/hover-card/index.js"
+		},
 		"./label": {
 			"types": "./dist/components/ui/label/index.d.ts",
 			"svelte": "./dist/components/ui/label/index.js",

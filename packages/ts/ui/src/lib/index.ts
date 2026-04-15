@@ -19,6 +19,7 @@ export * as Skeleton from './components/ui/skeleton/index.js';
 export * as Sonner from './components/ui/sonner/index.js';
 export * as Tabs from './components/ui/tabs/index.js';
 export * as Tooltip from './components/ui/tooltip/index.js';
+export * as HoverCard from './components/ui/hover-card/index.js';
 export * as Label from './components/ui/label/index.js';
 export * as Sheet from './components/ui/sheet/index.js';
 export * as Sidebar from './components/ui/sidebar/index.js';

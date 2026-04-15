@@ -35,7 +35,10 @@
 		{ key: 'MANAGE_CHANNELS', label: 'Manage Channels', group: 'General' },
 		{ key: 'KICK_MEMBERS', label: 'Kick Members', group: 'Membership' },
 		{ key: 'BAN_MEMBERS', label: 'Ban Members', group: 'Membership' },
-		{ key: 'CREATE_INVITES', label: 'Create Invites', group: 'Membership' },
+		{ key: 'CREATE_INVITES', label: 'Create Invites', group: 'Invites' },
+		{ key: 'MANAGE_INVITES', label: 'Manage Invites (list + revoke any)', group: 'Invites' },
+		{ key: 'VIEW_AUDIT_LOG', label: 'View Audit Log', group: 'Moderation' },
+		{ key: 'VIEW_REMOVED_MESSAGES', label: 'View Removed Messages (read content of soft-deleted messages)', group: 'Moderation' },
 		{ key: 'SEND_MESSAGES', label: 'Send Messages', group: 'Text' },
 		{ key: 'READ_MESSAGES', label: 'Read Messages', group: 'Text' },
 		{ key: 'MANAGE_MESSAGES', label: 'Manage Messages (delete/pin others)', group: 'Text' },
@@ -49,7 +52,7 @@
 		{ key: 'DEAFEN_MEMBERS', label: 'Deafen Members', group: 'Voice' }
 	];
 
-	const groups = ['General', 'Membership', 'Text', 'Voice'];
+	const groups = ['General', 'Membership', 'Moderation', 'Invites', 'Text', 'Voice'];
 
 	let name = $state(role?.name ?? '');
 	let color = $state(role?.color ?? '#99aab5');

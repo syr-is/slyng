@@ -13,6 +13,7 @@ import {
 } from '../message/message.repository';
 import { RoleService } from '../role/role.service';
 import { ChatGateway } from '../gateway/chat.gateway';
+import { AuditLogService } from '../audit-log/audit-log.service';
 
 @Injectable()
 export class ChannelService {
@@ -26,6 +27,7 @@ export class ChannelService {
 		private readonly reactions: MessageReactionRepository,
 		private readonly pins: PinnedMessageRepository,
 		private readonly roleService: RoleService,
+		private readonly audit: AuditLogService,
 		@Optional() private readonly gateway?: ChatGateway
 	) {}
 
@@ -51,21 +53,26 @@ export class ChannelService {
 
 	async update(channelId: string, userId: string, data: { name?: string; topic?: string }) {
 		const serverId = await this.getServerIdForChannel(channelId);
-		await this.roleService.requirePermission(userId, serverId, Permissions.MANAGE_CHANNELS);
-
 		const merge: Record<string, unknown> = { updated_at: new Date() };
 		if (data.name !== undefined) merge.name = data.name;
 		if (data.topic !== undefined) merge.topic = data.topic;
 		await this.channels.merge(channelId, merge);
 		const updated = await this.channels.findById(channelId);
 		this.gateway?.emitToServer(serverId, { op: WsOp.CHANNEL_UPDATE, d: updated });
+		await this.audit.record({
+			serverId,
+			actorId: userId,
+			action: 'channel_update',
+			targetKind: 'channel',
+			targetId: channelId,
+			metadata: { changes: data, name: (updated as any)?.name }
+		});
 		return updated;
 	}
 
 	async delete(channelId: string, userId: string) {
 		const serverId = await this.getServerIdForChannel(channelId);
-		await this.roleService.requirePermission(userId, serverId, Permissions.MANAGE_CHANNELS);
-
+		const snapshot = await this.channels.findById(channelId);
 		const id = stringToRecordId.decode(channelId);
 		await Promise.all([
 			this.messages.deleteWhere({ channel_id: id }),
@@ -77,12 +84,18 @@ export class ChannelService {
 			op: WsOp.CHANNEL_DELETE,
 			d: { id: channelId, server_id: serverId }
 		});
+		await this.audit.record({
+			serverId,
+			actorId: userId,
+			action: 'channel_delete',
+			targetKind: 'channel',
+			targetId: channelId,
+			metadata: { name: (snapshot as any)?.name, type: (snapshot as any)?.type }
+		});
 		this.logger.log(`Channel deleted: ${channelId}`);
 	}
 
 	async create(serverId: string, createdBy: string, name: string, type = 'text', categoryId?: string) {
-		await this.roleService.requirePermission(createdBy, serverId, Permissions.MANAGE_CHANNELS);
-
 		const now = new Date();
 		const serverRef = stringToRecordId.decode(serverId);
 		const categoryRef = categoryId ? stringToRecordId.decode(categoryId) : null;
@@ -105,6 +118,14 @@ export class ChannelService {
 			updated_at: now
 		});
 		this.gateway?.emitToServer(serverId, { op: WsOp.CHANNEL_CREATE, d: channel });
+		await this.audit.record({
+			serverId,
+			actorId: createdBy,
+			action: 'channel_create',
+			targetKind: 'channel',
+			targetId: stringToRecordId.encode((channel as any).id),
+			metadata: { name, type }
+		});
 		return channel;
 	}
 
