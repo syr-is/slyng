@@ -3,11 +3,7 @@ import { ApiTags, ApiOperation } from '@nestjs/swagger';
 import { MemberService } from './member.service';
 import { MessageService } from '../message/message.service';
 import { RequirePermission } from '../auth/require-permission.decorator';
-
-function parseIntOr(value: string | undefined, fallback: number): number {
-	const n = value ? parseInt(value, 10) : NaN;
-	return Number.isFinite(n) ? n : fallback;
-}
+import { PaginatedQuery, type PaginationOptions } from '../common/pagination';
 
 @ApiTags('members')
 @Controller()
@@ -21,25 +17,24 @@ export class MemberController {
 	@ApiOperation({ summary: 'List server members (paginated)' })
 	async listMembers(
 		@Param('serverId') serverId: string,
-		@Query('limit') limit?: string,
-		@Query('offset') offset?: string,
-		@Query('sort') sort?: string,
-		@Query('order') order?: string,
-		@Query('q') q?: string
+		@PaginatedQuery() p: PaginationOptions,
+		@Req() req?: any
 	) {
-		// Paginated by default. When no query params are supplied, return the
-		// full list to preserve backward-compat with callers that expect an
-		// array (e.g. the main member-list rendering).
-		const paginated = limit !== undefined || offset !== undefined || sort !== undefined || q !== undefined;
+		// Paginated by default. When no pagination query params are supplied,
+		// return the full list to preserve backward-compat with callers that
+		// expect an array (e.g. the main member-list rendering).
+		const rawQuery = (req?.query ?? {}) as Record<string, unknown>;
+		const paginated =
+			rawQuery.limit !== undefined ||
+			rawQuery.offset !== undefined ||
+			rawQuery.sort !== undefined ||
+			rawQuery.q !== undefined;
 		if (!paginated) {
 			return this.memberService.findByServer(serverId);
 		}
 		return this.memberService.findPageForServer(serverId, {
-			limit: parseIntOr(limit, 50),
-			offset: parseIntOr(offset, 0),
-			sort,
-			order: order === 'desc' ? 'desc' : 'asc',
-			q
+			...p,
+			order: p.order ?? 'asc'
 		});
 	}
 
@@ -110,22 +105,15 @@ export class MemberController {
 	@ApiOperation({ summary: 'List server bans (paginated)' })
 	async listBans(
 		@Param('serverId') serverId: string,
-		@Query('limit') limit: string | undefined,
-		@Query('offset') offset: string | undefined,
-		@Query('sort') sort: string | undefined,
-		@Query('order') order: string | undefined,
-		@Query('q') q: string | undefined,
+		@PaginatedQuery() p: PaginationOptions,
 		@Req() req: any
 	) {
 		const actor = req.user?.id;
 		if (!actor) throw new HttpException('Unauthorized', 401);
 		try {
 			return await this.memberService.listBans(serverId, actor, {
-				limit: parseIntOr(limit, 50),
-				offset: parseIntOr(offset, 0),
-				sort,
-				order: order === 'asc' ? 'asc' : 'desc',
-				q
+				...p,
+				order: p.order ?? 'desc'
 			});
 		} catch (err) {
 			throw new HttpException(err instanceof Error ? err.message : 'Failed', 403);
@@ -153,21 +141,14 @@ export class MemberController {
 	async memberMessages(
 		@Param('serverId') serverId: string,
 		@Param('userId') targetUserId: string,
-		@Query('limit') limit?: string,
-		@Query('offset') offset?: string,
+		@PaginatedQuery() p: PaginationOptions,
 		@Query('before') before?: string,
-		@Query('q') q?: string,
 		@Req() req?: any
 	) {
 		return this.messageService.findBySender(
 			serverId,
 			targetUserId,
-			{
-				limit: parseIntOr(limit, 50),
-				offset: parseIntOr(offset, 0),
-				before,
-				q
-			},
+			{ ...p, before },
 			req?.user?.id
 		);
 	}

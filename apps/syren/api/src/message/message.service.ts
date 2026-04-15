@@ -148,6 +148,93 @@ export class MessageService {
 	}
 
 	/**
+	 * Trash view: paginated soft-deleted messages across every channel in the
+	 * server. Callers hold `VIEW_TRASH` (enforced at the route) so content is
+	 * returned raw — masking is for regular readers, not trash operators.
+	 * Includes `channel_name` on each row for the UI.
+	 */
+	async findTrashedInServer(
+		serverId: string,
+		options: {
+			limit?: number;
+			offset?: number;
+			q?: string;
+			before?: string;
+			sender_id?: string;
+			deleted_by?: string;
+			since?: Date;
+			until?: Date;
+		} = {}
+	): Promise<{ items: any[]; total: number }> {
+		const limit = Math.min(options.limit ?? 50, 200);
+		const offset = options.offset ?? 0;
+		const serverRef = stringToRecordId.decode(serverId);
+
+		// Include trashed channels too — a soft-deleted message inside a live
+		// channel AND a message inside a soft-deleted channel are both valid
+		// trash targets. Restore of the message is independent of the channel's
+		// state; hard-delete tears down the message row only.
+		const channels = await this.channels.findMany({ server_id: serverRef });
+		if (!channels.length) return { items: [], total: 0 };
+
+		const channelIds = channels.map((c) => (c as any).id as RecordId);
+		const nameByChannel = new Map<string, string>(
+			channels.map((c) => [
+				stringToRecordId.encode((c as any).id as RecordId),
+				(c as any).name as string
+			])
+		);
+
+		const db = (this.messages as any).db;
+		const bindings: Record<string, unknown> = {
+			channels: channelIds
+		};
+		const where = ['channel_id IN $channels', 'deleted = true'];
+		if (options.before) {
+			bindings.before = new Date(options.before);
+			where.push('deleted_at < $before');
+		}
+		if (options.q?.trim()) {
+			bindings.q = options.q.trim().toLowerCase();
+			where.push('string::lowercase(content) CONTAINS $q');
+		}
+		if (options.sender_id?.trim()) {
+			bindings.sender = options.sender_id.trim().toLowerCase();
+			where.push('string::lowercase(sender_id) CONTAINS $sender');
+		}
+		if (options.deleted_by?.trim()) {
+			bindings.deleter = options.deleted_by.trim().toLowerCase();
+			where.push('string::lowercase(deleted_by) CONTAINS $deleter');
+		}
+		if (options.since) {
+			bindings.since = options.since;
+			where.push('deleted_at >= $since');
+		}
+		if (options.until) {
+			bindings.until = options.until;
+			where.push('deleted_at <= $until');
+		}
+		const whereSql = `WHERE ${where.join(' AND ')}`;
+
+		// Match findBySender: single fetch + slice. Avoids SurrealDB GROUP ALL quirk.
+		const allResult = (await db.query(
+			`SELECT * FROM message ${whereSql} ORDER BY deleted_at DESC`,
+			bindings
+		)) as any[];
+		const allRows = (allResult[0] ?? []) as any[];
+		const total = allRows.length;
+		const pageRows = allRows.slice(offset, offset + limit);
+
+		const enriched = await this.enrich(pageRows as any);
+		const withChannel = enriched.map((m) => ({
+			...(m as any),
+			channel_name:
+				nameByChannel.get(stringToRecordId.encode((m as any).channel_id as RecordId)) ?? null
+		}));
+		return { items: withChannel, total };
+	}
+
+	/**
 	 * Quick totals for the moderation view header. Counts + min/max timestamps
 	 * of a user's messages in every channel of the server.
 	 */
@@ -192,7 +279,7 @@ export class MessageService {
 
 	async findByChannel(
 		channelId: string,
-		options: { before?: string; limit?: number } = {},
+		options: { before?: string; limit?: number; includeDeleted?: boolean } = {},
 		actorUserId?: string
 	) {
 		const limit = Math.min(options.limit || 50, 100);
@@ -205,10 +292,21 @@ export class MessageService {
 		const filtered = options.before
 			? all.filter((m) => new Date((m as any).created_at).getTime() < new Date(options.before!).getTime())
 			: all;
-		const enriched = await this.enrich(filtered as any);
 
+		// Viewer-aware deletion filter.
+		// Callers who lack VIEW_REMOVED_MESSAGES, OR callers who have it but
+		// didn't request include_deleted, get deleted rows stripped entirely —
+		// the timeline looks seamless (Block 13). Masking preserved only for
+		// privileged callers when they explicitly pass include_deleted.
 		const serverId = await this.getServerIdForChannel(channelRef);
 		const reveal = await this.canRevealRemoved(actorUserId, serverId);
+		const includeDeleted = !!options.includeDeleted && reveal;
+		const postDeletedFilter = includeDeleted
+			? filtered
+			: filtered.filter((m) => !(m as any).deleted);
+		const enriched = await this.enrich(postDeletedFilter as any);
+		// Even when includeDeleted is true for a privileged caller, run through
+		// maskIfDeleted as a no-op safety (reveal=true means no mask). Cheap.
 		const masked = enriched.map((m) => this.maskIfDeleted(m as any, reveal));
 		return masked.reverse();
 	}
@@ -337,22 +435,32 @@ export class MessageService {
 			updated_at: now
 		});
 
-		if (this.gateway) {
-			// Masked payload — WS never leaks content of removed messages.
-			this.gateway.emitToChannel(chId, {
-				op: WsOp.MESSAGE_UPDATE,
-				d: {
-					id: messageId,
-					channel_id: chId,
-					deleted: true,
-					deleted_at: now.toISOString(),
-					deleted_by: actorUserId,
-					content: '',
-					attachments: [],
-					embeds: [],
-					reactions: []
-				}
-			});
+		if (this.gateway && serverId) {
+			// Per-subscriber broadcast: privileged viewers get the full un-masked
+			// row as MESSAGE_UPDATE (keeps the row visible + respects their local
+			// `showRemoved` toggle). Everyone else gets a terminal MESSAGE_DELETE
+			// — no leak of moderator identity, no "a deletion happened here"
+			// signal in their WS stream. Seamless timeline for non-priv users.
+			const subscribers = this.gateway.getChannelSubscribers(chId);
+			if (subscribers.size > 0) {
+				const updated = await this.messages.findById(messageId);
+				const [enriched] = await this.enrich([updated as any]);
+				const deleteEvent = {
+					op: WsOp.MESSAGE_DELETE,
+					d: { id: messageId, channel_id: chId }
+				};
+				const updateEvent = { op: WsOp.MESSAGE_UPDATE, d: enriched };
+				await Promise.all(
+					[...subscribers].map(async (uid) => {
+						const canReveal = await this.roleService.hasPermission(
+							uid,
+							serverId,
+							Permissions.VIEW_REMOVED_MESSAGES
+						);
+						this.gateway!.emitToUser(uid, canReveal ? updateEvent : deleteEvent);
+					})
+				);
+			}
 		}
 
 		// Audit only when a moderator deletes someone else's message.
@@ -365,7 +473,86 @@ export class MessageService {
 				targetKind: 'message',
 				targetId: messageId,
 				targetUserId: senderId,
+				channelId: chId,
 				metadata: { channel_id: chId }
+			});
+		}
+	}
+
+	async restore(messageId: string, actorUserId: string) {
+		const existing = await this.messages.findById(messageId);
+		if (!existing) throw new Error('Message not found');
+		if (!(existing as any).deleted) throw new Error('Message is not in trash');
+
+		const chId = stringToRecordId.encode((existing as any).channel_id);
+		const serverId = await this.getServerIdForChannel(chId);
+		const senderId = (existing as any).sender_id as string;
+
+		await this.messages.merge(messageId, {
+			deleted: false,
+			deleted_at: null,
+			deleted_by: null,
+			updated_at: new Date()
+		});
+
+		const restored = await this.messages.findById(messageId);
+		const [enriched] = await this.enrich([restored as any]);
+
+		if (this.gateway) {
+			// Broadcast un-masked row so every client gets the content back.
+			this.gateway.emitToChannel(chId, { op: WsOp.MESSAGE_UPDATE, d: enriched });
+		}
+
+		if (serverId) {
+			await this.audit.record({
+				serverId,
+				actorId: actorUserId,
+				action: 'message_restore',
+				targetKind: 'message',
+				targetId: messageId,
+				targetUserId: senderId,
+				channelId: chId,
+				metadata: { channel_id: chId }
+			});
+		}
+		return enriched;
+	}
+
+	async hardDelete(messageId: string, actorUserId: string) {
+		const existing = await this.messages.findById(messageId);
+		if (!existing) throw new Error('Message not found');
+		if (!(existing as any).deleted)
+			throw new Error('Message must be in trash before hard delete');
+
+		const chId = stringToRecordId.encode((existing as any).channel_id);
+		const serverId = await this.getServerIdForChannel(chId);
+		const senderId = (existing as any).sender_id as string;
+		const contentLength = ((existing as any).content as string | undefined)?.length ?? 0;
+
+		const msgRef = stringToRecordId.decode(messageId);
+		await Promise.all([
+			this.reactions.deleteWhere({ message_id: msgRef }),
+			this.pins.deleteWhere({ message_id: msgRef })
+		]);
+		await this.messages.delete(messageId);
+
+		if (this.gateway) {
+			this.gateway.emitToChannel(chId, {
+				op: WsOp.MESSAGE_DELETE,
+				d: { id: messageId, channel_id: chId }
+			});
+		}
+
+		if (serverId) {
+			await this.audit.record({
+				serverId,
+				actorId: actorUserId,
+				action: 'message_hard_delete',
+				targetKind: 'message',
+				targetId: messageId,
+				targetUserId: senderId,
+				channelId: chId,
+				metadata: { channel_id: chId, sender_id: senderId, content_length: contentLength }
 			});
 		}
 	}
@@ -450,7 +637,11 @@ export class MessageService {
 		}
 	}
 
-	async findPinned(channelId: string) {
+	async findPinned(
+		channelId: string,
+		options: { includeDeleted?: boolean } = {},
+		actorUserId?: string
+	) {
 		const channelRef = stringToRecordId.decode(channelId);
 		const pins = await this.pins.findMany(
 			{ channel_id: channelRef },
@@ -459,6 +650,15 @@ export class MessageService {
 		if (!pins.length) return [];
 
 		const messageIds = pins.map((p) => (p as any).message_id as RecordId);
-		return this.messages.findByIds(messageIds);
+		const messages = await this.messages.findByIds(messageIds);
+
+		// Same viewer-aware filter as findByChannel.
+		const serverId = await this.getServerIdForChannel(channelRef);
+		const reveal = await this.canRevealRemoved(actorUserId, serverId);
+		const includeDeleted = !!options.includeDeleted && reveal;
+		const filtered = includeDeleted
+			? messages
+			: messages.filter((m) => !(m as any).deleted);
+		return filtered.map((m) => this.maskIfDeleted(m as any, reveal));
 	}
 }

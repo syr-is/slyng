@@ -15,6 +15,7 @@ import { AuthService } from '../auth/auth.service';
 import { UserRepository } from '../auth/user.repository';
 import { MemberAccessService } from '../auth/member-access.service';
 import { ProfileWatcherService } from '../profile-watcher/profile-watcher.service';
+import { serializeForWire } from '../common/serialize';
 
 interface ClientState {
 	userId: string | null;
@@ -508,6 +509,22 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
 		}
 	}
 
+	/**
+	 * Return the distinct set of user IDs currently subscribed to the given
+	 * channel topic. Used by services that need to target privileged viewers
+	 * (e.g. follow-up un-masked broadcast of soft-deleted messages to users
+	 * holding `VIEW_REMOVED_MESSAGES`).
+	 */
+	getChannelSubscribers(channelId: string): Set<string> {
+		const out = new Set<string>();
+		for (const [, state] of this.clients) {
+			if (state.userId && state.subscribedChannels.has(channelId)) {
+				out.add(state.userId);
+			}
+		}
+		return out;
+	}
+
 	// ── Internal helpers ──
 
 	private broadcastToChannel(channelId: string, event: { op: number; d: unknown }, excludeUserId?: string) {
@@ -554,8 +571,11 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
 	}
 
 	private send(client: WebSocket, data: unknown) {
-		if (client.readyState === WebSocket.OPEN) {
-			client.send(JSON.stringify(data));
-		}
+		if (client.readyState !== WebSocket.OPEN) return;
+		// Encode SurrealDB RecordId / Date instances the same way HTTP responses
+		// do. Without this, broadcast rows arrive as `{tb, id}` and frontend
+		// matchers (which compare against canonical "table:id" strings) silently
+		// drop the event — the original symptom that motivated Block 12.
+		client.send(JSON.stringify(serializeForWire(data)));
 	}
 }

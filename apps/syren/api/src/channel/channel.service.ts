@@ -1,6 +1,6 @@
-import { Injectable, Inject, Optional, Logger } from '@nestjs/common';
+import { Injectable, Optional, Logger, ForbiddenException, NotFoundException } from '@nestjs/common';
 import { RecordId } from 'surrealdb';
-import { Permissions, WsOp, stringToRecordId } from '@syren/types';
+import { WsOp, stringToRecordId } from '@syren/types';
 import {
 	ChannelRepository,
 	ChannelParticipantRepository,
@@ -42,13 +42,40 @@ export class ChannelService {
 	async findByServer(serverId: RecordId | string) {
 		const ref = serverId instanceof RecordId ? serverId : stringToRecordId.decode(serverId);
 		return this.channels.findMany(
-			{ server_id: ref },
+			{ server_id: ref, deleted: false },
 			{ sort: { field: 'position', order: 'asc' } }
 		);
 	}
 
+	/**
+	 * Public read path: hides soft-deleted channels from normal callers.
+	 * Use `findByIdRaw` when you need the row regardless of trash state
+	 * (trash listing, restore, hard-delete, route resolution).
+	 */
 	async findById(channelId: string) {
+		const ch = await this.channels.findById(channelId);
+		if (!ch || (ch as any).deleted) return null;
+		return ch;
+	}
+
+	async findByIdRaw(channelId: string) {
 		return this.channels.findById(channelId);
+	}
+
+	async listTrashedForServer(serverId: string) {
+		const ref = stringToRecordId.decode(serverId);
+		const rows = await this.channels.findMany(
+			{ server_id: ref, deleted: true },
+			{ sort: { field: 'deleted_at', order: 'desc' } }
+		);
+		// Enrich with message_count so the UI can show blast radius
+		const enriched = await Promise.all(
+			rows.map(async (r) => {
+				const message_count = await this.messages.count({ channel_id: (r as any).id });
+				return { ...(r as any), message_count };
+			})
+		);
+		return enriched;
 	}
 
 	async update(channelId: string, userId: string, data: { name?: string; topic?: string }) {
@@ -65,6 +92,7 @@ export class ChannelService {
 			action: 'channel_update',
 			targetKind: 'channel',
 			targetId: channelId,
+			channelId,
 			metadata: { changes: data, name: (updated as any)?.name }
 		});
 		return updated;
@@ -73,13 +101,15 @@ export class ChannelService {
 	async delete(channelId: string, userId: string) {
 		const serverId = await this.getServerIdForChannel(channelId);
 		const snapshot = await this.channels.findById(channelId);
-		const id = stringToRecordId.decode(channelId);
-		await Promise.all([
-			this.messages.deleteWhere({ channel_id: id }),
-			this.pins.deleteWhere({ channel_id: id }),
-			this.readStates.deleteWhere({ channel_id: id })
-		]);
-		await this.channels.delete(channelId);
+		if (!snapshot) throw new NotFoundException('Channel not found');
+		if ((snapshot as any).deleted) throw new ForbiddenException('Channel already in trash');
+		const now = new Date();
+		await this.channels.merge(channelId, {
+			deleted: true,
+			deleted_at: now,
+			deleted_by: userId,
+			updated_at: now
+		});
 		this.gateway?.emitToServer(serverId, {
 			op: WsOp.CHANNEL_DELETE,
 			d: { id: channelId, server_id: serverId }
@@ -90,9 +120,65 @@ export class ChannelService {
 			action: 'channel_delete',
 			targetKind: 'channel',
 			targetId: channelId,
+			channelId,
 			metadata: { name: (snapshot as any)?.name, type: (snapshot as any)?.type }
 		});
-		this.logger.log(`Channel deleted: ${channelId}`);
+		this.logger.log(`Channel soft-deleted: ${channelId}`);
+	}
+
+	async restore(channelId: string, userId: string) {
+		const serverId = await this.getServerIdForChannel(channelId);
+		const snapshot = await this.channels.findById(channelId);
+		if (!snapshot) throw new NotFoundException('Channel not found');
+		if (!(snapshot as any).deleted) throw new ForbiddenException('Channel is not in trash');
+		await this.channels.merge(channelId, {
+			deleted: false,
+			deleted_at: null,
+			deleted_by: null,
+			updated_at: new Date()
+		});
+		const restored = await this.channels.findById(channelId);
+		// Re-broadcast as CHANNEL_CREATE so every client puts it back in the sidebar
+		this.gateway?.emitToServer(serverId, { op: WsOp.CHANNEL_CREATE, d: restored });
+		await this.audit.record({
+			serverId,
+			actorId: userId,
+			action: 'channel_restore',
+			targetKind: 'channel',
+			targetId: channelId,
+			channelId,
+			metadata: { name: (snapshot as any)?.name }
+		});
+		this.logger.log(`Channel restored: ${channelId}`);
+		return restored;
+	}
+
+	async hardDelete(channelId: string, userId: string) {
+		const serverId = await this.getServerIdForChannel(channelId);
+		const snapshot = await this.channels.findById(channelId);
+		if (!snapshot) throw new NotFoundException('Channel not found');
+		if (!(snapshot as any).deleted)
+			throw new ForbiddenException('Channel must be in trash before hard delete');
+		const id = stringToRecordId.decode(channelId);
+		const message_count = await this.messages.count({ channel_id: id });
+		await Promise.all([
+			this.messages.deleteWhere({ channel_id: id }),
+			this.reactions.deleteWhere({ channel_id: id }),
+			this.pins.deleteWhere({ channel_id: id }),
+			this.readStates.deleteWhere({ channel_id: id })
+		]);
+		await this.channels.delete(channelId);
+		// No CHANNEL_DELETE rebroadcast — clients already removed it on soft-delete
+		await this.audit.record({
+			serverId,
+			actorId: userId,
+			action: 'channel_hard_delete',
+			targetKind: 'channel',
+			targetId: channelId,
+			channelId,
+			metadata: { name: (snapshot as any)?.name, type: (snapshot as any)?.type, message_count }
+		});
+		this.logger.log(`Channel hard-deleted: ${channelId} (${message_count} messages purged)`);
 	}
 
 	async create(serverId: string, createdBy: string, name: string, type = 'text', categoryId?: string) {
@@ -114,16 +200,19 @@ export class ChannelService {
 			category_id: categoryRef,
 			position,
 			created_by: createdBy,
+			deleted: false,
 			created_at: now,
 			updated_at: now
 		});
 		this.gateway?.emitToServer(serverId, { op: WsOp.CHANNEL_CREATE, d: channel });
+		const newChannelId = stringToRecordId.encode((channel as any).id);
 		await this.audit.record({
 			serverId,
 			actorId: createdBy,
 			action: 'channel_create',
 			targetKind: 'channel',
-			targetId: stringToRecordId.encode((channel as any).id),
+			targetId: newChannelId,
+			channelId: newChannelId,
 			metadata: { name, type }
 		});
 		return channel;

@@ -1,5 +1,6 @@
 import { WsOp } from '@syren/types';
 import { onWsEvent } from './ws.svelte';
+import { getPerms } from './perms.svelte';
 
 /**
  * Per-channel message cache with real-time updates.
@@ -96,30 +97,49 @@ onWsEvent(WsOp.MESSAGE_CREATE, (data) => {
 onWsEvent(WsOp.MESSAGE_UPDATE, (data) => {
 	const msg = data as MessageData;
 	const channelMsgs = channelMessages.get(msg.channel_id);
-	if (channelMsgs) {
-		const idx = channelMsgs.findIndex((m) => m.id === msg.id);
-		if (idx >= 0) {
-			// MESSAGE_UPDATE with `deleted: true` is our soft-delete signal and
-			// comes masked (no content). Merge onto the existing row so we
-			// don't inadvertently wipe fields the broadcast didn't carry, but
-			// when marking as deleted *do* scrub content locally — mods who
-			// need the original content re-fetch via the HTTP endpoint.
-			if ((msg as any).deleted) {
-				channelMsgs[idx] = {
-					...channelMsgs[idx],
-					...msg,
-					content: '',
-					attachments: [],
-					embeds: [],
-					reactions: []
-				};
-			} else {
-				channelMsgs[idx] = { ...channelMsgs[idx], ...msg };
-			}
+	if (!channelMsgs) return;
+	const idx = channelMsgs.findIndex((m) => m.id === msg.id);
+	if (idx < 0) return;
+
+	// `deleted: true` is our soft-delete signal. Block 13:
+	//   - Non-privileged viewers (no VIEW_REMOVED_MESSAGES): DROP the row
+	//     entirely. Their timeline stays seamless, as if the message never
+	//     existed. Replies that referenced it fall back to the "Message
+	//     deleted" tombstone client-side.
+	//   - Privileged viewers: keep the row, patch in whatever the broadcast
+	//     carried (mask on the main channel broadcast; full content on the
+	//     un-masked emitToUser follow-up that lands a beat later).
+	if ((msg as any).deleted) {
+		const perms = getPerms();
+		if (!perms.canViewRemovedMessages) {
+			channelMsgs.splice(idx, 1);
 			if (msg.channel_id === currentChannelId) {
 				messages = [...channelMsgs];
 			}
+			return;
 		}
+		// Privileged path: trust payload content when present (un-masked
+		// follow-up) and fall back to masked fields otherwise.
+		const hasContent = typeof msg.content === 'string' && msg.content.length > 0;
+		const hasAttachments =
+			Array.isArray((msg as any).attachments) && (msg as any).attachments.length > 0;
+		if (hasContent || hasAttachments) {
+			channelMsgs[idx] = { ...channelMsgs[idx], ...msg };
+		} else {
+			channelMsgs[idx] = {
+				...channelMsgs[idx],
+				...msg,
+				content: channelMsgs[idx].content,
+				attachments: channelMsgs[idx].attachments,
+				embeds: channelMsgs[idx].embeds,
+				reactions: channelMsgs[idx].reactions
+			};
+		}
+	} else {
+		channelMsgs[idx] = { ...channelMsgs[idx], ...msg };
+	}
+	if (msg.channel_id === currentChannelId) {
+		messages = [...channelMsgs];
 	}
 });
 

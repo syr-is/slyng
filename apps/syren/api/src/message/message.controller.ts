@@ -14,11 +14,16 @@ export class MessageController {
 		@Param('channelId') channelId: string,
 		@Query('before') before?: string,
 		@Query('limit') limit?: string,
+		@Query('include_deleted') includeDeleted?: string,
 		@Req() req?: any
 	) {
 		return this.messageService.findByChannel(
 			channelId,
-			{ before, limit: limit ? parseInt(limit, 10) : undefined },
+			{
+				before,
+				limit: limit ? parseInt(limit, 10) : undefined,
+				includeDeleted: includeDeleted === 'true'
+			},
 			req?.user?.id
 		);
 	}
@@ -78,12 +83,39 @@ export class MessageController {
 	}
 
 	@Delete('messages/:messageId')
-	@ApiOperation({ summary: 'Delete a message' })
+	@ApiOperation({ summary: 'Soft-delete a message' })
 	async delete(@Param('messageId') messageId: string, @Req() req: any) {
 		const userId = req.user?.id;
 		if (!userId) throw new HttpException('Unauthorized', 401);
 		try {
 			await this.messageService.delete(messageId, userId);
+			return { success: true };
+		} catch (err) {
+			throw new HttpException(err instanceof Error ? err.message : 'Failed', 400);
+		}
+	}
+
+	@Post('messages/:messageId/restore')
+	@RequirePermission('VIEW_TRASH')
+	@ApiOperation({ summary: 'Restore a soft-deleted message' })
+	async restore(@Param('messageId') messageId: string, @Req() req: any) {
+		const userId = req.user?.id;
+		if (!userId) throw new HttpException('Unauthorized', 401);
+		try {
+			return await this.messageService.restore(messageId, userId);
+		} catch (err) {
+			throw new HttpException(err instanceof Error ? err.message : 'Failed', 400);
+		}
+	}
+
+	@Delete('messages/:messageId/hard')
+	@RequirePermission('HARD_DELETE')
+	@ApiOperation({ summary: 'Permanently delete a trashed message' })
+	async hardDelete(@Param('messageId') messageId: string, @Req() req: any) {
+		const userId = req.user?.id;
+		if (!userId) throw new HttpException('Unauthorized', 401);
+		try {
+			await this.messageService.hardDelete(messageId, userId);
 			return { success: true };
 		} catch (err) {
 			throw new HttpException(err instanceof Error ? err.message : 'Failed', 400);
@@ -132,8 +164,16 @@ export class MessageController {
 
 	@Get('pins')
 	@ApiOperation({ summary: 'Get pinned messages' })
-	async listPins(@Param('channelId') channelId: string) {
-		return this.messageService.findPinned(channelId);
+	async listPins(
+		@Param('channelId') channelId: string,
+		@Query('include_deleted') includeDeleted?: string,
+		@Req() req?: any
+	) {
+		return this.messageService.findPinned(
+			channelId,
+			{ includeDeleted: includeDeleted === 'true' },
+			req?.user?.id
+		);
 	}
 
 	@Post('pins')

@@ -1,12 +1,15 @@
-import { Injectable, Inject, Optional, Logger } from '@nestjs/common';
+import { Injectable, Inject, Optional, Logger, forwardRef } from '@nestjs/common';
 import { RecordId } from 'surrealdb';
 import {
+	Permissions,
 	WsOp,
 	stringToRecordId,
 	type AuditAction,
 	type AuditTargetKind
 } from '@syren/types';
 import { AuditLogRepository } from './audit-log.repository';
+import { MessageRepository } from '../message/message.repository';
+import { RoleService } from '../role/role.service';
 import { ChatGateway } from '../gateway/chat.gateway';
 
 /**
@@ -21,6 +24,9 @@ export class AuditLogService {
 
 	constructor(
 		private readonly repo: AuditLogRepository,
+		private readonly messages: MessageRepository,
+		@Inject(forwardRef(() => RoleService))
+		private readonly roleService: RoleService,
 		@Optional() @Inject(ChatGateway) private readonly gateway?: ChatGateway
 	) {}
 
@@ -31,6 +37,7 @@ export class AuditLogService {
 		targetKind: AuditTargetKind;
 		targetId: string | null;
 		targetUserId?: string;
+		channelId?: string;
 		metadata?: Record<string, unknown>;
 		reason?: string;
 		batchId?: string;
@@ -45,6 +52,7 @@ export class AuditLogService {
 				target_kind: params.targetKind,
 				target_id: params.targetId ?? null,
 				target_user_id: params.targetUserId ?? null,
+				channel_id: params.channelId ?? null,
 				metadata: params.metadata ?? {},
 				reason: params.reason ?? null,
 				batch_id: params.batchId ?? null,
@@ -74,16 +82,19 @@ export class AuditLogService {
 			action?: AuditAction;
 			actor_id?: string;
 			target_user_id?: string;
+			channel_id?: string;
 			since?: Date;
 			until?: Date;
 			q?: string;
-		} = {}
+		} = {},
+		actorUserId?: string
 	): Promise<{ items: any[]; total: number }> {
 		const serverRef = stringToRecordId.decode(serverId);
 		const filters: Record<string, unknown> = { server_id: serverRef };
 		if (options.action) filters.action = options.action;
 		if (options.actor_id) filters.actor_id = options.actor_id;
 		if (options.target_user_id) filters.target_user_id = options.target_user_id;
+		if (options.channel_id) filters.channel_id = options.channel_id;
 
 		// Pagination + search via BaseRepository, then in-memory date-range filter
 		// (SurrealDB range filters via BaseRepository's equality builder aren't
@@ -111,15 +122,80 @@ export class AuditLogService {
 			);
 		}
 
-		return { items: filtered.map((r) => this.serialize(r)), total };
+		const serialized = filtered.map((r) => this.serialize(r));
+		const enriched = await this.attachRemovedMessageContent(serialized, serverId, actorUserId);
+		return { items: enriched, total };
 	}
 
 	async listForUser(
 		serverId: string,
 		userId: string,
-		options: { limit?: number; offset?: number; action?: AuditAction; q?: string } = {}
+		options: { limit?: number; offset?: number; action?: AuditAction; q?: string } = {},
+		actorUserId?: string
 	): Promise<{ items: any[]; total: number }> {
-		return this.listForServer(serverId, { ...options, target_user_id: userId });
+		return this.listForServer(
+			serverId,
+			{ ...options, target_user_id: userId },
+			actorUserId
+		);
+	}
+
+	/**
+	 * Inline the original content + attachments of soft-deleted messages
+	 * into `message_delete` / `message_purge` / `message_hard_delete` audit
+	 * rows, for callers who hold `VIEW_REMOVED_MESSAGES`. Everyone else gets
+	 * the bare audit row. Hard-deleted messages have no row to look up —
+	 * those entries stay contentless regardless of perm.
+	 */
+	private async attachRemovedMessageContent(
+		items: any[],
+		serverId: string,
+		actorUserId?: string
+	): Promise<any[]> {
+		if (!actorUserId) return items;
+		const hasMessageRow = items.some(
+			(r) => r.action === 'message_delete' || r.action === 'message_purge'
+		);
+		if (!hasMessageRow) return items;
+		const canReveal = await this.roleService.hasPermission(
+			actorUserId,
+			serverId,
+			Permissions.VIEW_REMOVED_MESSAGES
+		);
+		if (!canReveal) return items;
+
+		const messageIds = items
+			.filter(
+				(r) => (r.action === 'message_delete' || r.action === 'message_purge') && r.target_id
+			)
+			.map((r) => r.target_id as string);
+		if (!messageIds.length) return items;
+
+		const messages = await this.messages.findByIds(messageIds);
+		const byId = new Map<string, any>();
+		for (const m of messages) {
+			byId.set(stringToRecordId.encode((m as any).id as RecordId), m);
+		}
+
+		return items.map((r) => {
+			if (
+				(r.action === 'message_delete' || r.action === 'message_purge') &&
+				r.target_id &&
+				byId.has(r.target_id)
+			) {
+				const m = byId.get(r.target_id);
+				return {
+					...r,
+					metadata: {
+						...r.metadata,
+						message_content: (m as any).content ?? '',
+						message_attachments: (m as any).attachments ?? [],
+						message_sender_id: (m as any).sender_id ?? null
+					}
+				};
+			}
+			return r;
+		});
 	}
 
 	private serialize(row: any) {
@@ -131,6 +207,7 @@ export class AuditLogService {
 			target_kind: row.target_kind,
 			target_id: row.target_id,
 			target_user_id: row.target_user_id ?? null,
+			channel_id: row.channel_id ?? null,
 			metadata: row.metadata ?? {},
 			reason: row.reason ?? null,
 			batch_id: row.batch_id ?? null,

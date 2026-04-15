@@ -93,11 +93,23 @@ export class DbService implements OnModuleDestroy {
 			DEFINE INDEX IF NOT EXISTS idx_audit_server_created ON TABLE audit_log COLUMNS server_id, created_at;
 			DEFINE INDEX IF NOT EXISTS idx_audit_target_user ON TABLE audit_log COLUMNS server_id, target_user_id;
 			DEFINE INDEX IF NOT EXISTS idx_audit_action ON TABLE audit_log COLUMNS server_id, action;
+			DEFINE INDEX IF NOT EXISTS idx_audit_channel ON TABLE audit_log COLUMNS server_id, channel_id;
 		`);
 
 		// Backfill pre-existing rows that were created before new fields were added.
 		await this.db.query(`UPDATE server_ban SET active = true WHERE active = NONE;`);
 		await this.db.query(`UPDATE message SET deleted = false WHERE deleted = NONE;`);
+		await this.db.query(`UPDATE channel SET deleted = false WHERE deleted = NONE;`);
+		await this.db.query(`UPDATE server_role SET deleted = false WHERE deleted = NONE;`);
+		// Block 11: tristate role permissions. Copy legacy `permissions` bitmask
+		// into `permissions_allow`; default `permissions_deny` to '0'. Idempotent
+		// because the WHERE clauses only match rows missing the new fields.
+		await this.db.query(
+			`UPDATE server_role SET permissions_allow = permissions WHERE permissions_allow = NONE;`
+		);
+		await this.db.query(
+			`UPDATE server_role SET permissions_deny = '0' WHERE permissions_deny = NONE;`
+		);
 
 		this.logger.log('Schema initialized');
 	}

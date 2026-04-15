@@ -57,6 +57,10 @@ export class MemberService {
 		if ((server as any).owner_id === targetUserId) throw new Error('Cannot kick the server owner');
 		if (targetUserId === actorUserId) throw new Error('Cannot kick yourself');
 		// Permission is enforced at the route layer via `@RequirePermission('KICK_MEMBERS')`.
+		// Hierarchy gate: actor must outrank target.
+		if (!(await this.roleService.canActorManageMember(actorUserId, serverId, targetUserId))) {
+			throw new Error('You cannot kick a member at or above your highest role');
+		}
 
 		const ref = stringToRecordId.decode(serverId);
 		const member = await this.members.findOne({ server_id: ref, user_id: targetUserId });
@@ -103,6 +107,10 @@ export class MemberService {
 		if ((server as any).owner_id === targetUserId) throw new Error('Cannot ban the server owner');
 		if (targetUserId === actorUserId) throw new Error('Cannot ban yourself');
 		// Permission is enforced at the route layer via `@RequirePermission('BAN_MEMBERS')`.
+		// Hierarchy gate: actor must outrank target.
+		if (!(await this.roleService.canActorManageMember(actorUserId, serverId, targetUserId))) {
+			throw new Error('You cannot ban a member at or above your highest role');
+		}
 
 		const ref = stringToRecordId.decode(serverId);
 		const now = new Date();
@@ -272,33 +280,49 @@ export class MemberService {
 		for (const channel of channels) {
 			const channelRef = (channel as any).id as RecordId;
 			const channelIdStr = stringToRecordId.encode(channelRef);
-			// Soft-delete via UPDATE ... RETURN BEFORE. Rows stay in the table;
+			// Soft-delete via UPDATE ... RETURN AFTER. Rows stay in the table;
 			// `deleted=true` marks them, `deleted_by` + `deleted_at` record the
-			// context. Clients without VIEW_REMOVED_MESSAGES see a placeholder.
+			// context. Privileged clients receive MESSAGE_UPDATE with full
+			// content (their toggle decides visibility); non-priv get
+			// MESSAGE_DELETE and drop the row.
 			const result = (await db.query(
-				`UPDATE message SET deleted = true, deleted_at = $now, deleted_by = $actor, updated_at = $now WHERE channel_id = $ch AND sender_id = $uid AND created_at > $cutoff AND (deleted = NONE OR deleted = false) RETURN BEFORE`,
+				`UPDATE message SET deleted = true, deleted_at = $now, deleted_by = $actor, updated_at = $now WHERE channel_id = $ch AND sender_id = $uid AND created_at > $cutoff AND (deleted = NONE OR deleted = false) RETURN AFTER`,
 				{ ch: channelRef, uid: userId, cutoff, actor, now }
 			)) as any[];
 			const rows = (result[0] ?? []) as any[];
 			totalPurged += rows.length;
+			if (!rows.length) continue;
+
+			// Resolve each subscriber's VIEW_REMOVED_MESSAGES perm once per
+			// channel — reused across every purged row in this iteration. A
+			// perms flip mid-purge is accepted as eventually-consistent.
+			const permByUser = new Map<string, boolean>();
+			if (this.gateway) {
+				const subscribers = this.gateway.getChannelSubscribers(channelIdStr);
+				await Promise.all(
+					[...subscribers].map(async (uid) => {
+						const canReveal = await this.roleService.hasPermission(
+							uid,
+							serverId,
+							Permissions.VIEW_REMOVED_MESSAGES
+						);
+						permByUser.set(uid, canReveal);
+					})
+				);
+			}
 
 			for (const row of rows) {
 				const messageId = stringToRecordId.encode(row.id as RecordId);
-				// Masked WS broadcast — never leak removed content.
-				this.gateway?.emitToChannel(channelIdStr, {
-					op: WsOp.MESSAGE_UPDATE,
-					d: {
-						id: messageId,
-						channel_id: channelIdStr,
-						deleted: true,
-						deleted_at: now.toISOString(),
-						deleted_by: actor,
-						content: '',
-						attachments: [],
-						embeds: [],
-						reactions: []
+				if (this.gateway && permByUser.size > 0) {
+					const deleteEvent = {
+						op: WsOp.MESSAGE_DELETE,
+						d: { id: messageId, channel_id: channelIdStr }
+					};
+					const updateEvent = { op: WsOp.MESSAGE_UPDATE, d: row };
+					for (const [uid, canReveal] of permByUser) {
+						this.gateway.emitToUser(uid, canReveal ? updateEvent : deleteEvent);
 					}
-				});
+				}
 
 				// One audit row per purged message — all share the same batch_id
 				// so the UI can collapse "N messages purged" into one card.

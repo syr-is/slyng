@@ -19,7 +19,14 @@ export class RoleController {
 	@ApiOperation({ summary: 'Create a role' })
 	async create(
 		@Param('serverId') serverId: string,
-		@Body() body: { name: string; color?: string | null; permissions?: string },
+		@Body()
+		body: {
+			name: string;
+			color?: string | null;
+			permissions?: string;
+			permissions_allow?: string;
+			permissions_deny?: string;
+		},
 		@Req() req: any
 	) {
 		const userId = req.user?.id;
@@ -36,7 +43,15 @@ export class RoleController {
 	@ApiOperation({ summary: 'Update a role' })
 	async update(
 		@Param('roleId') roleId: string,
-		@Body() body: { name?: string; color?: string | null; permissions?: string; position?: number },
+		@Body()
+		body: {
+			name?: string;
+			color?: string | null;
+			permissions?: string;
+			permissions_allow?: string;
+			permissions_deny?: string;
+			position?: number;
+		},
 		@Req() req: any
 	) {
 		const userId = req.user?.id;
@@ -67,12 +82,46 @@ export class RoleController {
 
 	@Delete('roles/:roleId')
 	@RequirePermission('MANAGE_ROLES')
-	@ApiOperation({ summary: 'Delete a role' })
+	@ApiOperation({ summary: 'Soft-delete a role (move to trash)' })
 	async remove(@Param('roleId') roleId: string, @Req() req: any) {
 		const userId = req.user?.id;
 		if (!userId) throw new HttpException('Unauthorized', 401);
 		try {
 			await this.roles.delete(roleId, userId);
+			return { success: true };
+		} catch (err) {
+			throw new HttpException(err instanceof Error ? err.message : 'Failed', 400);
+		}
+	}
+
+	@Get('servers/:serverId/trash/roles')
+	@RequirePermission('VIEW_TRASH')
+	@ApiOperation({ summary: 'List soft-deleted roles for a server' })
+	async listTrashed(@Param('serverId') serverId: string) {
+		return this.roles.listTrashedForServer(serverId);
+	}
+
+	@Post('roles/:roleId/restore')
+	@RequirePermission('VIEW_TRASH')
+	@ApiOperation({ summary: 'Restore a soft-deleted role' })
+	async restore(@Param('roleId') roleId: string, @Req() req: any) {
+		const userId = req.user?.id;
+		if (!userId) throw new HttpException('Unauthorized', 401);
+		try {
+			return await this.roles.restore(roleId, userId);
+		} catch (err) {
+			throw new HttpException(err instanceof Error ? err.message : 'Failed', 400);
+		}
+	}
+
+	@Delete('roles/:roleId/hard')
+	@RequirePermission('HARD_DELETE')
+	@ApiOperation({ summary: 'Permanently delete a trashed role and scrub from members' })
+	async hardDelete(@Param('roleId') roleId: string, @Req() req: any) {
+		const userId = req.user?.id;
+		if (!userId) throw new HttpException('Unauthorized', 401);
+		try {
+			await this.roles.hardDelete(roleId, userId);
 			return { success: true };
 		} catch (err) {
 			throw new HttpException(err instanceof Error ? err.message : 'Failed', 400);
@@ -120,7 +169,30 @@ export class RoleController {
 	async myPermissions(@Param('serverId') serverId: string, @Req() req: any) {
 		const userId = req.user?.id;
 		if (!userId) throw new HttpException('Unauthorized', 401);
-		const perms = await this.roles.computePermissions(userId, serverId);
-		return { permissions: perms.toString() };
+		const [perms, highest, owner] = await Promise.all([
+			this.roles.computePermissions(userId, serverId),
+			this.roles.highestRolePosition(userId, serverId),
+			this.roles.isOwner(userId, serverId)
+		]);
+		// permissions_allow / permissions_deny are aggregated separately so the
+		// frontend can power read-only views (e.g. show denied flags greyed out)
+		// without re-walking the role list. Owner short-circuits to "all bits
+		// set in allow, none in deny".
+		let aggAllow = 0n;
+		let aggDeny = 0n;
+		if (!owner) {
+			const ref = (await this.roles.findByServer(serverId)) as any[];
+			for (const r of ref) {
+				aggAllow |= BigInt(r.permissions_allow ?? r.permissions ?? '0');
+				aggDeny |= BigInt(r.permissions_deny ?? '0');
+			}
+		}
+		return {
+			permissions: perms.toString(),
+			permissions_allow: owner ? perms.toString() : aggAllow.toString(),
+			permissions_deny: owner ? '0' : aggDeny.toString(),
+			highest_role_position: highest,
+			is_owner: owner
+		};
 	}
 }

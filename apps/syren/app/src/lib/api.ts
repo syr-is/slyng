@@ -168,6 +168,7 @@ export const api = {
 				action?: string;
 				actor_id?: string;
 				target_user_id?: string;
+				channel_id?: string;
 				since?: string;
 				until?: string;
 				q?: string;
@@ -182,6 +183,7 @@ export const api = {
 					target_kind: string;
 					target_id: string | null;
 					target_user_id: string | null;
+					channel_id: string | null;
 					metadata: Record<string, unknown>;
 					reason: string | null;
 					batch_id: string | null;
@@ -250,7 +252,57 @@ export const api = {
 				{ method: 'DELETE' }
 			),
 		createChannel: (id: string, data: { name: string; type?: string }) =>
-			request(`/servers/${encodeURIComponent(id)}/channels`, { method: 'POST', body: JSON.stringify(data) })
+			request(`/servers/${encodeURIComponent(id)}/channels`, { method: 'POST', body: JSON.stringify(data) }),
+		trashChannels: (id: string) =>
+			request<
+				Array<{
+					id: string;
+					name: string;
+					type: string;
+					deleted_at: string;
+					deleted_by: string;
+					message_count: number;
+				}>
+			>(`/servers/${encodeURIComponent(id)}/trash/channels`),
+		trashRoles: (id: string) =>
+			request<
+				Array<{
+					id: string;
+					name: string;
+					color: string | null;
+					deleted_at: string;
+					deleted_by: string;
+					member_count: number;
+				}>
+			>(`/servers/${encodeURIComponent(id)}/trash/roles`),
+		trashMessages: (
+			id: string,
+			params: {
+				limit?: number;
+				offset?: number;
+				q?: string;
+				before?: string;
+				sender_id?: string;
+				deleted_by?: string;
+				since?: string;
+				until?: string;
+			} = {}
+		) =>
+			request<{
+				items: Array<{
+					id: string;
+					channel_id: string;
+					channel_name: string | null;
+					sender_id: string;
+					sender_instance_url?: string;
+					content: string;
+					attachments?: any[];
+					created_at: string;
+					deleted_at: string;
+					deleted_by: string;
+				}>;
+				total: number;
+			}>(`/servers/${encodeURIComponent(id)}/trash/messages${toQuery(params)}`)
 	},
 
 	invites: {
@@ -274,9 +326,28 @@ export const api = {
 	roles: {
 		list: (serverId: string) =>
 			request<unknown[]>(`/servers/${encodeURIComponent(serverId)}/roles`),
-		create: (serverId: string, data: { name: string; color?: string | null; permissions?: string }) =>
+		create: (
+			serverId: string,
+			data: {
+				name: string;
+				color?: string | null;
+				permissions?: string;
+				permissions_allow?: string;
+				permissions_deny?: string;
+			}
+		) =>
 			request(`/servers/${encodeURIComponent(serverId)}/roles`, { method: 'POST', body: JSON.stringify(data) }),
-		update: (roleId: string, data: { name?: string; color?: string | null; permissions?: string; position?: number }) =>
+		update: (
+			roleId: string,
+			data: {
+				name?: string;
+				color?: string | null;
+				permissions?: string;
+				permissions_allow?: string;
+				permissions_deny?: string;
+				position?: number;
+			}
+		) =>
 			request(`/roles/${encodeURIComponent(roleId)}`, { method: 'PATCH', body: JSON.stringify(data) }),
 		delete: (roleId: string) =>
 			request(`/roles/${encodeURIComponent(roleId)}`, { method: 'DELETE' }),
@@ -287,14 +358,28 @@ export const api = {
 		unassign: (serverId: string, userId: string, roleId: string) =>
 			request(`/servers/${encodeURIComponent(serverId)}/members/${encodeURIComponent(userId)}/roles/${encodeURIComponent(roleId)}`, { method: 'DELETE' }),
 		myPermissions: (serverId: string) =>
-			request<{ permissions: string }>(`/servers/${encodeURIComponent(serverId)}/members/@me/permissions`)
+			request<{
+				permissions: string;
+				permissions_allow: string;
+				permissions_deny: string;
+				highest_role_position: number;
+				is_owner: boolean;
+			}>(`/servers/${encodeURIComponent(serverId)}/members/@me/permissions`),
+		restore: (roleId: string) =>
+			request(`/roles/${encodeURIComponent(roleId)}/restore`, { method: 'POST' }),
+		hardDelete: (roleId: string) =>
+			request(`/roles/${encodeURIComponent(roleId)}/hard`, { method: 'DELETE' })
 	},
 
 	channels: {
-		messages: (id: string, options?: { before?: string; limit?: number }) => {
+		messages: (
+			id: string,
+			options?: { before?: string; limit?: number; include_deleted?: boolean }
+		) => {
 			const params = new URLSearchParams();
 			if (options?.before) params.set('before', options.before);
 			if (options?.limit) params.set('limit', String(options.limit));
+			if (options?.include_deleted) params.set('include_deleted', 'true');
 			const qs = params.toString();
 			return request<unknown[]>(`/channels/${encodeURIComponent(id)}/messages${qs ? `?${qs}` : ''}`);
 		},
@@ -328,7 +413,10 @@ export const api = {
 				method: 'POST',
 				body: JSON.stringify({ kind, value })
 			}),
-		pins: (id: string) => request<unknown[]>(`/channels/${encodeURIComponent(id)}/pins`),
+		pins: (id: string, options?: { include_deleted?: boolean }) =>
+			request<unknown[]>(
+				`/channels/${encodeURIComponent(id)}/pins${options?.include_deleted ? '?include_deleted=true' : ''}`
+			),
 		pin: (channelId: string, messageId: string) =>
 			request(`/channels/${encodeURIComponent(channelId)}/pins`, {
 				method: 'POST',
@@ -342,7 +430,21 @@ export const api = {
 		update: (id: string, data: { name?: string; topic?: string }) =>
 			request(`/channels/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(data) }),
 		delete: (id: string) =>
-			request(`/channels/${encodeURIComponent(id)}`, { method: 'DELETE' })
+			request(`/channels/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+		restore: (id: string) =>
+			request(`/channels/${encodeURIComponent(id)}/restore`, { method: 'POST' }),
+		hardDelete: (id: string) =>
+			request(`/channels/${encodeURIComponent(id)}/hard`, { method: 'DELETE' }),
+		restoreMessage: (channelId: string, messageId: string) =>
+			request(
+				`/channels/${encodeURIComponent(channelId)}/messages/${encodeURIComponent(messageId)}/restore`,
+				{ method: 'POST' }
+			),
+		hardDeleteMessage: (channelId: string, messageId: string) =>
+			request(
+				`/channels/${encodeURIComponent(channelId)}/messages/${encodeURIComponent(messageId)}/hard`,
+				{ method: 'DELETE' }
+			)
 	},
 
 	uploads: {

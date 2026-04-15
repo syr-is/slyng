@@ -15,6 +15,12 @@ export const AuditActionSchema = z.enum([
 	'channel_create',
 	'channel_update',
 	'channel_delete',
+	'channel_restore',
+	'channel_hard_delete',
+	'role_restore',
+	'role_hard_delete',
+	'message_restore',
+	'message_hard_delete',
 	'server_update',
 	'invite_create',
 	'invite_delete'
@@ -43,6 +49,10 @@ export const AuditLogSchema = BaseEntitySchema.extend({
 		.string()
 		.optional()
 		.describe('DID of whom the action was against (indexed for per-user log queries)'),
+	channel_id: z
+		.string()
+		.optional()
+		.describe('Channel scope for channel_* / message_* actions (indexed for per-channel log queries)'),
 	metadata: z.record(z.string(), z.unknown()).default({}),
 	reason: z.string().max(512).optional(),
 	batch_id: z

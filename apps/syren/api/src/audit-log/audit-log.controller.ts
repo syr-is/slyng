@@ -1,19 +1,9 @@
-import { Controller, Get, Param, Query, Req, HttpException } from '@nestjs/common';
+import { Controller, Get, Param, Query, Req } from '@nestjs/common';
 import { ApiTags, ApiOperation } from '@nestjs/swagger';
 import { AuditLogService } from './audit-log.service';
 import { RequirePermission } from '../auth/require-permission.decorator';
+import { PaginatedQuery, type DateRangeOptions, type PaginationOptions } from '../common/pagination';
 import type { AuditAction } from '@syren/types';
-
-function parseIntOr(value: string | undefined, fallback: number): number {
-	const n = value ? parseInt(value, 10) : NaN;
-	return Number.isFinite(n) ? n : fallback;
-}
-
-function parseDate(value: string | undefined): Date | undefined {
-	if (!value) return undefined;
-	const d = new Date(value);
-	return isNaN(d.getTime()) ? undefined : d;
-}
 
 @ApiTags('audit-log')
 @Controller()
@@ -25,25 +15,24 @@ export class AuditLogController {
 	@ApiOperation({ summary: 'Server-wide audit log (paginated, filterable)' })
 	async listForServer(
 		@Param('serverId') serverId: string,
-		@Query('limit') limit?: string,
-		@Query('offset') offset?: string,
+		@PaginatedQuery({ dateRange: true }) p: DateRangeOptions,
 		@Query('action') action?: string,
 		@Query('actor_id') actorId?: string,
 		@Query('target_user_id') targetUserId?: string,
-		@Query('since') since?: string,
-		@Query('until') until?: string,
-		@Query('q') q?: string
+		@Query('channel_id') channelId?: string,
+		@Req() req?: any
 	) {
-		return this.audit.listForServer(serverId, {
-			limit: parseIntOr(limit, 50),
-			offset: parseIntOr(offset, 0),
-			action: action as AuditAction | undefined,
-			actor_id: actorId,
-			target_user_id: targetUserId,
-			since: parseDate(since),
-			until: parseDate(until),
-			q
-		});
+		return this.audit.listForServer(
+			serverId,
+			{
+				...p,
+				action: action as AuditAction | undefined,
+				actor_id: actorId,
+				target_user_id: targetUserId,
+				channel_id: channelId
+			},
+			req?.user?.id
+		);
 	}
 
 	@Get('servers/:serverId/members/:userId/audit-log')
@@ -52,16 +41,15 @@ export class AuditLogController {
 	async listForUser(
 		@Param('serverId') serverId: string,
 		@Param('userId') userId: string,
-		@Query('limit') limit?: string,
-		@Query('offset') offset?: string,
+		@PaginatedQuery() p: PaginationOptions,
 		@Query('action') action?: string,
-		@Query('q') q?: string
+		@Req() req?: any
 	) {
-		return this.audit.listForUser(serverId, userId, {
-			limit: parseIntOr(limit, 50),
-			offset: parseIntOr(offset, 0),
-			action: action as AuditAction | undefined,
-			q
-		});
+		return this.audit.listForUser(
+			serverId,
+			userId,
+			{ ...p, action: action as AuditAction | undefined },
+			req?.user?.id
+		);
 	}
 }

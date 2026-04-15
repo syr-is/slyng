@@ -157,7 +157,7 @@
 					<Hash class="h-4 w-4 shrink-0 opacity-60" />
 					<span class="truncate">{channel.name}</span>
 				</a>
-				{#if perms.canManageChannels}
+				{#if perms.canManageChannels || perms.canViewAuditLog}
 					<DropdownMenu.Root>
 						<DropdownMenu.Trigger
 							class="absolute right-1 hidden h-6 w-6 items-center justify-center rounded text-sidebar-foreground/50 hover:bg-sidebar-accent hover:text-sidebar-foreground group-hover:flex data-[state=open]:flex"
@@ -166,15 +166,30 @@
 							<MoreVertical class="h-4 w-4" />
 						</DropdownMenu.Trigger>
 						<DropdownMenu.Content class="w-44">
-							<DropdownMenu.Item onclick={() => (editChannel = { id: channel.id, name: channel.name ?? '', topic: (channel as any).topic ?? '' })}>
-								<Pencil class="mr-2 h-4 w-4" />
-								Edit Channel
-							</DropdownMenu.Item>
-							<DropdownMenu.Separator />
-							<DropdownMenu.Item class="text-destructive" onclick={() => deleteChannel(channel.id)}>
-								<Trash2 class="mr-2 h-4 w-4" />
-								Delete Channel
-							</DropdownMenu.Item>
+							{#if perms.canManageChannels}
+								<DropdownMenu.Item onclick={() => (editChannel = { id: channel.id, name: channel.name ?? '', topic: (channel as any).topic ?? '' })}>
+									<Pencil class="mr-2 h-4 w-4" />
+									Edit Channel
+								</DropdownMenu.Item>
+							{/if}
+							{#if perms.canViewAuditLog}
+								<DropdownMenu.Item
+									onclick={() =>
+										goto(
+											`/channels/${encodeURIComponent(serverState.activeServerId ?? '')}/audit-log?channel_id=${encodeURIComponent(channel.id)}`
+										)}
+								>
+									<ScrollText class="mr-2 h-4 w-4" />
+									Audit Log
+								</DropdownMenu.Item>
+							{/if}
+							{#if perms.canManageChannels}
+								<DropdownMenu.Separator />
+								<DropdownMenu.Item class="text-destructive" onclick={() => deleteChannel(channel.id)}>
+									<Trash2 class="mr-2 h-4 w-4" />
+									Delete Channel
+								</DropdownMenu.Item>
+							{/if}
 						</DropdownMenu.Content>
 					</DropdownMenu.Root>
 				{/if}

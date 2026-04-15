@@ -16,7 +16,10 @@ export const ChannelSchema = BaseEntitySchema.extend({
 	category_id: z.string().optional(),
 	position: z.number().int().min(0).default(0),
 	created_by: z.string().describe('User ID of channel creator'),
-	last_message_at: z.date().optional()
+	last_message_at: z.date().optional(),
+	deleted: z.boolean().default(false),
+	deleted_at: z.date().optional(),
+	deleted_by: z.string().optional()
 });
 
 export type Channel = z.infer<typeof ChannelSchema>;

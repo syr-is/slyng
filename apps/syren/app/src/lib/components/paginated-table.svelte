@@ -1,6 +1,18 @@
 <script lang="ts" generics="T">
 	import type { Snippet } from 'svelte';
-	import { ArrowUp, ArrowDown, ArrowUpDown, Search, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, Loader2 } from '@lucide/svelte';
+	import {
+		ArrowUp,
+		ArrowDown,
+		ArrowUpDown,
+		Search,
+		ChevronLeft,
+		ChevronRight,
+		ChevronsLeft,
+		ChevronsRight,
+		Loader2,
+		Filter,
+		X
+	} from '@lucide/svelte';
 	import { Input } from '@syren/ui/input';
 	import { Button } from '@syren/ui/button';
 
@@ -11,12 +23,26 @@
 		class?: string;
 	}
 
+	type FilterDef =
+		| { key: string; kind: 'text'; label: string; placeholder?: string; mono?: boolean }
+		| { key: string; kind: 'date'; label: string }
+		| {
+				key: string;
+				kind: 'select';
+				label: string;
+				options: { value: string; label: string }[];
+				placeholder?: string;
+		  }
+		| { key: string; kind: 'custom'; label: string };
+
 	const {
 		columns,
 		load,
 		rowKey,
 		cell,
 		actions,
+		filters = [],
+		filterSlot,
 		searchPlaceholder = 'Search',
 		initialSort,
 		pageSize = 25,
@@ -30,11 +56,15 @@
 			sort?: string;
 			order?: 'asc' | 'desc';
 			q?: string;
+			filters: Record<string, unknown>;
 		}) => Promise<{ items: T[]; total: number }>;
 		rowKey: (row: T) => string;
 		/** Renders one cell. Parent switches on `key` to pick what to render. */
 		cell: Snippet<[row: T, key: string]>;
 		actions?: Snippet<[row: T]>;
+		filters?: FilterDef[];
+		/** Invoked for every filter whose `kind === 'custom'`. */
+		filterSlot?: Snippet<[filter: FilterDef, value: unknown, setValue: (v: unknown) => void]>;
 		searchPlaceholder?: string;
 		initialSort?: { field: string; order: 'asc' | 'desc' };
 		pageSize?: number;
@@ -49,21 +79,69 @@
 	let q = $state('');
 	let debouncedQ = $state('');
 
+	// Filter state: one entry per declared filter, keyed by `filter.key`.
+	// Raw strings for text/date/select; opaque for custom. Initialised to
+	// empty strings so `{}` reactivity works and clear button detection is
+	// simple.
+	function blankValueFor(f: FilterDef): unknown {
+		return f.kind === 'select' ? '' : '';
+	}
+
+	let filterValues = $state<Record<string, unknown>>(
+		Object.fromEntries(filters.map((f) => [f.key, blankValueFor(f)]))
+	);
+	let debouncedFilters = $state<Record<string, unknown>>({ ...filterValues });
+
 	let items = $state<T[]>([]);
 	let total = $state(0);
 	let loading = $state(false);
 
+	// Single shared debounce covering `q` AND every filter key. Flushing any
+	// resets pagination to page 1 so page numbers don't outrun the narrowed
+	// result set.
 	let debounceTimer: ReturnType<typeof setTimeout> | null = null;
 	$effect(() => {
-		const current = q;
+		// Read every input so the effect re-runs on any change.
+		const currentQ = q;
+		const snapshot: Record<string, unknown> = {};
+		for (const f of filters) snapshot[f.key] = filterValues[f.key];
 		if (debounceTimer) clearTimeout(debounceTimer);
 		debounceTimer = setTimeout(() => {
-			if (debouncedQ !== current) {
-				debouncedQ = current;
-				offset = 0;
+			const qChanged = debouncedQ !== currentQ;
+			let filtersChanged = false;
+			for (const f of filters) {
+				if (debouncedFilters[f.key] !== snapshot[f.key]) {
+					filtersChanged = true;
+					break;
+				}
 			}
+			if (qChanged) debouncedQ = currentQ;
+			if (filtersChanged) debouncedFilters = snapshot;
+			if (qChanged || filtersChanged) offset = 0;
 		}, 300);
 	});
+
+	/**
+	 * Coerce raw filter values into what the backend expects. For `date`
+	 * kinds the raw `datetime-local` string becomes an ISO timestamp.
+	 */
+	function shapeFiltersForLoad(raw: Record<string, unknown>): Record<string, unknown> {
+		const out: Record<string, unknown> = {};
+		for (const f of filters) {
+			const v = raw[f.key];
+			if (v === undefined || v === null || v === '') continue;
+			if (f.kind === 'text') {
+				const s = typeof v === 'string' ? v.trim() : String(v).trim();
+				if (s) out[f.key] = s;
+			} else if (f.kind === 'date') {
+				const d = new Date(v as string);
+				if (!isNaN(d.getTime())) out[f.key] = d.toISOString();
+			} else {
+				out[f.key] = v;
+			}
+		}
+		return out;
+	}
 
 	$effect(() => {
 		void refreshSignal;
@@ -72,15 +150,39 @@
 		void sort;
 		void order;
 		void debouncedQ;
+		void debouncedFilters;
 		loading = true;
-		load({ limit: currentPageSize, offset, sort, order, q: debouncedQ || undefined })
-			.then((r) => { items = r.items; total = r.total; })
-			.catch(() => { items = []; total = 0; })
-			.finally(() => { loading = false; });
+		load({
+			limit: currentPageSize,
+			offset,
+			sort,
+			order,
+			q: debouncedQ || undefined,
+			filters: shapeFiltersForLoad(debouncedFilters)
+		})
+			.then((r) => {
+				items = r.items;
+				total = r.total;
+			})
+			.catch(() => {
+				items = [];
+				total = 0;
+			})
+			.finally(() => {
+				loading = false;
+			});
 	});
 
 	const totalPages = $derived(Math.max(1, Math.ceil(total / currentPageSize)));
 	const currentPage = $derived(Math.floor(offset / currentPageSize) + 1);
+
+	const activeFilterCount = $derived(
+		filters.reduce((n, f) => {
+			const v = debouncedFilters[f.key];
+			if (v === undefined || v === null || v === '') return n;
+			return n + 1;
+		}, 0)
+	);
 
 	function toggleSort(key: string) {
 		if (sort !== key) {
@@ -99,9 +201,75 @@
 		const clamped = Math.max(1, Math.min(totalPages, page));
 		offset = (clamped - 1) * currentPageSize;
 	}
+
+	function setFilter(key: string, value: unknown) {
+		filterValues = { ...filterValues, [key]: value };
+	}
+
+	function clearAllFilters() {
+		filterValues = Object.fromEntries(filters.map((f) => [f.key, blankValueFor(f)]));
+	}
 </script>
 
 <div class="space-y-3">
+	{#if filters.length > 0}
+		<div class="grid grid-cols-1 gap-2 rounded-md border border-border bg-muted/20 p-3 sm:grid-cols-2 lg:grid-cols-4">
+			{#each filters as f (f.key)}
+				<div class="space-y-1">
+					<label
+						for="filter-{f.key}"
+						class="flex items-center gap-1 text-[11px] font-medium text-muted-foreground"
+					>
+						<Filter class="h-3 w-3" />
+						{f.label}
+					</label>
+					{#if f.kind === 'text'}
+						<Input
+							id="filter-{f.key}"
+							value={(filterValues[f.key] as string) ?? ''}
+							oninput={(e) =>
+								setFilter(f.key, (e.currentTarget as HTMLInputElement).value)}
+							placeholder={f.placeholder ?? ''}
+							class={'h-8 text-xs ' + (f.mono ? 'font-mono' : '')}
+						/>
+					{:else if f.kind === 'date'}
+						<Input
+							id="filter-{f.key}"
+							type="datetime-local"
+							value={(filterValues[f.key] as string) ?? ''}
+							oninput={(e) =>
+								setFilter(f.key, (e.currentTarget as HTMLInputElement).value)}
+							class="h-8 text-xs"
+						/>
+					{:else if f.kind === 'select'}
+						<select
+							id="filter-{f.key}"
+							value={(filterValues[f.key] as string) ?? ''}
+							onchange={(e) =>
+								setFilter(f.key, (e.currentTarget as HTMLSelectElement).value)}
+							class="flex h-8 w-full rounded-md border border-input bg-background px-2 text-xs shadow-xs"
+						>
+							<option value="">{f.placeholder ?? 'Any'}</option>
+							{#each f.options as opt (opt.value)}
+								<option value={opt.value}>{opt.label}</option>
+							{/each}
+						</select>
+					{:else if f.kind === 'custom' && filterSlot}
+						{@render filterSlot(f, filterValues[f.key], (v) => setFilter(f.key, v))}
+					{/if}
+				</div>
+			{/each}
+			{#if activeFilterCount > 0}
+				<div class="sm:col-span-2 lg:col-span-4">
+					<Button variant="ghost" size="sm" onclick={clearAllFilters} class="h-7 gap-1 text-xs">
+						<X class="h-3 w-3" />
+						Clear {activeFilterCount} filter{activeFilterCount === 1 ? '' : 's'}
+					</Button>
+				</div>
+			{/if}
+		</div>
+	{/if}
+
 	<div class="flex items-center justify-between gap-2">
 		<div class="relative max-w-xs flex-1">
 			<Search class="pointer-events-none absolute left-2 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />

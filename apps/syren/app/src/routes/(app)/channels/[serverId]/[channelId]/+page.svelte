@@ -1,5 +1,6 @@
 <script lang="ts">
-	import { Hash, Users, Pin } from '@lucide/svelte';
+	import { Hash, Users, Pin, ScrollText, Eye, EyeOff } from '@lucide/svelte';
+	import { goto } from '$app/navigation';
 	import { toast } from 'svelte-sonner';
 	import MessageItem from '$lib/components/message-item.svelte';
 	import MessageInput from '$lib/components/message-input.svelte';
@@ -31,6 +32,14 @@
 
 	let showMembers = $state(true);
 	let showPins = $state(false);
+	/**
+	 * Channel-scoped "show removed messages" toggle. Ephemeral — resets on
+	 * channel switch. Only meaningful for users with VIEW_REMOVED_MESSAGES;
+	 * the toggle button is hidden otherwise. When false, deleted messages
+	 * are filtered from the timeline render (and never entered the local
+	 * store for non-priv users in the first place).
+	 */
+	let showRemoved = $state(false);
 	const MAX_REPLIES = 5;
 	let replyTo = $state<{ id: string; content: string }[]>([]);
 	let messagesContainer: HTMLDivElement | undefined = $state();
@@ -59,12 +68,20 @@
 		setCurrentChannel(chId, []);
 		hasMoreMessages = true;
 		replyTo = [];
-		// Fresh channel: pin to newest. The ResizeObserver below will keep us
-		// anchored while images decode in.
+		// Fresh channel: pin to newest + reset "show removed" toggle. The
+		// ResizeObserver below will keep us anchored while images decode in.
 		stickToBottom = true;
+		showRemoved = false;
 
 		try {
-			const msgs = (await api.channels.messages(chId, { limit: 50 })) as any[];
+			// Privileged viewers get deleted rows in the initial payload so the
+			// toggle is pure render-time filtering (no round-trip on flip).
+			// Non-privileged callers receive a stripped response either way —
+			// server-side filter ignores include_deleted without the perm.
+			const msgs = (await api.channels.messages(chId, {
+				limit: 50,
+				include_deleted: perms.canViewRemovedMessages
+			})) as any[];
 			if (loadedChannelId !== chId) return; // user switched again
 			setCurrentChannel(chId, msgs);
 			setTypingChannel(chId);
@@ -76,9 +93,79 @@
 		}
 	}
 
+	// Client-side visibility filter. Non-priv users never have deleted rows
+	// in the store to begin with (messages.svelte.ts drops them on WS + the
+	// backend excludes them from HTTP). Privileged users toggle between
+	// showing + hiding deleted rows here.
+	const visibleMessages = $derived(
+		messageStore.list.filter((m) => showRemoved || !m.deleted)
+	);
+
+	// Group consecutive messages by the same author inside a 5-minute window.
+	// Replies break grouping so the reply bar always has breathing room above
+	// it. The result decorates each visible row with a `grouped` flag that
+	// `<MessageItem>` uses to hide the header/avatar and drop a timestamp in
+	// the left gutter instead.
+	const GROUP_WINDOW_MS = 5 * 60 * 1000;
+	const groupedMessages = $derived.by(() => {
+		const out: Array<{ msg: (typeof visibleMessages)[number]; grouped: boolean }> = [];
+		let prev: (typeof visibleMessages)[number] | undefined;
+		for (const m of visibleMessages) {
+			const hasReply = Array.isArray(m.reply_to) ? m.reply_to.length > 0 : !!m.reply_to;
+			const sameSender = !!prev && prev.sender_id === m.sender_id;
+			const withinWindow =
+				!!prev &&
+				new Date(m.created_at).getTime() - new Date(prev.created_at).getTime() <
+					GROUP_WINDOW_MS;
+			out.push({ msg: m, grouped: sameSender && withinWindow && !hasReply });
+			prev = m;
+		}
+		return out;
+	});
+
 	$effect(() => {
 		if (channelId) loadChannel(channelId);
 	});
+
+	/**
+	 * React to VIEW_REMOVED_MESSAGES flipping mid-session. If the actor gains
+	 * the perm we refetch the current channel with include_deleted=true to
+	 * pull historical deleted rows that never entered the store. If the actor
+	 * loses the perm we refetch without the flag (backend strips deleted
+	 * rows) AND force the toggle off so any currently-revealed rows collapse.
+	 *
+	 * The backend also stops sending MESSAGE_UPDATE(deleted:true) to the
+	 * demoted user after the perm change — they start receiving MESSAGE_DELETE
+	 * instead. This effect keeps the initial-state of the page coherent with
+	 * that new WS contract.
+	 */
+	let lastKnownReveal = $state<boolean | null>(null);
+	$effect(() => {
+		const reveal = perms.canViewRemovedMessages;
+		if (lastKnownReveal === null) {
+			lastKnownReveal = reveal;
+			return;
+		}
+		if (lastKnownReveal === reveal) return;
+		lastKnownReveal = reveal;
+		if (!channelId || loadedChannelId !== channelId) return;
+		refetchForPermChange(channelId, reveal);
+	});
+
+	async function refetchForPermChange(chId: string, reveal: boolean) {
+		try {
+			const msgs = (await api.channels.messages(chId, {
+				limit: 50,
+				include_deleted: reveal
+			})) as any[];
+			if (loadedChannelId !== chId) return;
+			setCurrentChannel(chId, msgs);
+			hasMoreMessages = msgs.length >= 50;
+			if (!reveal) showRemoved = false;
+		} catch {
+			toast.error('Failed to refresh channel');
+		}
+	}
 
 	// Handle ?jump=<messageId> hand-off from the moderation sheet. When the
 	// target is already in the initially-loaded page we jump right away; when
@@ -144,7 +231,8 @@
 				try {
 					const older = (await api.channels.messages(channelId, {
 						before: oldestMsg.created_at,
-						limit: 50
+						limit: 50,
+						include_deleted: perms.canViewRemovedMessages
 					})) as any[];
 					if (older.length < 50) hasMoreMessages = false;
 					if (older.length > 0) {
@@ -279,6 +367,33 @@
 				>
 					<Pin class="h-5 w-5" />
 				</button>
+				{#if perms.canViewRemovedMessages}
+					<button
+						onclick={() => (showRemoved = !showRemoved)}
+						class="rounded p-1 transition-colors {showRemoved
+							? 'bg-amber-500/15 text-amber-500 hover:bg-amber-500/25'
+							: 'text-muted-foreground hover:text-foreground'}"
+						title={showRemoved ? 'Hide removed messages' : 'Show removed messages'}
+					>
+						{#if showRemoved}
+							<Eye class="h-5 w-5" />
+						{:else}
+							<EyeOff class="h-5 w-5" />
+						{/if}
+					</button>
+				{/if}
+				{#if perms.canViewAuditLog}
+					<button
+						onclick={() =>
+							goto(
+								`/channels/${encodeURIComponent(serverId)}/audit-log?channel_id=${encodeURIComponent(channelId)}`
+							)}
+						class="rounded p-1 text-muted-foreground hover:text-foreground"
+						title="Channel audit log"
+					>
+						<ScrollText class="h-5 w-5" />
+					</button>
+				{/if}
 				<button
 					onclick={() => (showMembers = !showMembers)}
 					class="rounded p-1 text-muted-foreground hover:text-foreground"
@@ -295,7 +410,7 @@
 				<div class="py-2 text-center text-xs text-muted-foreground">Loading older messages...</div>
 			{/if}
 
-			{#if messageStore.list.length === 0}
+			{#if visibleMessages.length === 0}
 				<div class="flex h-full flex-col items-center justify-center gap-2">
 					<Hash class="h-10 w-10 text-muted-foreground/30" />
 					<p class="text-sm font-medium text-foreground">Welcome to #{channelName || 'channel'}</p>
@@ -303,9 +418,10 @@
 				</div>
 			{:else}
 				<div bind:this={messagesInner} class="flex min-h-full flex-col justify-end py-4">
-					{#each messageStore.list as message (message.id)}
+					{#each groupedMessages as { msg: message, grouped } (message.id)}
 						<MessageItem
 							{message}
+							{grouped}
 							isOwn={message.sender_id === auth.identity?.did}
 							serverOwnerId={serverState.activeServerOwnerId}
 							canModerate={perms.canManageMessages}
@@ -352,6 +468,7 @@
 	open={showPins}
 	{channelId}
 	canModerate={perms.canManageMessages}
+	{showRemoved}
 	onClose={() => (showPins = false)}
 	onJump={jumpToMessage}
 />

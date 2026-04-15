@@ -1,7 +1,8 @@
 <script lang="ts">
 	import { toast } from 'svelte-sonner';
-	import { Check } from '@lucide/svelte';
+	import { Check, Lock } from '@lucide/svelte';
 	import { api } from '$lib/api';
+	import { getPerms } from '$lib/stores/perms.svelte';
 
 	/**
 	 * Inline list of togglable roles for a member. Used by the popover in
@@ -17,9 +18,16 @@
 		serverId: string;
 		userId: string;
 		assigned: { id: string }[];
-		allRoles: { id: string; name: string; color: string | null; is_default?: boolean }[];
+		allRoles: {
+			id: string;
+			name: string;
+			color: string | null;
+			position?: number;
+			is_default?: boolean;
+		}[];
 	} = $props();
 
+	const perms = getPerms();
 	const assignedSet = $derived(new Set(assigned.map((r) => r.id)));
 	const assignable = $derived(allRoles.filter((r) => !r.is_default));
 
@@ -43,10 +51,13 @@
 	<div class="flex flex-col gap-0.5">
 		{#each assignable as role (role.id)}
 			{@const isAssigned = assignedSet.has(role.id)}
+			{@const canAssign = perms.canAssignRole(role)}
 			<button
 				type="button"
-				onclick={() => toggle(role.id, isAssigned)}
-				class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm transition-colors hover:bg-accent"
+				onclick={() => canAssign && toggle(role.id, isAssigned)}
+				disabled={!canAssign}
+				title={canAssign ? '' : 'This role is at or above your highest role'}
+				class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm transition-colors hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-transparent"
 			>
 				<span
 					class="inline-flex h-4 w-4 shrink-0 items-center justify-center rounded border
@@ -61,6 +72,9 @@
 					style="background-color: {role.color || '#99aab5'}"
 				></span>
 				<span class="truncate">{role.name}</span>
+				{#if !canAssign}
+					<Lock class="ml-auto h-3 w-3 shrink-0 text-muted-foreground" />
+				{/if}
 			</button>
 		{/each}
 	</div>

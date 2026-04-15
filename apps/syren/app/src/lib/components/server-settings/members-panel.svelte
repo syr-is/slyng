@@ -192,6 +192,7 @@
 		{@const rs = memberRolesFor(row)}
 		{@const profile = resolveProfile(row.user_id, row.syr_instance_url)}
 		{@const name = displayName(profile, row.user_id)}
+		{@const canManage = perms.canManageMember(row, roleStore.list)}
 		<div class="flex items-center gap-1 justify-end">
 			{#if perms.canManageRoles}
 				<MemberRolesPopover
@@ -201,7 +202,7 @@
 					allRoles={roleStore.list}
 				/>
 			{/if}
-			{#if perms.canKick && !isOwner}
+			{#if perms.canKick && !isOwner && canManage}
 				<button
 					onclick={() => openAction('kick', row.user_id, name)}
 					class="rounded p-1 text-muted-foreground hover:bg-destructive/20 hover:text-destructive"
@@ -210,7 +211,7 @@
 					<UserMinus class="h-4 w-4" />
 				</button>
 			{/if}
-			{#if perms.canBan && !isOwner}
+			{#if perms.canBan && !isOwner && canManage}
 				<button
 					onclick={() => openAction('ban', row.user_id, name)}
 					class="rounded p-1 text-muted-foreground hover:bg-destructive/20 hover:text-destructive"

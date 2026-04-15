@@ -64,6 +64,7 @@ export class ServerService {
 			position: 0,
 			permissions: DEFAULT_PERMISSIONS.toString(),
 			is_default: true,
+			deleted: false,
 			created_at: now,
 			updated_at: now
 		});

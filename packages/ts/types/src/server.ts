@@ -44,8 +44,20 @@ export const ServerRoleSchema = BaseEntitySchema.extend({
 	name: z.string().min(1).max(100),
 	color: z.string().optional().describe('Hex color, e.g. #ff5733'),
 	position: z.number().int().min(0).default(0),
-	permissions: z.string().default('0').describe('BigInt permission flags as string'),
-	is_default: z.boolean().default(false)
+	/** @deprecated kept for backfill; use `permissions_allow` instead */
+	permissions: z.string().default('0').describe('Legacy single bitmask — copied into permissions_allow on backfill'),
+	permissions_allow: z
+		.string()
+		.default('0')
+		.describe('BigInt bits the role explicitly grants'),
+	permissions_deny: z
+		.string()
+		.default('0')
+		.describe('BigInt bits the role explicitly denies (overrides lower-position allows)'),
+	is_default: z.boolean().default(false),
+	deleted: z.boolean().default(false),
+	deleted_at: z.date().optional(),
+	deleted_by: z.string().optional()
 });
 
 export type ServerRole = z.infer<typeof ServerRoleSchema>;

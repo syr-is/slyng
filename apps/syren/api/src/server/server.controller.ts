@@ -1,14 +1,10 @@
-import { Controller, Get, Post, Patch, Delete, Param, Body, Query, Req, HttpException } from '@nestjs/common';
+import { Controller, Get, Post, Patch, Delete, Param, Body, Req, HttpException } from '@nestjs/common';
 import { ApiTags, ApiOperation } from '@nestjs/swagger';
 import { ServerService } from './server.service';
 import { Public } from '../auth/public.decorator';
 import { SkipServerAccess } from '../auth/server-access.decorator';
 import { RequirePermission } from '../auth/require-permission.decorator';
-
-function parseIntOr(value: string | undefined, fallback: number): number {
-	const n = value ? parseInt(value, 10) : NaN;
-	return Number.isFinite(n) ? n : fallback;
-}
+import { PaginatedQuery, type PaginationOptions } from '../common/pagination';
 
 @ApiTags('servers')
 @Controller('servers')
@@ -122,22 +118,15 @@ export class ServerController {
 	@ApiOperation({ summary: 'List server invites (paginated)' })
 	async listInvites(
 		@Param('serverId') serverId: string,
-		@Query('limit') limit?: string,
-		@Query('offset') offset?: string,
-		@Query('sort') sort?: string,
-		@Query('order') order?: string,
-		@Query('q') q?: string,
+		@PaginatedQuery() p: PaginationOptions,
 		@Req() req?: any
 	) {
 		const userId = req.user?.id;
 		if (!userId) throw new HttpException('Unauthorized', 401);
 		try {
 			return await this.serverService.listInvites(serverId, userId, {
-				limit: parseIntOr(limit, 50),
-				offset: parseIntOr(offset, 0),
-				sort,
-				order: order === 'asc' ? 'asc' : 'desc',
-				q
+				...p,
+				order: p.order ?? 'desc'
 			});
 		} catch (err) {
 			throw new HttpException(err instanceof Error ? err.message : 'Failed', 403);

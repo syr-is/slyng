@@ -67,6 +67,14 @@
 			.sort((a, b) => b.position - a.position);
 	});
 
+	// Hierarchy gate: actor must outrank target. Owner bypasses; self always
+	// allowed (no-ops never reach the server). Used by every action button
+	// below — kicks, bans, and role assignment all become no-ops when actor
+	// can't manage the target.
+	const canManageThisMember = $derived(
+		perms.canManageMember(member ?? { user_id: userId }, roleStore.list)
+	);
+
 	const joinedAt = $derived.by(() => {
 		const raw = (member as any)?.joined_at;
 		if (!raw) return null;
@@ -318,12 +326,12 @@
 			<section>
 				<h3 class="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Actions</h3>
 				<div class="flex flex-wrap gap-2">
-					{#if perms.canKick && !isOwner && !isSelf}
+					{#if perms.canKick && !isOwner && !isSelf && canManageThisMember}
 						<Button size="sm" variant="outline" onclick={() => (actionKind = 'kick')}>
 							<UserMinus class="mr-1.5 h-4 w-4" /> Kick…
 						</Button>
 					{/if}
-					{#if perms.canBan && !isOwner && !isSelf}
+					{#if perms.canBan && !isOwner && !isSelf && canManageThisMember}
 						{#if activeBan}
 							<Button size="sm" variant="outline" onclick={unbanNow}>
 								<RotateCcw class="mr-1.5 h-4 w-4" /> Unban
@@ -338,6 +346,11 @@
 						<Button size="sm" variant="outline" class="text-destructive" onclick={() => (showPurge = true)}>
 							<Trash2 class="mr-1.5 h-4 w-4" /> Purge messages…
 						</Button>
+					{/if}
+					{#if !canManageThisMember && !isOwner && !isSelf && (perms.canKick || perms.canBan)}
+						<p class="text-xs text-muted-foreground">
+							This member's highest role is at or above yours — kick / ban disabled.
+						</p>
 					{/if}
 					{#if !perms.canKick && !perms.canBan && !perms.canManageMessages && !perms.canManageRoles}
 						<p class="text-xs text-muted-foreground">You don't have moderation permissions on this server.</p>

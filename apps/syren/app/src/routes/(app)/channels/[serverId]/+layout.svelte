@@ -78,7 +78,15 @@
 			const [server, channels, perms, roles, members] = await Promise.all([
 				api.servers.get(id),
 				api.servers.channels(id),
-				api.roles.myPermissions(id).catch(() => ({ permissions: '0' })),
+				api.roles
+					.myPermissions(id)
+					.catch(() => ({
+						permissions: '0',
+						permissions_allow: '0',
+						permissions_deny: '0',
+						highest_role_position: 0,
+						is_owner: false
+					})),
 				api.roles.list(id).catch(() => []),
 				api.servers.members(id).catch(() => [])
 			]);
@@ -97,7 +105,17 @@
 			});
 			setActiveServerOwner(s.owner_id || null);
 			setServerChannels(channels as any[]);
-			setServerPerms(id, (perms as { permissions: string }).permissions || '0');
+			{
+				const p = perms as {
+					permissions: string;
+					highest_role_position?: number;
+					is_owner?: boolean;
+				};
+				setServerPerms(id, p.permissions || '0', {
+					highest_role_position: p.highest_role_position ?? 0,
+					is_owner: !!p.is_owner
+				});
+			}
 			setRoles(id, roles as any[]);
 			setMembers(id, members as any[]);
 

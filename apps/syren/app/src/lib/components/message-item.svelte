@@ -19,6 +19,7 @@
 		isOwn,
 		serverOwnerId,
 		canModerate = false,
+		grouped = false,
 		onReply,
 		onEdit,
 		onDelete,
@@ -45,6 +46,10 @@
 		isOwn: boolean;
 		serverOwnerId?: string | null;
 		canModerate?: boolean;
+		/** True when this message should be grouped under the previous message
+		 *  (same sender within a short window). Avatar + name + header timestamp
+		 *  are hidden; a compact timestamp goes in the left gutter instead. */
+		grouped?: boolean;
 		onReply: (id: string) => void;
 		onEdit?: (id: string, newContent: string) => void;
 		onDelete?: (id: string) => void;
@@ -80,6 +85,9 @@
 	const time = $derived(
 		new Date(message.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
 	);
+	// Full timestamp for hover tooltips on the gutter timestamp shown in
+	// grouped messages — the short "HH:MM" is visible, full context on hover.
+	const fullTime = $derived(new Date(message.created_at).toLocaleString());
 
 	// Inline emoji / sticker rendering — resolve against the SENDER's syr emojis
 	const senderEmojis = $derived(resolveEmojis(message.sender_id, message.sender_instance_url));
@@ -163,7 +171,7 @@
 
 <div
 	data-message-id={message.id}
-	class="group relative px-4 py-1 transition-[box-shadow] hover:bg-accent/30"
+	class="group relative px-4 transition-[box-shadow] hover:bg-accent/30 {grouped ? 'py-0.5 mt-0.5' : 'py-1 mt-2'}"
 	onmouseenter={() => (showActions = true)}
 	onmouseleave={() => { showActions = false; showEmojiPicker = false; confirmDelete = false; }}
 >
@@ -192,48 +200,88 @@
 						<span class="truncate">
 							{msg.content || (msg.attachments?.length ? '[attachment]' : '')}
 						</span>
+						{#if msg.deleted}
+							<span
+								class="ml-1 shrink-0 rounded bg-destructive/15 px-1.5 py-0.5 text-[9px] font-medium uppercase tracking-wide text-destructive"
+								title="This message has been removed"
+							>
+								removed
+							</span>
+						{/if}
 					{:else}
-						<span class="italic">Replying to message…</span>
+						<!--
+							Parent target not in the local store. Two causes:
+							  a) Message already deleted + caller lacks VIEW_REMOVED_MESSAGES
+								 → non-privileged tombstone (Block 13 default public view).
+							  b) Parent hasn't been paginated-in yet (rare — older than 50 msgs).
+							Treat both as "message deleted" from the reader's POV. Harmless
+							for case (b) because the moment it paginates in, the reactive
+							lookup succeeds and the real preview replaces this.
+						-->
+						<span class="italic">Message deleted</span>
 					{/if}
 				</button>
 			{/each}
 		</div>
 	{/if}
 	<div class="flex gap-3">
-		<ProfileHoverCard did={message.sender_id} instanceUrl={message.sender_instance_url}>
-			<div class="mt-0.5 shrink-0">
-				<Avatar.Root class="h-8 w-8">
-					{#if senderAvatar}
-						<Avatar.Image src={senderAvatar} alt={senderName} />
-					{/if}
-					<Avatar.Fallback class="text-xs">
-						{senderName.slice(0, 2).toUpperCase()}
-					</Avatar.Fallback>
-				</Avatar.Root>
+		{#if grouped}
+			<!-- Grouped: timestamp in the avatar gutter, visible on row hover.
+				 Width matches the avatar so the content column stays flush with
+				 non-grouped rows in the same group. `whitespace-nowrap` ensures
+				 the time never wraps regardless of format (12h "04:07 PM" or
+				 24h "16:07"); any sliver of overflow is absorbed by the
+				 surrounding gap + row padding. -->
+			<div
+				class="mt-0.5 flex h-5 w-11 shrink-0 items-start justify-center whitespace-nowrap pt-[2px] text-[10px] text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100"
+				title={fullTime}
+			>
+				{time}
 			</div>
-		</ProfileHoverCard>
+		{:else}
+			<ProfileHoverCard did={message.sender_id} instanceUrl={message.sender_instance_url}>
+				<div class="mt-0.5 shrink-0">
+					<Avatar.Root class="h-11 w-11">
+						{#if senderAvatar}
+							<Avatar.Image src={senderAvatar} alt={senderName} />
+						{/if}
+						<Avatar.Fallback class="text-xs">
+							{senderName.slice(0, 2).toUpperCase()}
+						</Avatar.Fallback>
+					</Avatar.Root>
+				</div>
+			</ProfileHoverCard>
+		{/if}
 
 	<div class="min-w-0 flex-1">
-		<div class="flex items-baseline gap-2">
-			<ProfileHoverCard did={message.sender_id} instanceUrl={message.sender_instance_url}>
-				<span
-					class="flex items-center gap-1 text-sm font-medium text-foreground hover:underline"
-					style={senderColor ? `color: ${senderColor}` : ''}
-				>
-					{senderName}
-					{#if senderIsOwner}
-						<Crown class="h-3.5 w-3.5 text-amber-500" />
-					{/if}
-				</span>
-			</ProfileHoverCard>
-			<span class="text-[11px] text-muted-foreground">{time}</span>
-			{#if message.edited_at}
-				<span class="text-[10px] text-muted-foreground">(edited)</span>
-			{/if}
-			{#if message.pinned}
-				<Pin class="h-3 w-3 text-muted-foreground" />
-			{/if}
-		</div>
+		{#if !grouped}
+			<div class="flex items-baseline gap-2">
+				<ProfileHoverCard did={message.sender_id} instanceUrl={message.sender_instance_url}>
+					<span
+						class="flex items-center gap-1 text-sm font-medium text-foreground hover:underline"
+						style={senderColor ? `color: ${senderColor}` : ''}
+					>
+						{senderName}
+						{#if senderIsOwner}
+							<Crown class="h-3.5 w-3.5 text-amber-500" />
+						{/if}
+					</span>
+				</ProfileHoverCard>
+				<span class="text-[11px] text-muted-foreground" title={fullTime}>{time}</span>
+				{#if message.edited_at}
+					<span class="text-[10px] text-muted-foreground">(edited)</span>
+				{/if}
+				{#if message.pinned}
+					<Pin class="h-3 w-3 text-muted-foreground" />
+				{/if}
+			</div>
+		{:else if message.edited_at || message.pinned}
+			<!-- Tiny inline markers on grouped rows, only if non-default state. -->
+			<div class="flex items-center gap-1 text-[10px] text-muted-foreground">
+				{#if message.edited_at}<span>(edited)</span>{/if}
+				{#if message.pinned}<Pin class="h-3 w-3" />{/if}
+			</div>
+		{/if}
 
 		<!-- Deleted banner — only visible to viewers who can see removed messages
 			 AND when the row still carries content (masking happened server-side

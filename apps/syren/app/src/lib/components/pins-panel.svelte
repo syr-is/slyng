@@ -15,6 +15,9 @@
 		sender_instance_url?: string;
 		content: string;
 		created_at: string;
+		deleted?: boolean;
+		deleted_at?: string;
+		deleted_by?: string;
 		attachments?: { url: string; filename: string; mime_type: string }[];
 	}
 
@@ -22,12 +25,15 @@
 		open,
 		channelId,
 		canModerate,
+		showRemoved = false,
 		onClose,
 		onJump
 	}: {
 		open: boolean;
 		channelId: string;
 		canModerate: boolean;
+		/** Mirrors the channel header's "show removed messages" toggle. */
+		showRemoved?: boolean;
 		onClose: () => void;
 		onJump: (messageId: string) => void;
 	} = $props();
@@ -35,14 +41,22 @@
 	let pins = $state<PinnedMsg[]>([]);
 	let loading = $state(false);
 
+	// Refetch when the panel opens OR when the channel-level toggle flips.
+	// The second dep covers a privileged mod flipping the channel eye while
+	// the panel is already open.
 	$effect(() => {
-		if (open && channelId) load();
+		if (open && channelId) {
+			void showRemoved;
+			load();
+		}
 	});
 
 	async function load() {
 		loading = true;
 		try {
-			pins = (await api.channels.pins(channelId)) as PinnedMsg[];
+			pins = (await api.channels.pins(channelId, {
+				include_deleted: showRemoved
+			})) as PinnedMsg[];
 		} catch {
 			toast.error('Failed to load pins');
 		}
@@ -111,7 +125,11 @@
 			{:else}
 				{#each pins as pin (pin.id)}
 					{@const profile = resolveProfile(pin.sender_id, pin.sender_instance_url)}
-					<div class="group flex gap-3 rounded-md border border-border bg-muted/30 p-3">
+					<div
+						class="group flex gap-3 rounded-md border p-3 {pin.deleted
+							? 'border-destructive/30 bg-destructive/5'
+							: 'border-border bg-muted/30'}"
+					>
 						<Avatar.Root class="h-8 w-8 shrink-0">
 							{#if profile.avatar_url}
 								<Avatar.Image src={proxied(profile.avatar_url)} alt="" />
@@ -130,6 +148,13 @@
 									{displayName(profile, pin.sender_id)}
 								</span>
 								<span class="text-[11px] text-muted-foreground">{formatTime(pin.created_at)}</span>
+								{#if pin.deleted}
+									<span
+										class="shrink-0 rounded bg-destructive/15 px-1.5 py-0.5 text-[9px] font-medium uppercase tracking-wide text-destructive"
+									>
+										removed
+									</span>
+								{/if}
 							</div>
 							<p class="mt-0.5 line-clamp-2 break-words text-xs text-muted-foreground">
 								{pin.content || (pin.attachments?.length ? '[attachment]' : '')}

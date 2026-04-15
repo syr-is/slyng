@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { ArrowLeft, User, Shield, Users, Ticket, Ban, AlertTriangle } from '@lucide/svelte';
+	import { ArrowLeft, User, Shield, Users, Ticket, Ban, Trash2, AlertTriangle } from '@lucide/svelte';
 	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
 	import { Button } from '@syren/ui/button';
@@ -11,9 +11,10 @@
 	import MembersPanel from '$lib/components/server-settings/members-panel.svelte';
 	import InvitesPanel from '$lib/components/server-settings/invites-panel.svelte';
 	import BansPanel from '$lib/components/server-settings/bans-panel.svelte';
+	import TrashPanel from '$lib/components/server-settings/trash-panel.svelte';
 	import DangerPanel from '$lib/components/server-settings/danger-panel.svelte';
 
-	type Tab = 'profile' | 'roles' | 'members' | 'invites' | 'bans' | 'danger';
+	type Tab = 'profile' | 'roles' | 'members' | 'invites' | 'bans' | 'trash' | 'danger';
 
 	const auth = getAuth();
 	const serverState = getServerState();
@@ -30,6 +31,7 @@
 		{ id: 'members', label: 'Members', icon: Users, show: true },
 		{ id: 'invites', label: 'Invites', icon: Ticket, show: perms.canCreateInvites || perms.canManageInvites },
 		{ id: 'bans', label: 'Bans', icon: Ban, show: perms.canBan },
+		{ id: 'trash', label: 'Trash', icon: Trash2, show: perms.canViewTrash },
 		{ id: 'danger', label: 'Danger zone', icon: AlertTriangle, show: isOwner }
 	]);
 
@@ -90,6 +92,9 @@
 			{:else if activeTab === 'bans'}
 				<h1 class="mb-4 text-xl font-semibold">Bans</h1>
 				<BansPanel {serverId} />
+			{:else if activeTab === 'trash'}
+				<h1 class="mb-4 text-xl font-semibold">Trash</h1>
+				<TrashPanel {serverId} />
 			{:else if activeTab === 'danger'}
 				<h1 class="mb-4 text-xl font-semibold text-destructive">Danger zone</h1>
 				<DangerPanel {serverId} />

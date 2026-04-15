@@ -4,6 +4,7 @@
 
 import { WsOp } from '@syren/types';
 import { onWsEvent } from './ws.svelte';
+import { recordIdString } from '$lib/utils/record-id';
 
 export interface MemberData {
 	id?: string;
@@ -40,8 +41,8 @@ export function clearMembers() {
 }
 
 function matchesActive(serverIdField: unknown): boolean {
-	if (!activeServerId || !serverIdField) return false;
-	return String(serverIdField) === activeServerId;
+	if (!activeServerId) return false;
+	return recordIdString(serverIdField) === activeServerId;
 }
 
 onWsEvent(WsOp.MEMBER_UPDATE, (data) => {
