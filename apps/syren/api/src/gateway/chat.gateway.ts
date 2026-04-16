@@ -149,12 +149,7 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
 			case WsOp.UNWATCH_PROFILES:
 				this.handleUnwatchProfiles(client, msg.d as { dids?: string[] });
 				break;
-			// WebRTC signaling passthrough
-			case 100: // VOICE_SIGNAL_OFFER
-			case 101: // VOICE_SIGNAL_ANSWER
-			case 102: // VOICE_SIGNAL_ICE
-				this.relayVoiceSignal(client, msg.op, msg.d as any);
-				break;
+			// Ops 100-102 (WebRTC signaling) removed — LiveKit handles media routing
 		}
 	}
 
@@ -465,18 +460,6 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
 		});
 	}
 
-	private relayVoiceSignal(client: WebSocket, op: number, data: { target_user_id: string; [key: string]: unknown }) {
-		const state = this.clients.get(client);
-		if (!state?.userId) return;
-
-		// Relay the signal directly to the target user
-		const targetSockets = this.userSockets.get(data.target_user_id);
-		if (!targetSockets) return;
-
-		for (const ws of targetSockets) {
-			this.send(ws, { op, d: { ...data, from_user_id: state.userId } });
-		}
-	}
 
 	// ── Public methods for REST controllers to emit events ──
 

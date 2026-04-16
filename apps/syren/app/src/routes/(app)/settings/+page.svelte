@@ -22,7 +22,7 @@
 	import { getAuth } from '$lib/stores/auth.svelte';
 	import { resolveProfile, displayName, federatedHandle } from '$lib/stores/profiles.svelte';
 	import { getVoiceState } from '$lib/voice/voice-state.svelte';
-	import { setMicDevice, setCameraDevice } from '$lib/voice/voice-engine';
+	import { setMicDevice, setCameraDevice } from '$lib/voice/livekit-engine';
 	import {
 		getMediaSettings,
 		setMicDeviceId,

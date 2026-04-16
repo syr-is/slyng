@@ -14,7 +14,7 @@
 		isCameraOn,
 		ScreenSharePermissionError,
 		CameraPermissionError
-	} from '$lib/voice/voice-engine';
+	} from '$lib/voice/livekit-engine';
 
 	const voice = getVoiceState();
 

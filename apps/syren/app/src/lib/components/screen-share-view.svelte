@@ -2,7 +2,7 @@
 	import { onDestroy } from 'svelte';
 	import { SvelteMap } from 'svelte/reactivity';
 	import { Maximize2, Minimize2, X } from '@lucide/svelte';
-	import { onRemoteVideo } from '$lib/voice/voice-engine';
+	import { onRemoteVideo, type VideoStreamKey, type VideoSource } from '$lib/voice/livekit-engine';
 	import { resolveProfile, displayName } from '$lib/stores/profiles.svelte';
 	import { attachStream } from '$lib/utils/attach-stream';
 
@@ -15,7 +15,8 @@
 	const streams = new SvelteMap<string, MediaStream>();
 	let expandedUser = $state<string | null>(null);
 
-	const unsub = onRemoteVideo((userId, stream) => {
+	const unsub = onRemoteVideo((key, userId, source, stream) => {
+		if (source !== 'screen') return;
 		if (stream) streams.set(userId, stream);
 		else {
 			streams.delete(userId);

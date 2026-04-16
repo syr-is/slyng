@@ -4,13 +4,12 @@
 	import { resolveProfile, displayName } from '$lib/stores/profiles.svelte';
 	import { getMembers } from '$lib/stores/members.svelte';
 	import { getChannelUsersFor } from '$lib/voice/voice-state.svelte';
-	import { getVoiceActivity } from '$lib/voice/voice-activity.svelte';
+	import { isSpeaking } from '$lib/voice/livekit-engine';
 	import { proxied } from '$lib/utils/proxy';
 
 	const { channelId }: { channelId: string } = $props();
 
 	const memberStore = getMembers();
-	const activity = getVoiceActivity();
 	const users = $derived(getChannelUsersFor(channelId));
 
 	function instanceFor(userId: string): string | undefined {
@@ -23,7 +22,7 @@
 		{#each users as user (user.user_id)}
 			{@const profile = resolveProfile(user.user_id, instanceFor(user.user_id))}
 			{@const name = displayName(profile, user.user_id)}
-			{@const speaking = activity.isSpeaking(user.user_id)}
+			{@const speaking = isSpeaking(user.user_id)}
 			<div class="flex items-center gap-1.5 rounded px-1.5 py-0.5">
 				<Avatar.Root
 					class="h-5 w-5 transition-shadow {speaking ? 'ring-2 ring-green-500' : ''}"

@@ -53,6 +53,22 @@ services:
       retries: 5
       start_period: 10s
 
+  # LiveKit - WebRTC SFU for voice/video
+  # --node-ip must be the host's LAN IP so ICE candidates are routable
+  # from other devices. Set LIVEKIT_NODE_IP in .env for cross-device testing.
+  livekit:
+    container_name: syren-livekit
+    image: livekit/livekit-server:latest
+    command: --dev --bind 0.0.0.0 --node-ip ${LIVEKIT_NODE_IP:-127.0.0.1}
+    ports:
+      - "7880:7880"        # HTTP/Signal
+      - "7881:7881"        # RTC TCP
+      - "7882:7882/udp"    # RTC UDP/ICE
+      - "50000-50060:50000-50060/udp"  # ICE UDP port range
+    environment:
+      LIVEKIT_KEYS: "${LIVEKIT_API_KEY:-devkey}: ${LIVEKIT_API_SECRET:-devsecret}"
+    restart: unless-stopped
+
   # Surrealist - Visual IDE for SurrealDB
   surrealist:
     container_name: syren-surrealist

@@ -595,6 +595,14 @@ export const api = {
 			request(`/users/@me/ignorelist/${encodeURIComponent(userId)}`, { method: 'DELETE' })
 	},
 
+	voice: {
+		token: (channelId: string) =>
+			request<{ token: string; url: string }>('/voice/token', {
+				method: 'POST',
+				body: JSON.stringify({ channel_id: channelId })
+			})
+	},
+
 	categories: {
 		list: (serverId: string) =>
 			request<Array<{ id: string; name: string; position: number; server_id: string }>>(

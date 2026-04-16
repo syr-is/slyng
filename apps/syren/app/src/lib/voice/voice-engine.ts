@@ -76,7 +76,12 @@ function destroyPeer(userId: string) {
 	if (pc) pc.close();
 	peers.delete(userId);
 	pendingIce.delete(userId);
-	remoteAudios.get(userId)?.pause();
+	const audioEl = remoteAudios.get(userId);
+	if (audioEl) {
+		audioEl.pause();
+		audioEl.srcObject = null;
+		audioEl.remove(); // detach from DOM
+	}
 	remoteAudios.delete(userId);
 	audioSenders.delete(userId);
 	videoSenders.delete(userId);
@@ -118,10 +123,17 @@ function createPeerConnection(targetUserId: string): RTCPeerConnection {
 			const audio = document.createElement('audio');
 			audio.srcObject = stream;
 			audio.autoplay = true;
-			audio.muted = deafened; // only mute if user is deafened
+			audio.muted = deafened;
 			audio.volume = 1.0;
-			// Prevent garbage collection
 			audio.setAttribute('data-peer', targetUserId);
+			// Attach to DOM — some browsers (Opera GX) won't play
+			// detached audio elements. Hidden via style, not display:none
+			// (which can pause playback in some engines).
+			audio.style.position = 'absolute';
+			audio.style.width = '0';
+			audio.style.height = '0';
+			audio.style.overflow = 'hidden';
+			document.body.appendChild(audio);
 			remoteAudios.set(targetUserId, audio);
 
 			// Robust playback: handle autoplay policy
@@ -203,8 +215,15 @@ async function flushIce(userId: string) {
 
 /** Connect to a peer. Deterministic offerer decides who sends the offer. */
 async function connectToPeer(targetUserId: string) {
-	// Never connect to self
-	if (targetUserId === selfDid()) return;
+	const self = selfDid();
+	if (targetUserId === self) {
+		console.warn(`[voice] BLOCKED self-connect attempt: ${self.slice(0, 20)}`);
+		return;
+	}
+	if (!targetUserId) {
+		console.warn(`[voice] BLOCKED connect to empty userId`);
+		return;
+	}
 	// Must have local stream before creating peer connections
 	if (!localStream) {
 		console.warn(`[voice] skipping connectToPeer(${targetUserId.slice(0, 20)}) — no localStream`);
@@ -536,6 +555,7 @@ onWsEvent(OP_VOICE_OFFER, async (data: unknown) => {
 
 onWsEvent(OP_VOICE_ANSWER, async (data: unknown) => {
 	const d = data as { from_user_id: string; sdp: string; type: RTCSdpType };
+	if (d.from_user_id === selfDid()) return;
 	console.log(`[voice] answer ← ${d.from_user_id.slice(0, 20)}`);
 	const pc = peers.get(d.from_user_id);
 	if (!pc) return;
@@ -549,6 +569,7 @@ onWsEvent(OP_VOICE_ANSWER, async (data: unknown) => {
 
 onWsEvent(OP_VOICE_ICE, async (data: unknown) => {
 	const d = data as { from_user_id: string; candidate: RTCIceCandidateInit };
+	if (d.from_user_id === selfDid()) return;
 	const pc = peers.get(d.from_user_id);
 	if (!pc || !pc.remoteDescription) {
 		let q = pendingIce.get(d.from_user_id);

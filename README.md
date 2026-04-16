@@ -7,7 +7,7 @@ Federated real-time chat on the syr platform.
 ## Dev
 
 ```bash
-docker compose up -d   # SurrealDB + SeaweedFS
+docker compose up -d   # SurrealDB + SeaweedFS + LiveKit
 pnpm install
 pnpm dev               # all apps
 # or
@@ -15,6 +15,19 @@ pnpm dev:syren         # just the chat app
 ```
 
 The app listens on `http://localhost:5174`. API on `:5175`. Adjust `.env` to bind a LAN IP if testing across devices.
+
+### LiveKit (voice/video)
+
+Voice and video use a self-hosted [LiveKit](https://livekit.io) SFU running in Docker. The `docker compose up -d` command starts it alongside SurrealDB and SeaweedFS.
+
+For **cross-device testing**, set `LIVEKIT_NODE_IP` in `.env` to your machine's LAN IP so ICE candidates are routable:
+
+```
+LIVEKIT_NODE_IP=192.168.1.10
+LIVEKIT_URL=ws://192.168.1.10:7880
+```
+
+> **macOS Docker hairpin NAT caveat:** When LiveKit is hosted on the same machine you're testing from, the host device may be able to receive audio but not send it. This is a Docker Desktop for Mac limitation — the container's port mapping doesn't handle traffic that originates from and routes back to the same host correctly. Other devices on the LAN work fine bidirectionally. This does not occur on Linux (native Docker) or in production deployments.
 
 ## Voice / video / screen share — browser setup
 
