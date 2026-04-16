@@ -76,6 +76,23 @@ export class ServerController {
 		}
 	}
 
+	@Post(':serverId/transfer-ownership')
+	@ApiOperation({ summary: 'Transfer server ownership to another member (owner only)' })
+	async transferOwnership(
+		@Param('serverId') serverId: string,
+		@Body() body: { new_owner_id: string },
+		@Req() req: any
+	) {
+		const userId = req.user?.id;
+		if (!userId) throw new HttpException('Unauthorized', 401);
+		if (!body?.new_owner_id) throw new HttpException('new_owner_id required', 400);
+		try {
+			return await this.serverService.transferOwnership(serverId, userId, body.new_owner_id);
+		} catch (err) {
+			throw new HttpException(err instanceof Error ? err.message : 'Failed', 400);
+		}
+	}
+
 	@Delete(':serverId')
 	@ApiOperation({ summary: 'Delete server (owner only)' })
 	async remove(@Param('serverId') serverId: string, @Req() req: any) {
@@ -130,6 +147,23 @@ export class ServerController {
 			});
 		} catch (err) {
 			throw new HttpException(err instanceof Error ? err.message : 'Failed', 403);
+		}
+	}
+
+	@Patch(':serverId/invites/:code')
+	@ApiOperation({ summary: 'Edit invite label (creator or MANAGE_INVITES)' })
+	async updateInvite(
+		@Param('serverId') serverId: string,
+		@Param('code') code: string,
+		@Body() body: { label?: string | null },
+		@Req() req: any
+	) {
+		const userId = req.user?.id;
+		if (!userId) throw new HttpException('Unauthorized', 401);
+		try {
+			return await this.serverService.updateInvite(serverId, code, userId, body);
+		} catch (err) {
+			throw new HttpException(err instanceof Error ? err.message : 'Failed', 400);
 		}
 	}
 

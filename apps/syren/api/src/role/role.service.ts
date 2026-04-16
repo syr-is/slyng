@@ -10,6 +10,7 @@ import {
 import { RecordId } from 'surrealdb';
 import { Permissions, WsOp, hasPermission, stringToRecordId } from '@syren/types';
 import { ServerRepository, ServerMemberRepository, ServerRoleRepository } from '../server/server.repository';
+import { PermissionOverrideRepository } from '../permission-override/override.repository';
 import { ChatGateway } from '../gateway/chat.gateway';
 import { AuditLogService } from '../audit-log/audit-log.service';
 
@@ -21,6 +22,7 @@ export class RoleService {
 		private readonly servers: ServerRepository,
 		private readonly members: ServerMemberRepository,
 		private readonly roles: ServerRoleRepository,
+		private readonly permOverrides: PermissionOverrideRepository,
 		@Inject(forwardRef(() => AuditLogService))
 		private readonly audit: AuditLogService,
 		@Optional() private readonly gateway?: ChatGateway
@@ -39,6 +41,10 @@ export class RoleService {
 		const r = await this.roles.findById(roleId);
 		if (!r || (r as any).deleted) return null;
 		return r;
+	}
+
+	async findRoleById(roleId: string) {
+		return this.roles.findById(roleId);
 	}
 
 	async findByIdRaw(roleId: string) {
@@ -492,7 +498,21 @@ export class RoleService {
 	 * Falls back to legacy `permissions` field for rows that haven't been
 	 * backfilled into `permissions_allow` yet.
 	 */
-	async computePermissions(userId: string, serverId: string): Promise<bigint> {
+	/**
+	 * 6-layer permission cascade (lowest → highest priority):
+	 *   1. server role perms (existing role allow/deny sorted by position)
+	 *   2. server user override
+	 *   3. role category overrides (sorted by role position)
+	 *   4. role channel overrides (sorted by role position)
+	 *   5. user category override
+	 *   6. user channel override
+	 *
+	 * User overrides always beat role overrides at the same scope.
+	 * Channel scope always beats category scope for the same target type.
+	 * Owner/admin bypass is checked at entry and after full computation.
+	 * When `channelId` is omitted, only layers 1-2 apply (server-wide check).
+	 */
+	async computePermissions(userId: string, serverId: string, channelId?: string): Promise<bigint> {
 		const server = await this.servers.findById(serverId);
 		if (!server) return 0n;
 		if ((server as any).owner_id === userId) return Permissions.ADMINISTRATOR;
@@ -504,35 +524,109 @@ export class RoleService {
 		const roleIds = ((member as any).role_ids ?? []) as RecordId[];
 		const assignedSet = new Set(roleIds.map((rid) => stringToRecordId.encode(rid)));
 
-		const applicable = (await this.roles.findMany({ server_id: ref }))
+		const allRoles = (await this.roles.findMany({ server_id: ref }))
 			.filter((r) => !(r as any).deleted)
-			.filter(
-				(r) =>
-					(r as any).is_default ||
-					assignedSet.has(stringToRecordId.encode((r as any).id as RecordId))
-			)
 			.sort(
 				(a, b) =>
 					(((a as any).position as number) ?? 0) -
 					(((b as any).position as number) ?? 0)
 			);
 
+		const applicable = allRoles.filter(
+			(r) =>
+				(r as any).is_default ||
+				assignedSet.has(stringToRecordId.encode((r as any).id as RecordId))
+		);
+
+		// Layer 1: server role perms
 		let perms = 0n;
 		for (const r of applicable) {
 			const allow = BigInt(((r as any).permissions_allow as string) ?? ((r as any).permissions as string) ?? '0');
 			const deny = BigInt(((r as any).permissions_deny as string) ?? '0');
 			perms = (perms & ~deny) | allow;
 		}
+
+		// Early admin bypass — no need to walk overrides
+		if (hasPermission(perms, Permissions.ADMINISTRATOR)) return perms;
+
+		// Fetch all overrides for this server in one query — filtered in memory
+		const allOverrides = await this.permOverrides.findMany({ server_id: ref });
+
+		const applyOverride = (o: any) => {
+			const allow = BigInt(((o as any).allow as string) ?? '0');
+			const deny = BigInt(((o as any).deny as string) ?? '0');
+			perms = (perms & ~deny) | allow;
+		};
+
+		const roleOverridesForScope = (scopeType: string, scopeId: string | null) => {
+			return allOverrides
+				.filter((o: any) => {
+					if (o.target_type !== 'role') return false;
+					if (o.scope_type !== scopeType) return false;
+					const oScopeId = o.scope_id ? stringToRecordId.encode(o.scope_id as RecordId) : null;
+					if (oScopeId !== scopeId) return false;
+					return assignedSet.has(o.target_id as string) ||
+						allRoles.some((r) => (r as any).is_default && stringToRecordId.encode((r as any).id as RecordId) === o.target_id);
+				})
+				.sort((a: any, b: any) => {
+					const posA = allRoles.find((r) => stringToRecordId.encode((r as any).id as RecordId) === a.target_id);
+					const posB = allRoles.find((r) => stringToRecordId.encode((r as any).id as RecordId) === b.target_id);
+					return (((posA as any)?.position as number) ?? 0) - (((posB as any)?.position as number) ?? 0);
+				});
+		};
+
+		const userOverrideForScope = (scopeType: string, scopeId: string | null) => {
+			return allOverrides.find((o: any) => {
+				if (o.target_type !== 'user' || o.target_id !== userId) return false;
+				if (o.scope_type !== scopeType) return false;
+				const oScopeId = o.scope_id ? stringToRecordId.encode(o.scope_id as RecordId) : null;
+				return oScopeId === scopeId;
+			});
+		};
+
+		// Layer 2: server user override
+		const serverUserOverride = userOverrideForScope('server', null);
+		if (serverUserOverride) applyOverride(serverUserOverride);
+
+		if (!channelId) return perms;
+
+		// Resolve the channel's category
+		const db = (this.roles as any).db;
+		const chResult = await db.query(
+			`SELECT category_id FROM channel WHERE id = $id LIMIT 1`,
+			{ id: stringToRecordId.decode(channelId) }
+		);
+		const chRow = ((chResult as any)[0] ?? [])[0] as { category_id?: RecordId | null } | undefined;
+		const categoryId = chRow?.category_id ? stringToRecordId.encode(chRow.category_id) : null;
+
+		// Layer 3: role category overrides
+		if (categoryId) {
+			for (const o of roleOverridesForScope('category', categoryId)) applyOverride(o);
+		}
+
+		// Layer 4: role channel overrides
+		for (const o of roleOverridesForScope('channel', channelId)) applyOverride(o);
+
+		// Layer 5: user category override
+		if (categoryId) {
+			const catUserOverride = userOverrideForScope('category', categoryId);
+			if (catUserOverride) applyOverride(catUserOverride);
+		}
+
+		// Layer 6: user channel override (highest priority)
+		const chUserOverride = userOverrideForScope('channel', channelId);
+		if (chUserOverride) applyOverride(chUserOverride);
+
 		return perms;
 	}
 
-	async hasPermission(userId: string, serverId: string, flag: bigint): Promise<boolean> {
-		const perms = await this.computePermissions(userId, serverId);
+	async hasPermission(userId: string, serverId: string, flag: bigint, channelId?: string): Promise<boolean> {
+		const perms = await this.computePermissions(userId, serverId, channelId);
 		return hasPermission(perms, flag);
 	}
 
-	async requirePermission(userId: string, serverId: string, flag: bigint): Promise<void> {
-		const ok = await this.hasPermission(userId, serverId, flag);
+	async requirePermission(userId: string, serverId: string, flag: bigint, channelId?: string): Promise<void> {
+		const ok = await this.hasPermission(userId, serverId, flag, channelId);
 		if (!ok) throw new Error('Insufficient permissions');
 	}
 
@@ -570,6 +664,111 @@ export class RoleService {
 	async isOwner(userId: string, serverId: string): Promise<boolean> {
 		const server = await this.servers.findById(serverId);
 		return !!server && (server as any).owner_id === userId;
+	}
+
+	async findMemberRoleIds(userId: string, serverId: string): Promise<string[]> {
+		const ref = stringToRecordId.decode(serverId);
+		const member = await this.members.findOne({ server_id: ref, user_id: userId });
+		if (!member) return [];
+		return ((member as any).role_ids ?? []).map((rid: RecordId) =>
+			stringToRecordId.encode(rid)
+		);
+	}
+
+	async getVisibleChannels(
+		userId: string,
+		serverId: string
+	): Promise<Array<{ id: string; name: string; type: string }>> {
+		const perms = await this.computePermissions(userId, serverId);
+		const canRead = hasPermission(perms, Permissions.READ_MESSAGES);
+		if (!canRead) return [];
+		const ref = stringToRecordId.decode(serverId);
+		const db = (this.roles as any).db;
+		const result = await db.query(
+			`SELECT * FROM channel WHERE server_id = $ref AND (deleted = NONE OR deleted = false) ORDER BY position ASC`,
+			{ ref }
+		);
+		return ((result as any)[0] ?? []).map((c: any) => ({
+			id: stringToRecordId.encode(c.id as RecordId),
+			name: (c.name as string) ?? '',
+			type: (c.type as string) ?? 'text'
+		}));
+	}
+
+	async buildPermissionTree(userId: string, serverId: string) {
+		const ref = stringToRecordId.decode(serverId);
+		const db = (this.roles as any).db;
+
+		const serverPerms = await this.computePermissions(userId, serverId);
+
+		const [catResult, chResult] = await Promise.all([
+			db.query(
+				`SELECT * FROM channel_category WHERE server_id = $ref ORDER BY position ASC`,
+				{ ref }
+			),
+			db.query(
+				`SELECT * FROM channel WHERE server_id = $ref AND (deleted = NONE OR deleted = false) ORDER BY position ASC`,
+				{ ref }
+			)
+		]);
+
+		const allCategories = ((catResult as any)[0] ?? []) as any[];
+		const allChannels = ((chResult as any)[0] ?? []) as any[];
+
+		const channelsByCategory = new Map<string, any[]>();
+		const uncategorized: any[] = [];
+		for (const ch of allChannels) {
+			const catId = ch.category_id ? stringToRecordId.encode(ch.category_id as RecordId) : null;
+			if (catId) {
+				const list = channelsByCategory.get(catId) ?? [];
+				list.push(ch);
+				channelsByCategory.set(catId, list);
+			} else {
+				uncategorized.push(ch);
+			}
+		}
+
+		const buildChannelNode = async (ch: any) => {
+			const chId = stringToRecordId.encode(ch.id as RecordId);
+			const perms = await this.computePermissions(userId, serverId, chId);
+			return {
+				id: chId,
+				name: (ch.name as string) ?? '',
+				type: (ch.type as string) ?? 'text',
+				position: (ch.position as number) ?? 0,
+				permissions: perms.toString(),
+				can_view: hasPermission(perms, Permissions.READ_MESSAGES)
+			};
+		};
+
+		const categories = await Promise.all(
+			allCategories.map(async (cat) => {
+				const catId = stringToRecordId.encode(cat.id as RecordId);
+				const children = channelsByCategory.get(catId) ?? [];
+				const firstChannelId = children[0]
+					? stringToRecordId.encode(children[0].id as RecordId)
+					: undefined;
+				const catPerms = firstChannelId
+					? await this.computePermissions(userId, serverId, firstChannelId)
+					: serverPerms;
+				const channelNodes = await Promise.all(children.map(buildChannelNode));
+				return {
+					id: catId,
+					name: (cat.name as string) ?? '',
+					position: (cat.position as number) ?? 0,
+					permissions: catPerms.toString(),
+					channels: channelNodes
+				};
+			})
+		);
+
+		const uncategorizedNodes = await Promise.all(uncategorized.map(buildChannelNode));
+
+		return {
+			server: { permissions: serverPerms.toString() },
+			categories,
+			uncategorized: uncategorizedNodes
+		};
 	}
 
 	/** Strictly above. Owner bypass. */

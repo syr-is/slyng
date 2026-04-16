@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { BaseEntitySchema } from './common.js';
+import { AllowDmsSchema, AllowFriendRequestsSchema } from './relation.js';
 
 // ── User profile (synced from syr via OAuth) ──
 
@@ -14,7 +15,9 @@ export const UserSchema = BaseEntitySchema.extend({
 	delegate_public_key: z.string().optional().describe('Platform delegate public key for verification'),
 	last_seen_at: z.date().optional(),
 	is_online: z.boolean().default(false),
-	has_instance: z.boolean().default(false).describe('Whether user has linked a syr instance')
+	has_instance: z.boolean().default(false).describe('Whether user has linked a syr instance'),
+	allow_dms: AllowDmsSchema.default('open'),
+	allow_friend_requests: AllowFriendRequestsSchema.default('open')
 });
 
 export type User = z.infer<typeof UserSchema>;

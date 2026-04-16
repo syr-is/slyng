@@ -12,7 +12,8 @@
 		ShieldCheck,
 		ExternalLink,
 		Plus,
-		X
+		X,
+		Handshake
 	} from '@lucide/svelte';
 	import * as Avatar from '@syren/ui/avatar';
 	import { Button } from '@syren/ui/button';
@@ -54,8 +55,9 @@
 	import DeviceSelect from '$lib/components/settings/device-select.svelte';
 	import AudioLevelMeter from '$lib/components/settings/audio-level-meter.svelte';
 	import CameraPreview from '$lib/components/settings/camera-preview.svelte';
+	import RelationsPanel from '$lib/components/settings/relations-panel.svelte';
 
-	type Tab = 'profile' | 'audio' | 'video' | 'notifications' | 'trusted';
+	type Tab = 'profile' | 'audio' | 'video' | 'notifications' | 'trusted' | 'relations';
 
 	const auth = getAuth();
 	const voice = getVoiceState();
@@ -204,6 +206,7 @@
 
 	const tabs: { id: Tab; label: string; icon: typeof User }[] = [
 		{ id: 'profile', label: 'Profile', icon: User },
+		{ id: 'relations', label: 'Relations', icon: Handshake },
 		{ id: 'audio', label: 'Audio', icon: Mic },
 		{ id: 'video', label: 'Video', icon: Video },
 		{ id: 'notifications', label: 'Notifications', icon: Bell },
@@ -438,6 +441,11 @@
 						class="h-4 w-4 shrink-0 cursor-pointer accent-primary"
 					/>
 				</label>
+			{/if}
+
+			{#if activeTab === 'relations'}
+				<h1 class="mb-4 text-xl font-semibold">Relations</h1>
+				<RelationsPanel />
 			{/if}
 
 			{#if activeTab === 'trusted'}

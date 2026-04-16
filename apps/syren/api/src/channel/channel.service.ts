@@ -1,6 +1,7 @@
 import { Injectable, Optional, Logger, ForbiddenException, NotFoundException } from '@nestjs/common';
 import { RecordId } from 'surrealdb';
-import { WsOp, stringToRecordId } from '@syren/types';
+import { Permissions, WsOp, hasPermission, stringToRecordId } from '@syren/types';
+import { RelationService } from '../relation/relation.service';
 import {
 	ChannelRepository,
 	ChannelParticipantRepository,
@@ -11,6 +12,7 @@ import {
 	MessageReactionRepository,
 	PinnedMessageRepository
 } from '../message/message.repository';
+import { UserRepository } from '../auth/user.repository';
 import { RoleService } from '../role/role.service';
 import { ChatGateway } from '../gateway/chat.gateway';
 import { AuditLogService } from '../audit-log/audit-log.service';
@@ -26,7 +28,9 @@ export class ChannelService {
 		private readonly messages: MessageRepository,
 		private readonly reactions: MessageReactionRepository,
 		private readonly pins: PinnedMessageRepository,
+		private readonly users: UserRepository,
 		private readonly roleService: RoleService,
+		private readonly relations: RelationService,
 		private readonly audit: AuditLogService,
 		@Optional() private readonly gateway?: ChatGateway
 	) {}
@@ -45,6 +49,24 @@ export class ChannelService {
 			{ server_id: ref, deleted: false },
 			{ sort: { field: 'position', order: 'asc' } }
 		);
+	}
+
+	async findVisibleByServer(serverId: string, userId: string) {
+		const all = await this.findByServer(serverId);
+		const results = await Promise.all(
+			all.map(async (ch) => {
+				const chId = stringToRecordId.encode((ch as any).id as RecordId);
+				const perms = await this.roleService.computePermissions(userId, serverId, chId);
+				const canRead = hasPermission(perms, Permissions.READ_MESSAGES);
+				return { channel: ch, perms, canRead };
+			})
+		);
+		return results
+			.filter((r) => r.canRead)
+			.map((r) => ({
+				...(r.channel as any),
+				my_permissions: r.perms.toString()
+			}));
 	}
 
 	/**
@@ -78,11 +100,16 @@ export class ChannelService {
 		return enriched;
 	}
 
-	async update(channelId: string, userId: string, data: { name?: string; topic?: string }) {
+	async update(channelId: string, userId: string, data: { name?: string; topic?: string; category_id?: string | null }) {
 		const serverId = await this.getServerIdForChannel(channelId);
 		const merge: Record<string, unknown> = { updated_at: new Date() };
 		if (data.name !== undefined) merge.name = data.name;
 		if (data.topic !== undefined) merge.topic = data.topic;
+		if (data.category_id !== undefined) {
+			merge.category_id = data.category_id
+				? stringToRecordId.decode(data.category_id)
+				: null;
+		}
 		await this.channels.merge(channelId, merge);
 		const updated = await this.channels.findById(channelId);
 		this.gateway?.emitToServer(serverId, { op: WsOp.CHANNEL_UPDATE, d: updated });
@@ -224,16 +251,87 @@ export class ChannelService {
 
 		const channelIds = myParticipations.map((p) => (p as any).channel_id as RecordId);
 		const all = await this.channels.findByIds(channelIds);
-		return all
+		const dms = all
 			.filter((c) => (c as any).type === 'direct' || (c as any).type === 'group')
 			.sort((a, b) => {
 				const aTime = new Date((a as any).last_message_at ?? 0).getTime();
 				const bTime = new Date((b as any).last_message_at ?? 0).getTime();
 				return bTime - aTime;
 			});
+		if (!dms.length) return dms;
+
+		// Enrich each DM with `other_user_id` (for direct) + is_blocked / is_ignored
+		// booleans so the client can route them between the main list and the
+		// Ignored tab + decide which to surface with a "new messages blocked"
+		// banner. Cheap: DM counts are small. Also attach `other_user_instance_url`
+		// so the client can resolve the federated profile without an extra
+		// roundtrip — the relations store may not know this DID if no
+		// friendship/block/ignore exists between the pair.
+		const snapshot = await this.relations.relationsFor(userId);
+		const blocked = new Set(snapshot.blocked);
+		const ignored = new Set(snapshot.ignored);
+
+		const enriched = await Promise.all(
+			dms.map(async (c) => {
+				const channelRef = (c as any).id as RecordId;
+				const parts = await this.participants.findMany({ channel_id: channelRef });
+				const others = parts
+					.map((p) => (p as any).user_id as string)
+					.filter((u) => u !== userId);
+				const other_user_id = (c as any).type === 'direct' ? (others[0] ?? null) : null;
+				return {
+					...(c as any),
+					other_user_id,
+					is_blocked: other_user_id ? blocked.has(other_user_id) : false,
+					is_ignored: other_user_id ? ignored.has(other_user_id) : false
+				};
+			})
+		);
+
+		const otherDids = [
+			...new Set(
+				enriched
+					.map((c) => c.other_user_id as string | null)
+					.filter((d): d is string => !!d)
+			)
+		];
+		if (!otherDids.length) return enriched;
+
+		const allUsers = await this.users.findMany();
+		const instanceByDid = new Map<string, string>(
+			allUsers
+				.filter((u) => otherDids.includes((u as any).did as string))
+				.map((u) => [(u as any).did as string, (u as any).syr_instance_url as string])
+		);
+		return enriched.map((c) => ({
+			...c,
+			other_user_instance_url: c.other_user_id ? instanceByDid.get(c.other_user_id) ?? null : null
+		}));
 	}
 
-	async createDM(userId: string, otherUserId: string) {
+	async createDM(userId: string, otherUserId: string, syrInstanceUrl?: string) {
+		if (userId === otherUserId) throw new ForbiddenException('Cannot DM yourself');
+
+		// Auto-create stub user row if the target hasn't logged into syren but
+		// the caller provided their instance URL (from the resolve endpoint).
+		const existing = await this.users.findOne({ did: otherUserId });
+		if (!existing && syrInstanceUrl) {
+			const now = new Date();
+			await this.users.create({ did: otherUserId, syr_instance_url: syrInstanceUrl, created_at: now, updated_at: now } as any);
+		}
+
+		// DM policy + block gate — reject before even looking up / creating the channel.
+		const check = await this.relations.canDM(userId, otherUserId);
+		if (!check.allowed) {
+			const msg =
+				check.reason === 'dm_closed'
+					? 'This user is not accepting direct messages'
+					: check.reason === 'dm_friends_only'
+						? 'This user is only accepting messages from friends'
+						: 'You cannot message this user';
+			throw new ForbiddenException(msg);
+		}
+
 		const now = new Date();
 
 		// Check if DM already exists
@@ -270,6 +368,10 @@ export class ChannelService {
 				updated_at: now
 			});
 		}
+
+		// Push-notify both participants so their DM lists update in real time.
+		this.gateway?.emitToUser(userId, { op: WsOp.DM_CHANNEL_CREATE, d: channel });
+		this.gateway?.emitToUser(otherUserId, { op: WsOp.DM_CHANNEL_CREATE, d: channel });
 
 		return channel;
 	}

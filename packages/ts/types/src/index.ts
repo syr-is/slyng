@@ -1,5 +1,6 @@
 export * from './common.js';
 export * from './codecs.js';
+export * from './relation.js';
 export * from './user.js';
 export * from './channel.js';
 export * from './message.js';

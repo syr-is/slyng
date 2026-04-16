@@ -59,13 +59,18 @@ export class PermissionGuard implements CanActivate {
 
 		const serverId = await this.access.resolveRouteServerId(req);
 		if (!serverId) {
-			throw new ForbiddenException(
-				`@RequirePermission('${flagName}') used on a non-server-scoped route`
-			);
+			// DM channels and other non-server-scoped routes pass through —
+			// permission overrides only apply within servers.
+			return true;
 		}
 
+		// Resolve channel context from route params so channel/category
+		// overrides are applied automatically for channel-scoped routes.
+		const params = req?.params ?? {};
+		const channelId: string | undefined = params.channelId;
+
 		const flag = Permissions[flagName];
-		const ok = await this.roleService.hasPermission(userId, serverId, flag);
+		const ok = await this.roleService.hasPermission(userId, serverId, flag, channelId);
 		if (!ok) throw new ForbiddenException(`${flagName} required`);
 		return true;
 	}

@@ -46,6 +46,36 @@ export class MemberService {
 		@Optional() private readonly gateway?: ChatGateway
 	) {}
 
+	/**
+	 * Self-leave: the actor removes their own membership. Same DB + WS
+	 * mechanics as `kick` but no permission / hierarchy check (self-action)
+	 * and no audit entry (leaves aren't moderation). Owners must delete the
+	 * server instead of leaving — otherwise the server would be ownerless.
+	 */
+	async leave(serverId: string, userId: string) {
+		const server = await this.servers.findById(serverId);
+		if (!server) throw new Error('Server not found');
+		if ((server as any).owner_id === userId) {
+			throw new Error('The server owner cannot leave — transfer ownership or delete the server');
+		}
+
+		const ref = stringToRecordId.decode(serverId);
+		const member = await this.members.findOne({ server_id: ref, user_id: userId });
+		if (!member) throw new Error('You are not a member of this server');
+
+		await this.members.delete((member as any).id);
+		await this.servers.merge(serverId, {
+			member_count: Math.max(0, ((server as any).member_count ?? 1) - 1)
+		});
+
+		this.gateway?.emitToServer(serverId, {
+			op: WsOp.MEMBER_REMOVE,
+			d: { server_id: serverId, user_id: userId }
+		});
+		await this.evictFromServer(serverId, userId);
+		this.logger.log(`Member left: ${userId} from ${serverId}`);
+	}
+
 	async kick(
 		serverId: string,
 		targetUserId: string,
@@ -304,7 +334,8 @@ export class MemberService {
 						const canReveal = await this.roleService.hasPermission(
 							uid,
 							serverId,
-							Permissions.VIEW_REMOVED_MESSAGES
+							Permissions.VIEW_REMOVED_MESSAGES,
+							channelIdStr
 						);
 						permByUser.set(uid, canReveal);
 					})

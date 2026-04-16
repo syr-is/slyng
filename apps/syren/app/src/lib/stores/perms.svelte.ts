@@ -164,6 +164,11 @@ export function getPerms() {
 		},
 		get canHardDelete() {
 			return hasPermission(bitmask, Permissions.HARD_DELETE);
+		},
+		canInChannel(channelId: string, flag: bigint): boolean {
+			const ch = getServerState().channels.find((c) => c.id === channelId);
+			if (!ch?.my_permissions) return this.can(flag);
+			return hasPermission(BigInt(ch.my_permissions), flag);
 		}
 	};
 }

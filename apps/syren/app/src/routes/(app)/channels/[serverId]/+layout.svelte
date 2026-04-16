@@ -14,6 +14,7 @@
 		setActiveServer,
 		setActiveServerOwner,
 		setServerChannels,
+		setServerCategories,
 		upsertServer
 	} from '$lib/stores/servers.svelte';
 	import { setServerPerms, clearServerPerms } from '$lib/stores/perms.svelte';
@@ -75,9 +76,10 @@
 		clearChannelUsers();
 
 		try {
-			const [server, channels, perms, roles, members] = await Promise.all([
+			const [server, channels, categories, perms, roles, members] = await Promise.all([
 				api.servers.get(id),
 				api.servers.channels(id),
+				api.categories.list(id).catch(() => []),
 				api.roles
 					.myPermissions(id)
 					.catch(() => ({
@@ -105,6 +107,7 @@
 			});
 			setActiveServerOwner(s.owner_id || null);
 			setServerChannels(channels as any[]);
+			setServerCategories(categories as any[]);
 			{
 				const p = perms as {
 					permissions: string;
@@ -214,6 +217,26 @@
 			unwatchProfiles(watchedDids);
 			watchedDids = [];
 		}
+	});
+
+	// Refetch the channel list when permission overrides change — channels may
+	// become visible or hidden, and per-channel my_permissions bitmasks shift.
+	onWsEvent(WsOp.PERMISSION_OVERRIDE_UPDATE, async () => {
+		const id = serverId;
+		if (!id) return;
+		try {
+			const channels = await api.servers.channels(id);
+			setServerChannels(channels as any[]);
+			// Subscribe to any newly visible channels
+			const known = new Set(subscribedTopics);
+			const missing = (channels as any[])
+				.map((c: any) => String(c.id))
+				.filter((cid: string) => !known.has(cid));
+			if (missing.length) {
+				subscribeChannels(missing);
+				subscribedTopics = [...subscribedTopics, ...missing];
+			}
+		} catch { /* best-effort */ }
 	});
 
 	onWsEvent(WsOp.SERVER_DELETE, (data) => {

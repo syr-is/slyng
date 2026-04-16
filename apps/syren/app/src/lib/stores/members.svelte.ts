@@ -48,12 +48,19 @@ function matchesActive(serverIdField: unknown): boolean {
 onWsEvent(WsOp.MEMBER_UPDATE, (data) => {
 	const m = data as MemberData;
 	if (!matchesActive(m.server_id)) return;
+	// Normalize RecordId fields: WS payloads may carry raw RecordId objects
+	// ({ tb, id }) while the initial HTTP load already stringified them.
+	// Without this, the mod sheet's derived comparisons break.
+	if (m.role_ids) {
+		m.role_ids = m.role_ids.map((r) => recordIdString(r) ?? String(r));
+	}
+	if (m.id) m.id = recordIdString(m.id) ?? String(m.id);
+	if (m.server_id) m.server_id = recordIdString(m.server_id) ?? String(m.server_id);
 	const idx = members.findIndex((x) => x.user_id === m.user_id);
 	if (idx < 0) {
 		members = [...members, m];
 	} else {
 		const next = [...members];
-		// Preserve client-resolved fields (syr_instance_url, roles) while patching role_ids
 		next[idx] = { ...next[idx], ...m };
 		members = next;
 	}

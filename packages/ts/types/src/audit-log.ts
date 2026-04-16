@@ -22,7 +22,9 @@ export const AuditActionSchema = z.enum([
 	'message_restore',
 	'message_hard_delete',
 	'server_update',
+	'server_transfer_ownership',
 	'invite_create',
+	'invite_update',
 	'invite_delete'
 ]);
 

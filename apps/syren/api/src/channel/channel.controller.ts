@@ -15,9 +15,11 @@ export class ChannelController {
 	) {}
 
 	@Get('servers/:serverId/channels')
-	@ApiOperation({ summary: 'List channels in a server' })
-	async listByServer(@Param('serverId') serverId: string) {
-		return this.channelService.findByServer(serverId);
+	@ApiOperation({ summary: 'List channels in a server (filtered by READ_MESSAGES)' })
+	async listByServer(@Param('serverId') serverId: string, @Req() req: any) {
+		const userId = req?.user?.id;
+		if (!userId) return this.channelService.findByServer(serverId);
+		return this.channelService.findVisibleByServer(serverId, userId);
 	}
 
 	@Post('servers/:serverId/channels')
@@ -42,7 +44,7 @@ export class ChannelController {
 	@ApiOperation({ summary: 'Update a channel' })
 	async update(
 		@Param('channelId') channelId: string,
-		@Body() body: { name?: string; topic?: string },
+		@Body() body: { name?: string; topic?: string; category_id?: string | null },
 		@Req() req: any
 	) {
 		const userId = req.user?.id;
@@ -132,9 +134,9 @@ export class ChannelController {
 	@Post('users/@me/channels')
 	@SkipServerAccess()
 	@ApiOperation({ summary: 'Create or get DM channel' })
-	async createDM(@Body() body: { recipient_id: string }, @Req() req: any) {
+	async createDM(@Body() body: { recipient_id: string; syr_instance_url?: string }, @Req() req: any) {
 		const userId = req.user?.id;
 		if (!userId) throw new HttpException('Unauthorized', 401);
-		return this.channelService.createDM(userId, body.recipient_id);
+		return this.channelService.createDM(userId, body.recipient_id, body.syr_instance_url);
 	}
 }

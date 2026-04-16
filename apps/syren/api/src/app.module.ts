@@ -19,6 +19,9 @@ import { ProxyModule } from './proxy/proxy.module';
 import { UserModule } from './user/user.module';
 import { VoiceModule } from './voice/voice.module';
 import { AuditLogModule } from './audit-log/audit-log.module';
+import { RelationModule } from './relation/relation.module';
+import { OverrideModule } from './permission-override/override.module';
+import { CategoryModule } from './category/category.module';
 import { join } from 'node:path';
 
 @Module({
@@ -44,7 +47,10 @@ import { join } from 'node:path';
 		ProxyModule,
 		UserModule,
 		VoiceModule,
-		AuditLogModule
+		AuditLogModule,
+		RelationModule,
+		OverrideModule,
+		CategoryModule
 	],
 	providers: [
 		{ provide: APP_PIPE, useClass: ZodValidationPipe },

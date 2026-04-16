@@ -1,6 +1,6 @@
 <script lang="ts">
 	import * as Avatar from '@syren/ui/avatar';
-	import { Reply, Pencil, Trash2, SmilePlus, FileIcon, Pin, PinOff, X, Check, Crown } from '@lucide/svelte';
+	import { Reply, Pencil, Trash2, SmilePlus, FileIcon, Pin, PinOff, X, Check, Crown, Eye, EyeOff, Ban } from '@lucide/svelte';
 	import EmojiPicker from './emoji-picker.svelte';
 	import ImageLightbox from './image-lightbox.svelte';
 	import { resolveProfile, displayName } from '$lib/stores/profiles.svelte';
@@ -8,6 +8,7 @@
 	import { getRoles } from '$lib/stores/roles.svelte';
 	import { resolveEmojis } from '$lib/stores/emojis.svelte';
 	import { getMessages } from '$lib/stores/messages.svelte';
+	import { getRelations } from '$lib/stores/relations.svelte';
 	import { renderEmojis, isStickerOnly } from '$lib/utils/emoji-render';
 	import { proxied } from '$lib/utils/proxy';
 	import ProfileHoverCard from './profile-hover-card.svelte';
@@ -167,6 +168,18 @@
 		if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); saveEdit(); }
 		if (e.key === 'Escape') cancelEdit();
 	}
+
+	// ── Block / ignore rendering ──
+	// Block: replace the row with a minimal "Blocked message" placeholder + eye
+	// toggle to reveal the original content (with a persistent banner on top).
+	// Ignore: render the full message muted with attachments/embeds collapsed
+	// behind a "+N attachment" pill. Both are purely render-time concerns —
+	// the raw row stays in the store.
+	const relations = getRelations();
+	const senderBlocked = $derived(relations.isBlocked(message.sender_id));
+	const senderIgnored = $derived(relations.isIgnored(message.sender_id));
+	let revealedBlocked = $state(false);
+	let expandedIgnored = $state(false);
 </script>
 
 <div
@@ -224,7 +237,43 @@
 			{/each}
 		</div>
 	{/if}
-	<div class="flex gap-3">
+	{#if senderBlocked && !revealedBlocked}
+		<!-- Blocked placeholder: replace the entire row with a single muted line
+			and an eye toggle. Per-message reveal is remembered locally only —
+			next mount reverts to hidden. Hover actions are suppressed (nothing
+			to react to / reply to from a hidden row). -->
+		<div class="flex items-center gap-2 rounded px-2 py-0.5 text-xs text-muted-foreground">
+			<Ban class="h-3 w-3 shrink-0" />
+			<span class="italic">Blocked message</span>
+			<span class="truncate font-mono text-[10px] opacity-70" title={message.sender_id}>
+				{message.sender_id.slice(0, 20)}…
+			</span>
+			<button
+				type="button"
+				onclick={() => (revealedBlocked = true)}
+				class="ml-auto rounded p-0.5 hover:bg-accent hover:text-foreground"
+				title="Reveal blocked message"
+			>
+				<Eye class="h-3.5 w-3.5" />
+			</button>
+		</div>
+	{:else}
+	{#if senderBlocked && revealedBlocked}
+		<div class="ml-14 mb-0.5 flex items-center gap-1.5 text-[10px] text-destructive/80">
+			<Ban class="h-3 w-3" />
+			<span>Revealed from a blocked user</span>
+			<button
+				type="button"
+				onclick={() => (revealedBlocked = false)}
+				class="ml-1 inline-flex items-center gap-0.5 rounded px-1 py-0.5 hover:bg-accent hover:text-foreground"
+				title="Hide again"
+			>
+				<EyeOff class="h-3 w-3" />
+				Hide
+			</button>
+		</div>
+	{/if}
+	<div class="flex gap-3 {senderIgnored && !expandedIgnored ? 'opacity-60' : ''}">
 		{#if grouped}
 			<!-- Grouped: timestamp in the avatar gutter, visible on row hover.
 				 Width matches the avatar so the content column stays flush with
@@ -354,6 +403,20 @@
 		{/if}
 
 		{#if !message.deleted || message.content}
+		{@const attachmentsCount = (message.attachments?.length ?? 0) + (message.embeds?.filter((e) => e.title || e.description).length ?? 0)}
+		{#if senderIgnored && !expandedIgnored && attachmentsCount > 0}
+			<!-- Ignored: collapse attachments + embeds behind a single pill so the
+				row stays compact. Expanded state is per-message + local only. -->
+			<button
+				type="button"
+				onclick={() => (expandedIgnored = true)}
+				class="mt-1 inline-flex items-center gap-1 rounded-full border border-dashed border-border bg-muted/40 px-2 py-0.5 text-[11px] text-muted-foreground hover:bg-accent hover:text-foreground"
+				title="Show attachments"
+			>
+				<Eye class="h-3 w-3" />
+				+{attachmentsCount} hidden attachment{attachmentsCount === 1 ? '' : 's'}
+			</button>
+		{:else}
 		<!-- Attachments -->
 		{#if message.attachments?.length}
 			<div class="mt-1 flex flex-wrap gap-2">
@@ -451,6 +514,8 @@
 			</div>
 		{/if}
 
+		{/if}
+
 		<!-- Reactions -->
 		{#if message.reactions?.length}
 			<div class="mt-1 flex flex-wrap gap-1">
@@ -528,6 +593,7 @@
 		{/if}
 	{/if}
 	</div>
+	{/if}
 </div>
 
 {#if lightboxOpen && imageAttachments.length > 0}

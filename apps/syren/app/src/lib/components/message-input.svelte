@@ -13,13 +13,17 @@
 		channelName,
 		replyTo = [],
 		onSend,
-		onRemoveReply
+		onRemoveReply,
+		disabled = false,
+		disabledReason
 	}: {
 		channelId: string;
 		channelName?: string;
 		replyTo?: { id: string; content: string }[];
 		onSend: (content: string, replyToIds?: string[], attachments?: Attachment[]) => void;
 		onRemoveReply?: (id: string) => void;
+		disabled?: boolean;
+		disabledReason?: string;
 	} = $props();
 
 	interface PendingUpload {
@@ -208,6 +212,11 @@
 	}
 </script>
 
+{#if disabled}
+<div class="flex shrink-0 items-center justify-center border-t border-border px-4 py-3">
+	<p class="text-xs text-muted-foreground">{disabledReason ?? 'You do not have permission to send messages in this channel.'}</p>
+</div>
+{:else}
 <div
 	class="relative flex max-h-[40vh] shrink-0 flex-col border-t border-border px-4 pb-4 pt-2"
 	ondragenter={(e) => {
@@ -406,3 +415,5 @@
 		/>
 	{/if}
 </div>
+
+{/if}

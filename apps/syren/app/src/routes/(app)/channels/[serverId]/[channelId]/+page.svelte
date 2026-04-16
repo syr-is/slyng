@@ -7,6 +7,7 @@
 	import MemberList from '$lib/components/member-list.svelte';
 	import PinsPanel from '$lib/components/pins-panel.svelte';
 	import VoiceRoomView from '$lib/components/voice-room-view.svelte';
+	import { Permissions } from '@syren/types';
 	import { api } from '$lib/api';
 	import { subscribeChannels } from '$lib/stores/ws.svelte';
 	import { setCurrentChannel, getMessages, addMessage } from '$lib/stores/messages.svelte';
@@ -29,6 +30,7 @@
 	const channelName = $derived(channelInfo?.name || '');
 	const channelTopic = $derived(channelInfo?.topic || '');
 	const isVoice = $derived(channelInfo?.type === 'voice');
+	const canSendHere = $derived(perms.canInChannel(channelId, Permissions.SEND_MESSAGES));
 
 	let showMembers = $state(true);
 	let showPins = $state(false);
@@ -451,6 +453,7 @@
 			{replyTo}
 			onSend={handleSend}
 			onRemoveReply={(id) => (replyTo = replyTo.filter((r) => r.id !== id))}
+			disabled={!canSendHere}
 		/>
 	</div>
 	{/if}

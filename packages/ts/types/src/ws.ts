@@ -46,7 +46,21 @@ export const WsOp = {
 	// Profile watcher — federated hash polling
 	WATCH_PROFILES: 50,
 	UNWATCH_PROFILES: 51,
-	PROFILE_UPDATE: 52
+	PROFILE_UPDATE: 52,
+
+	// Relations (friends, block, ignore) — personal, emitted via emitToUser
+	FRIEND_REQUEST_RECEIVE: 53,
+	FRIEND_REQUEST_UPDATE: 54,
+	BLOCK_UPDATE: 55,
+	IGNORE_UPDATE: 56,
+	DM_POLICY_UPDATE: 57,
+	DM_CHANNEL_CREATE: 58,
+
+	// Permission overrides + categories
+	PERMISSION_OVERRIDE_UPDATE: 45,
+	CATEGORY_CREATE: 46,
+	CATEGORY_UPDATE: 47,
+	CATEGORY_DELETE: 48
 } as const;
 
 // ── Client → Server payloads ──

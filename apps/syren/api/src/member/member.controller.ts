@@ -38,6 +38,19 @@ export class MemberController {
 		});
 	}
 
+	@Delete('servers/:serverId/members/@me')
+	@ApiOperation({ summary: 'Leave a server (self)' })
+	async leave(@Param('serverId') serverId: string, @Req() req: any) {
+		const userId = req.user?.id;
+		if (!userId) throw new HttpException('Unauthorized', 401);
+		try {
+			await this.memberService.leave(serverId, userId);
+			return { success: true };
+		} catch (err) {
+			throw new HttpException(err instanceof Error ? err.message : 'Failed', 400);
+		}
+	}
+
 	@Delete('servers/:serverId/members/:userId')
 	@RequirePermission('KICK_MEMBERS')
 	@ApiOperation({ summary: 'Kick a member (with optional message purge)' })

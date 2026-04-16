@@ -4,12 +4,17 @@
 	import { Button } from '@syren/ui/button';
 	import { Separator } from '@syren/ui/separator';
 	import { api } from '$lib/api';
-	import { setServers } from '$lib/stores/servers.svelte';
+	import { getServerState, setServers } from '$lib/stores/servers.svelte';
+	import TransferOwnershipDialog from './transfer-ownership-dialog.svelte';
 
 	const { serverId }: { serverId: string } = $props();
 
+	const serverState = getServerState();
+	const serverName = $derived(serverState.activeServer?.name ?? 'this server');
+
 	let confirming = $state(false);
 	let deleting = $state(false);
+	let showTransfer = $state(false);
 
 	async function deleteServer() {
 		deleting = true;
@@ -27,6 +32,18 @@
 </script>
 
 <div class="space-y-4">
+	<div class="rounded-lg border border-destructive/30 bg-destructive/5 p-4">
+		<h3 class="text-sm font-semibold">Transfer ownership</h3>
+		<p class="mt-1 text-xs text-muted-foreground">
+			Hand the server to another member. You'll keep a new "Former Owner" role with admin
+			permissions at the top of the hierarchy. Action is immediate.
+		</p>
+		<Separator class="my-3" />
+		<Button variant="outline" onclick={() => (showTransfer = true)}>
+			Transfer ownership…
+		</Button>
+	</div>
+
 	<div class="rounded-lg border border-destructive/30 bg-destructive/5 p-4">
 		<h3 class="text-sm font-semibold text-destructive">Delete server</h3>
 		<p class="mt-1 text-xs text-muted-foreground">
@@ -46,3 +63,12 @@
 		{/if}
 	</div>
 </div>
+
+{#if showTransfer}
+	<TransferOwnershipDialog
+		open={true}
+		{serverId}
+		{serverName}
+		onClose={() => (showTransfer = false)}
+	/>
+{/if}

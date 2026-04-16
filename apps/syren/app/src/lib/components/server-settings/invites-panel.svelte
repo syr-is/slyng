@@ -1,6 +1,6 @@
 <script lang="ts">
 	import * as Avatar from '@syren/ui/avatar';
-	import { Copy, Check, Trash2, Globe, AtSign, Server } from '@lucide/svelte';
+	import { Copy, Check, Trash2, Globe, AtSign, Server, Pencil, X } from '@lucide/svelte';
 	import { toast } from 'svelte-sonner';
 	import { api } from '$lib/api';
 	import { getAuth } from '$lib/stores/auth.svelte';
@@ -67,6 +67,52 @@
 
 	function canRevoke(row: InviteRow): boolean {
 		return perms.canManageInvites || row.created_by === auth.identity?.did;
+	}
+
+	// Inline label editing. Creator + MANAGE_INVITES can edit; same gate as
+	// the revoke button. One row at a time (editingCode) to keep state simple.
+	let editingCode = $state<string | null>(null);
+	let editingValue = $state('');
+	let savingLabel = $state(false);
+
+	function canEdit(row: InviteRow): boolean {
+		return perms.canManageInvites || row.created_by === auth.identity?.did;
+	}
+
+	function startEdit(row: InviteRow) {
+		editingCode = row.code;
+		editingValue = row.label ?? '';
+	}
+
+	function cancelEdit() {
+		editingCode = null;
+		editingValue = '';
+	}
+
+	async function saveLabel(code: string) {
+		if (savingLabel) return;
+		savingLabel = true;
+		try {
+			await api.servers.updateInvite(serverId, code, {
+				label: editingValue.trim() || null
+			});
+			toast.success('Label updated');
+			editingCode = null;
+			editingValue = '';
+			refreshSignal++;
+		} catch (err) {
+			toast.error(err instanceof Error ? err.message : 'Failed to save label');
+		}
+		savingLabel = false;
+	}
+
+	function labelKeydown(e: KeyboardEvent, code: string) {
+		if (e.key === 'Enter') {
+			e.preventDefault();
+			saveLabel(code);
+		} else if (e.key === 'Escape') {
+			cancelEdit();
+		}
 	}
 
 	function instanceFor(did: string): string | undefined {
@@ -143,8 +189,61 @@
 							<Copy class="h-3 w-3 opacity-60" />
 						{/if}
 					</button>
-					{#if row.label}
-						<span class="text-[11px] text-muted-foreground">{row.label}</span>
+					{#if editingCode === row.code}
+						<div class="flex items-center gap-1">
+							<!-- svelte-ignore a11y_autofocus -->
+							<input
+								type="text"
+								bind:value={editingValue}
+								onkeydown={(e) => labelKeydown(e, row.code)}
+								placeholder="Label…"
+								maxlength={64}
+								autofocus
+								class="flex h-6 max-w-[20ch] rounded border border-input bg-background px-1.5 text-[11px] focus:outline-none focus:ring-1 focus:ring-ring"
+							/>
+							<button
+								type="button"
+								onclick={() => saveLabel(row.code)}
+								disabled={savingLabel}
+								title="Save"
+								class="rounded p-0.5 text-muted-foreground hover:text-primary disabled:opacity-50"
+							>
+								<Check class="h-3 w-3" />
+							</button>
+							<button
+								type="button"
+								onclick={cancelEdit}
+								title="Cancel"
+								class="rounded p-0.5 text-muted-foreground hover:text-foreground"
+							>
+								<X class="h-3 w-3" />
+							</button>
+						</div>
+					{:else if row.label}
+						<button
+							type="button"
+							onclick={() => canEdit(row) && startEdit(row)}
+							disabled={!canEdit(row)}
+							class="group inline-flex items-center gap-1 text-left text-[11px] text-muted-foreground disabled:cursor-default {canEdit(row)
+								? 'hover:text-foreground'
+								: ''}"
+							title={canEdit(row) ? 'Edit label' : ''}
+						>
+							<span class="truncate">{row.label}</span>
+							{#if canEdit(row)}
+								<Pencil class="h-3 w-3 opacity-0 transition-opacity group-hover:opacity-60" />
+							{/if}
+						</button>
+					{:else if canEdit(row)}
+						<button
+							type="button"
+							onclick={() => startEdit(row)}
+							class="inline-flex items-center gap-1 text-left text-[11px] text-muted-foreground/60 hover:text-foreground"
+							title="Add label"
+						>
+							<Pencil class="h-3 w-3" />
+							<span>Add label</span>
+						</button>
 					{/if}
 				</div>
 			{:else if key === 'scope'}

@@ -22,7 +22,9 @@
 	import '$lib/stores/emojis.svelte';
 	import '$lib/stores/gifs.svelte';
 	import '$lib/stores/typing.svelte';
+	import '$lib/stores/posts.svelte';
 	import { loadTrustedDomains } from '$lib/stores/trusted-domains.svelte';
+	import { loadRelations, clearRelations } from '$lib/stores/relations.svelte';
 
 	let { children } = $props();
 	let showCreateServer = $state(false);
@@ -49,6 +51,7 @@
 		connectWs(window.location.origin);
 		startIdleWatcher();
 		loadTrustedDomains();
+		loadRelations();
 
 		try {
 			const servers = await api.servers.list();
@@ -62,6 +65,7 @@
 	onDestroy(() => {
 		disconnectWs();
 		stopIdleWatcher();
+		clearRelations();
 	});
 
 	async function handleCreateServer(data: {

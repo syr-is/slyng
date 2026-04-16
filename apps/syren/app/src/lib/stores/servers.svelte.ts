@@ -18,6 +18,13 @@ interface ServerData {
 	member_count: number;
 }
 
+interface CategoryData {
+	id: string;
+	name: string;
+	position: number;
+	server_id?: string;
+}
+
 interface ChannelData {
 	id: string;
 	name?: string;
@@ -26,12 +33,14 @@ interface ChannelData {
 	category_id?: string;
 	position: number;
 	topic?: string;
+	my_permissions?: string;
 }
 
 let servers = $state<ServerData[]>([]);
 let activeServerId = $state<string | null>(null);
 let activeServerOwnerId = $state<string | null>(null);
 let serverChannels = $state<ChannelData[]>([]);
+let serverCategories = $state<CategoryData[]>([]);
 let channelsLoaded = $state(false);
 
 export function getServerState() {
@@ -50,6 +59,9 @@ export function getServerState() {
 		},
 		get channels() {
 			return serverChannels;
+		},
+		get categories() {
+			return serverCategories;
 		},
 		get channelsLoaded() {
 			return channelsLoaded;
@@ -82,6 +94,7 @@ export function setActiveServer(serverId: string | null) {
 	// Reset everything when switching servers
 	activeServerOwnerId = null;
 	serverChannels = [];
+	serverCategories = [];
 	channelsLoaded = false;
 }
 
@@ -92,6 +105,10 @@ export function setActiveServerOwner(ownerId: string | null) {
 export function setServerChannels(channels: ChannelData[]) {
 	serverChannels = channels;
 	channelsLoaded = true;
+}
+
+export function setServerCategories(cats: CategoryData[]) {
+	serverCategories = cats;
 }
 
 // ── Realtime sidebar updates ──
@@ -140,6 +157,31 @@ onWsEvent(WsOp.SERVER_DELETE, (data) => {
 		serverChannels = [];
 		channelsLoaded = false;
 	}
+});
+
+// ── Category realtime ──
+
+onWsEvent(WsOp.CATEGORY_CREATE, (data) => {
+	const cat = data as CategoryData;
+	if (!matchesActiveServer((cat as any).server_id)) return;
+	if (serverCategories.some((c) => c.id === cat.id)) return;
+	serverCategories = [...serverCategories, cat].sort((a, b) => a.position - b.position);
+});
+
+onWsEvent(WsOp.CATEGORY_UPDATE, (data) => {
+	const cat = data as CategoryData;
+	if (!matchesActiveServer((cat as any).server_id)) return;
+	const idx = serverCategories.findIndex((c) => c.id === cat.id);
+	if (idx < 0) return;
+	const next = [...serverCategories];
+	next[idx] = { ...next[idx], ...cat };
+	serverCategories = next.sort((a, b) => a.position - b.position);
+});
+
+onWsEvent(WsOp.CATEGORY_DELETE, (data) => {
+	const { id, server_id } = data as { id: string; server_id: string };
+	if (!matchesActiveServer(server_id)) return;
+	serverCategories = serverCategories.filter((c) => c.id !== id);
 });
 
 // If the local user is kicked/banned from a server, MEMBER_REMOVE arrives on

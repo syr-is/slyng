@@ -22,6 +22,12 @@ import { VoiceStateRepository } from '../voice/voice.repository';
 import { UserRepository, PlatformSessionRepository } from '../auth/user.repository';
 import { UploadRepository } from '../upload/upload.repository';
 import { AuditLogRepository } from '../audit-log/audit-log.repository';
+import {
+	FriendshipRepository,
+	UserBlockRepository,
+	UserIgnoreRepository
+} from '../relation/relation.repository';
+import { PermissionOverrideRepository } from '../permission-override/override.repository';
 
 const repositories = [
 	ServerRepository,
@@ -40,7 +46,11 @@ const repositories = [
 	UserRepository,
 	PlatformSessionRepository,
 	UploadRepository,
-	AuditLogRepository
+	AuditLogRepository,
+	FriendshipRepository,
+	UserBlockRepository,
+	UserIgnoreRepository,
+	PermissionOverrideRepository
 ];
 
 @Global()

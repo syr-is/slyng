@@ -54,6 +54,16 @@ export const api = {
 		) => request(`/servers/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(data) }),
 		delete: (id: string) =>
 			request(`/servers/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+		leave: (id: string) =>
+			request<{ success: boolean }>(
+				`/servers/${encodeURIComponent(id)}/members/@me`,
+				{ method: 'DELETE' }
+			),
+		transferOwnership: (id: string, newOwnerId: string) =>
+			request<{ server: unknown; former_owner_role_id: string }>(
+				`/servers/${encodeURIComponent(id)}/transfer-ownership`,
+				{ method: 'POST', body: JSON.stringify({ new_owner_id: newOwnerId }) }
+			),
 		channels: (id: string) => request<unknown[]>(`/servers/${encodeURIComponent(id)}/channels`),
 		members: (id: string) => request<unknown[]>(`/servers/${encodeURIComponent(id)}/members`),
 		membersPage: (
@@ -251,7 +261,12 @@ export const api = {
 				`/servers/${encodeURIComponent(id)}/invites/${encodeURIComponent(code)}`,
 				{ method: 'DELETE' }
 			),
-		createChannel: (id: string, data: { name: string; type?: string }) =>
+		updateInvite: (id: string, code: string, data: { label?: string | null }) =>
+			request(
+				`/servers/${encodeURIComponent(id)}/invites/${encodeURIComponent(code)}`,
+				{ method: 'PATCH', body: JSON.stringify(data) }
+			),
+		createChannel: (id: string, data: { name: string; type?: string; category_id?: string }) =>
 			request(`/servers/${encodeURIComponent(id)}/channels`, { method: 'POST', body: JSON.stringify(data) }),
 		trashChannels: (id: string) =>
 			request<
@@ -365,6 +380,34 @@ export const api = {
 				highest_role_position: number;
 				is_owner: boolean;
 			}>(`/servers/${encodeURIComponent(serverId)}/members/@me/permissions`),
+		permissionTree: (serverId: string, userId: string) =>
+			request<{
+				server: { permissions: string };
+				categories: Array<{
+					id: string; name: string; position: number; permissions: string;
+					channels: Array<{
+						id: string; name: string; type: string; position: number;
+						permissions: string; can_view: boolean;
+					}>;
+				}>;
+				uncategorized: Array<{
+					id: string; name: string; type: string; position: number;
+					permissions: string; can_view: boolean;
+				}>;
+			}>(
+				`/servers/${encodeURIComponent(serverId)}/members/${encodeURIComponent(userId)}/permission-tree`
+			),
+		memberPermissions: (serverId: string, userId: string) =>
+			request<{
+				permissions: string;
+				permissions_allow: string;
+				permissions_deny: string;
+				highest_role_position: number;
+				is_owner: boolean;
+				visible_channels: Array<{ id: string; name: string; type: string }>;
+			}>(
+				`/servers/${encodeURIComponent(serverId)}/members/${encodeURIComponent(userId)}/permissions`
+			),
 		restore: (roleId: string) =>
 			request(`/roles/${encodeURIComponent(roleId)}/restore`, { method: 'POST' }),
 		hardDelete: (roleId: string) =>
@@ -427,7 +470,7 @@ export const api = {
 				method: 'DELETE'
 			}),
 		typing: (id: string) => request(`/channels/${encodeURIComponent(id)}/typing`, { method: 'POST' }),
-		update: (id: string, data: { name?: string; topic?: string }) =>
+		update: (id: string, data: { name?: string; topic?: string; category_id?: string | null }) =>
 			request(`/channels/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(data) }),
 		delete: (id: string) =>
 			request(`/channels/${encodeURIComponent(id)}`, { method: 'DELETE' }),
@@ -468,14 +511,144 @@ export const api = {
 	},
 
 	users: {
-		me: () => request('/users/@me'),
+		me: () =>
+			request<{
+				did: string;
+				syr_instance_url?: string;
+				trusted_domains: string[];
+				allow_dms: 'open' | 'friends_only' | 'closed';
+				allow_friend_requests: 'open' | 'mutual' | 'closed';
+			}>('/users/@me'),
+		resolve: (q: string) =>
+			request<{ did: string; syr_instance_url: string | null; registered: boolean }>(
+				`/users/resolve${toQuery({ q })}`
+			),
 		updateMe: (data: Record<string, unknown>) =>
 			request('/users/@me', { method: 'PATCH', body: JSON.stringify(data) }),
-		dmChannels: () => request<unknown[]>('/users/@me/channels'),
-		createDM: (recipientId: string) =>
-			request('/users/@me/channels', {
+		dmChannels: () =>
+			request<
+				Array<{
+					id: string;
+					type: string;
+					last_message_at?: string;
+					other_user_id: string | null;
+					other_user_instance_url?: string | null;
+					is_blocked: boolean;
+					is_ignored: boolean;
+				}>
+			>('/users/@me/channels'),
+		createDM: (recipientId: string, syrInstanceUrl?: string) =>
+			request<{ id: string; type: string }>('/users/@me/channels', {
 				method: 'POST',
-				body: JSON.stringify({ recipient_id: recipientId })
+				body: JSON.stringify({ recipient_id: recipientId, syr_instance_url: syrInstanceUrl })
+			})
+	},
+
+	relations: {
+		snapshot: () =>
+			request<{
+				friends: string[];
+				incoming: Array<{ from: string; created_at: string }>;
+				outgoing: Array<{ to: string; created_at: string }>;
+				blocked: string[];
+				ignored: string[];
+				allow_dms: 'open' | 'friends_only' | 'closed';
+				allow_friend_requests: 'open' | 'mutual' | 'closed';
+				instances: Record<string, string>;
+			}>('/users/@me/relations'),
+		listFriends: (params: Paginated = {}) =>
+			request<{ items: Array<{ user_id: string }>; total: number }>(
+				`/users/@me/friends${toQuery(params as Record<string, unknown>)}`
+			),
+		sendRequest: (userId: string, syrInstanceUrl?: string) =>
+			request(`/users/@me/friends`, {
+				method: 'POST',
+				body: JSON.stringify({ user_id: userId, syr_instance_url: syrInstanceUrl })
+			}),
+		accept: (userId: string) =>
+			request(`/users/@me/friends/${encodeURIComponent(userId)}/accept`, { method: 'POST' }),
+		decline: (userId: string) =>
+			request(`/users/@me/friends/${encodeURIComponent(userId)}/decline`, { method: 'POST' }),
+		cancelOrRemove: (userId: string) =>
+			request(`/users/@me/friends/${encodeURIComponent(userId)}`, { method: 'DELETE' }),
+		listBlocked: (params: Paginated = {}) =>
+			request<{ items: Array<{ blocker_id: string; blocked_id: string; created_at: string }>; total: number }>(
+				`/users/@me/blocklist${toQuery(params as Record<string, unknown>)}`
+			),
+		block: (userId: string) =>
+			request('/users/@me/blocklist', {
+				method: 'POST',
+				body: JSON.stringify({ user_id: userId })
+			}),
+		unblock: (userId: string) =>
+			request(`/users/@me/blocklist/${encodeURIComponent(userId)}`, { method: 'DELETE' }),
+		listIgnored: (params: Paginated = {}) =>
+			request<{ items: Array<{ user_id: string; ignored_id: string; created_at: string }>; total: number }>(
+				`/users/@me/ignorelist${toQuery(params as Record<string, unknown>)}`
+			),
+		ignore: (userId: string) =>
+			request('/users/@me/ignorelist', {
+				method: 'POST',
+				body: JSON.stringify({ user_id: userId })
+			}),
+		unignore: (userId: string) =>
+			request(`/users/@me/ignorelist/${encodeURIComponent(userId)}`, { method: 'DELETE' })
+	},
+
+	categories: {
+		list: (serverId: string) =>
+			request<Array<{ id: string; name: string; position: number; server_id: string }>>(
+				`/servers/${encodeURIComponent(serverId)}/categories`
+			),
+		create: (serverId: string, data: { name: string }) =>
+			request(`/servers/${encodeURIComponent(serverId)}/categories`, {
+				method: 'POST',
+				body: JSON.stringify(data)
+			}),
+		update: (categoryId: string, data: { name?: string }) =>
+			request(`/categories/${encodeURIComponent(categoryId)}`, {
+				method: 'PATCH',
+				body: JSON.stringify(data)
+			}),
+		delete: (categoryId: string) =>
+			request(`/categories/${encodeURIComponent(categoryId)}`, { method: 'DELETE' }),
+		swap: (a: string, b: string) =>
+			request(`/categories/${encodeURIComponent(a)}/swap/${encodeURIComponent(b)}`, {
+				method: 'POST'
+			})
+	},
+
+	overrides: {
+		list: (serverId: string) =>
+			request<unknown[]>(`/servers/${encodeURIComponent(serverId)}/overrides`),
+		forChannel: (serverId: string, channelId: string) =>
+			request<unknown[]>(
+				`/servers/${encodeURIComponent(serverId)}/overrides/channel/${encodeURIComponent(channelId)}`
+			),
+		forCategory: (serverId: string, categoryId: string) =>
+			request<unknown[]>(
+				`/servers/${encodeURIComponent(serverId)}/overrides/category/${encodeURIComponent(categoryId)}`
+			),
+		upsert: (
+			serverId: string,
+			data: {
+				scope_type: 'server' | 'category' | 'channel';
+				scope_id: string | null;
+				target_type: 'role' | 'user';
+				target_id: string;
+				allow: string;
+				deny: string;
+			}
+		) =>
+			request(`/servers/${encodeURIComponent(serverId)}/overrides`, {
+				method: 'PUT',
+				body: JSON.stringify(data)
+			}),
+		delete: (serverId: string, overrideId: string) =>
+			request(`/servers/${encodeURIComponent(serverId)}/overrides/${encodeURIComponent(overrideId)}`, {
+				method: 'DELETE'
 			})
 	}
 };
+
+type Paginated = { limit?: number; offset?: number; sort?: string; order?: 'asc' | 'desc'; q?: string };

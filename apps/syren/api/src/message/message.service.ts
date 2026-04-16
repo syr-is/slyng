@@ -1,11 +1,12 @@
-import { Injectable, Inject, Optional, Logger } from '@nestjs/common';
+import { Injectable, Inject, Optional, Logger, ForbiddenException } from '@nestjs/common';
 import { RecordId } from 'surrealdb';
 import { Permissions, WsOp, stringToRecordId } from '@syren/types';
 import { EmbedService } from '../embed/embed.service';
 import { ChatGateway } from '../gateway/chat.gateway';
-import { ChannelRepository } from '../channel/channel.repository';
+import { ChannelRepository, ChannelParticipantRepository } from '../channel/channel.repository';
 import { UserRepository } from '../auth/user.repository';
 import { RoleService } from '../role/role.service';
+import { RelationService } from '../relation/relation.service';
 import { AuditLogService } from '../audit-log/audit-log.service';
 import {
 	MessageRepository,
@@ -22,8 +23,10 @@ export class MessageService {
 		private readonly reactions: MessageReactionRepository,
 		private readonly pins: PinnedMessageRepository,
 		private readonly channels: ChannelRepository,
+		private readonly participants: ChannelParticipantRepository,
 		private readonly users: UserRepository,
 		private readonly roleService: RoleService,
+		private readonly relations: RelationService,
 		private readonly audit: AuditLogService,
 		@Optional() private readonly embedService?: EmbedService,
 		@Optional() private readonly gateway?: ChatGateway
@@ -47,12 +50,13 @@ export class MessageService {
 		} as T;
 	}
 
-	private async canRevealRemoved(userId: string | undefined, serverId: string | null): Promise<boolean> {
+	private async canRevealRemoved(userId: string | undefined, serverId: string | null, channelId?: string): Promise<boolean> {
 		if (!userId || !serverId) return false;
 		return this.roleService.hasPermission(
 			userId,
 			serverId,
-			Permissions.VIEW_REMOVED_MESSAGES
+			Permissions.VIEW_REMOVED_MESSAGES,
+			channelId
 		);
 	}
 
@@ -299,7 +303,7 @@ export class MessageService {
 		// the timeline looks seamless (Block 13). Masking preserved only for
 		// privileged callers when they explicitly pass include_deleted.
 		const serverId = await this.getServerIdForChannel(channelRef);
-		const reveal = await this.canRevealRemoved(actorUserId, serverId);
+		const reveal = await this.canRevealRemoved(actorUserId, serverId, channelId);
 		const includeDeleted = !!options.includeDeleted && reveal;
 		const postDeletedFilter = includeDeleted
 			? filtered
@@ -327,6 +331,29 @@ export class MessageService {
 	) {
 		const now = new Date();
 		const channelRef = stringToRecordId.decode(channelId);
+
+		// DM policy + block gate. Only applies to 1:1 DMs; group DMs skipped
+		// in v1 (policy fan-out is complex). Group DMs are rare enough that
+		// deferring the check doesn't create a safety hole — participants
+		// voluntarily joined.
+		const channel = await this.channels.findById(channelRef as any);
+		if (channel && (channel as any).type === 'direct') {
+			const parts = await this.participants.findMany({ channel_id: channelRef });
+			const other = parts.find((p) => (p as any).user_id !== senderId) as any;
+			if (other?.user_id) {
+				const check = await this.relations.canDM(senderId, other.user_id);
+				if (!check.allowed) {
+					const msg =
+						check.reason === 'dm_closed'
+							? 'This user is not accepting direct messages'
+							: check.reason === 'dm_friends_only'
+								? 'This user is only accepting messages from friends'
+								: 'You cannot message this user';
+					throw new ForbiddenException(msg);
+				}
+			}
+		}
+
 		// Dedupe, cap at 5, decode each into a RecordId reference
 		const seen = new Set<string>();
 		const replyRefs: RecordId[] = [];
@@ -424,7 +451,7 @@ export class MessageService {
 		const serverId = await this.getServerIdForChannel(chId);
 		if (!isOwn) {
 			if (!serverId) throw new Error("Cannot delete others' messages");
-			await this.roleService.requirePermission(actorUserId, serverId, Permissions.MANAGE_MESSAGES);
+			await this.roleService.requirePermission(actorUserId, serverId, Permissions.MANAGE_MESSAGES, chId);
 		}
 
 		const now = new Date();
@@ -455,7 +482,8 @@ export class MessageService {
 						const canReveal = await this.roleService.hasPermission(
 							uid,
 							serverId,
-							Permissions.VIEW_REMOVED_MESSAGES
+							Permissions.VIEW_REMOVED_MESSAGES,
+							chId
 						);
 						this.gateway!.emitToUser(uid, canReveal ? updateEvent : deleteEvent);
 					})
@@ -654,7 +682,7 @@ export class MessageService {
 
 		// Same viewer-aware filter as findByChannel.
 		const serverId = await this.getServerIdForChannel(channelRef);
-		const reveal = await this.canRevealRemoved(actorUserId, serverId);
+		const reveal = await this.canRevealRemoved(actorUserId, serverId, channelId);
 		const includeDeleted = !!options.includeDeleted && reveal;
 		const filtered = includeDeleted
 			? messages

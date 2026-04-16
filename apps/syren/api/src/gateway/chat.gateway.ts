@@ -275,7 +275,12 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
 		try {
 			const serverId = await this.memberAccess.resolveServerId(topicId);
 			if (!serverId) return true;
-			return await this.memberAccess.isAllowed(userId, serverId);
+			if (!(await this.memberAccess.isAllowed(userId, serverId))) return false;
+			// Channel-level READ_MESSAGES check
+			if (topicId.startsWith('channel:')) {
+				return this.memberAccess.canReadChannel(userId, topicId);
+			}
+			return true;
 		} catch {
 			return false;
 		}

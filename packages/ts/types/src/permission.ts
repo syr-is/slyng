@@ -66,3 +66,25 @@ export function removePermission(permissions: bigint | string, flag: bigint): st
 	const p = typeof permissions === 'string' ? BigInt(permissions) : permissions;
 	return (p & ~flag).toString();
 }
+
+// ── Permission overrides ──
+
+import { z } from 'zod';
+import { BaseEntitySchema } from './common.js';
+
+export const PermissionScopeTypeSchema = z.enum(['server', 'category', 'channel']);
+export type PermissionScopeType = z.infer<typeof PermissionScopeTypeSchema>;
+
+export const PermissionTargetTypeSchema = z.enum(['role', 'user']);
+export type PermissionTargetType = z.infer<typeof PermissionTargetTypeSchema>;
+
+export const PermissionOverrideSchema = BaseEntitySchema.extend({
+	server_id: z.string(),
+	scope_type: PermissionScopeTypeSchema,
+	scope_id: z.string().nullable(),
+	target_type: PermissionTargetTypeSchema,
+	target_id: z.string(),
+	allow: z.string().default('0'),
+	deny: z.string().default('0')
+});
+export type PermissionOverride = z.infer<typeof PermissionOverrideSchema>;

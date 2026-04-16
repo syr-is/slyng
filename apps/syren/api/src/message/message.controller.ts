@@ -9,6 +9,7 @@ export class MessageController {
 	constructor(private readonly messageService: MessageService) {}
 
 	@Get('messages')
+	@RequirePermission('READ_MESSAGES')
 	@ApiOperation({ summary: 'Get messages in a channel' })
 	async list(
 		@Param('channelId') channelId: string,
@@ -29,6 +30,7 @@ export class MessageController {
 	}
 
 	@Post('messages')
+	@RequirePermission('SEND_MESSAGES')
 	@ApiOperation({ summary: 'Send a message' })
 	async create(
 		@Param('channelId') channelId: string,
@@ -67,6 +69,7 @@ export class MessageController {
 	}
 
 	@Patch('messages/:messageId')
+	@RequirePermission('SEND_MESSAGES')
 	@ApiOperation({ summary: 'Edit a message' })
 	async update(
 		@Param('messageId') messageId: string,
@@ -135,6 +138,7 @@ export class MessageController {
 	}
 
 	@Post('messages/:messageId/reactions')
+	@RequirePermission('ADD_REACTIONS')
 	@ApiOperation({ summary: 'Add reaction to a message' })
 	async addReaction(
 		@Param('channelId') channelId: string,
@@ -149,6 +153,7 @@ export class MessageController {
 	}
 
 	@Delete('messages/:messageId/reactions')
+	@RequirePermission('ADD_REACTIONS')
 	@ApiOperation({ summary: 'Remove reaction from a message' })
 	async removeReaction(
 		@Param('channelId') channelId: string,
@@ -163,6 +168,7 @@ export class MessageController {
 	}
 
 	@Get('pins')
+	@RequirePermission('READ_MESSAGES')
 	@ApiOperation({ summary: 'Get pinned messages' })
 	async listPins(
 		@Param('channelId') channelId: string,

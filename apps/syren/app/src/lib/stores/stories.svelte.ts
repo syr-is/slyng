@@ -29,6 +29,7 @@ export interface StoryBundle {
 
 const cache = new SvelteMap<string, StoryBundle>();
 const inflight = new Map<string, Promise<void>>();
+const instanceUrls = new Map<string, string>(); // did → instanceUrl for re-fetch
 
 async function fetchAndCache(did: string, instanceUrl: string) {
 	try {
@@ -57,6 +58,7 @@ export function resolveStories(did: string, instanceUrl?: string): StoryBundle {
 	if (cached) return cached;
 
 	if (instanceUrl && !inflight.has(did)) {
+		instanceUrls.set(did, instanceUrl);
 		inflight.set(did, fetchAndCache(did, instanceUrl));
 	}
 
@@ -70,6 +72,11 @@ export function hasStories(did: string): boolean {
 export function invalidateStories(did: string) {
 	cache.delete(did);
 	inflight.delete(did);
+	// Re-fetch immediately if we know the instance URL (someone resolved this DID before)
+	const url = instanceUrls.get(did);
+	if (url) {
+		inflight.set(did, fetchAndCache(did, url));
+	}
 }
 
 // Backend tells us a user's profile/stories hash changed — blow the cache so

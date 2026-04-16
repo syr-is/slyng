@@ -14,7 +14,8 @@
 		MessageSquare,
 		Hash,
 		Server,
-		RotateCcw
+		RotateCcw,
+		Crown
 	} from '@lucide/svelte';
 	import { toast } from 'svelte-sonner';
 	import { api } from '$lib/api';
@@ -103,7 +104,9 @@
 		channel_restore: { label: 'Restored channel', icon: RotateCcw, tone: 'text-green-500' },
 		channel_hard_delete: { label: 'Permanently deleted channel', icon: Trash2, tone: 'text-destructive' },
 		server_update: { label: 'Updated server', icon: Server, tone: 'text-muted-foreground' },
+		server_transfer_ownership: { label: 'Transferred ownership', icon: Crown, tone: 'text-amber-500' },
 		invite_create: { label: 'Created invite', icon: Ticket, tone: 'text-primary' },
+		invite_update: { label: 'Updated invite', icon: Pencil, tone: 'text-muted-foreground' },
 		invite_delete: { label: 'Revoked invite', icon: X, tone: 'text-muted-foreground' }
 	};
 
@@ -215,6 +218,14 @@
 			</span>
 		{:else if row.action === 'invite_delete'}
 			<span class="font-mono text-muted-foreground">{row.target_id}</span>
+		{:else if row.action === 'invite_update'}
+			{@const labelChange = ((meta as any).changes?.label ?? null) as { from: string | null; to: string | null } | null}
+			<span class="font-mono text-muted-foreground">
+				{row.target_id}
+				{#if labelChange}
+					· label: "{labelChange.from ?? '—'}" → "{labelChange.to ?? '—'}"
+				{/if}
+			</span>
 		{:else if row.action === 'message_purge'}
 			<span class="text-muted-foreground">
 				batch {(row.batch_id ?? '').slice(0, 8) || '—'}

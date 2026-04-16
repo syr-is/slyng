@@ -166,6 +166,124 @@ export class ServerService {
 		};
 	}
 
+	/**
+	 * Hand the server to another member. Creates a fresh "Former Owner" role
+	 * with ADMINISTRATOR at the top of the hierarchy and auto-assigns it to
+	 * the outgoing owner so they retain admin-level powers (bounded by the
+	 * strict-below hierarchy rule — can't touch the new owner).
+	 *
+	 * Owner check is inline because ADMINISTRATOR must NOT bypass; only the
+	 * literal `owner_id` can trigger ownership transfer.
+	 */
+	async transferOwnership(serverId: string, actorUserId: string, newOwnerId: string) {
+		const server = await this.servers.findById(serverId);
+		if (!server) throw new Error('Server not found');
+		if ((server as any).owner_id !== actorUserId)
+			throw new Error('Only the current owner can transfer ownership');
+		if (newOwnerId === actorUserId)
+			throw new Error('Cannot transfer ownership to yourself');
+
+		const ref = stringToRecordId.decode(serverId);
+		const targetMember = await this.members.findOne({ server_id: ref, user_id: newOwnerId });
+		if (!targetMember) throw new Error('Target must be an existing member');
+
+		// Step 1 — Former Owner role at top of hierarchy with ADMINISTRATOR.
+		const allRoles = await this.roles.findMany({ server_id: ref });
+		const topPosition =
+			allRoles.reduce((max, r) => Math.max(max, ((r as any).position as number) ?? 0), 0) + 1;
+		const adminAllow = Permissions.ADMINISTRATOR.toString();
+		const now = new Date();
+		const newRole = await this.roles.create({
+			server_id: ref,
+			name: 'Former Owner',
+			color: null,
+			position: topPosition,
+			permissions: adminAllow,
+			permissions_allow: adminAllow,
+			permissions_deny: '0',
+			is_default: false,
+			deleted: false,
+			created_at: now,
+			updated_at: now
+		});
+		const newRoleId = (newRole as any).id as RecordId;
+		const roleIdStr = stringToRecordId.encode(newRoleId);
+
+		// Step 2 — assign it to the outgoing owner.
+		const outgoingMember = await this.members.findOne({
+			server_id: ref,
+			user_id: actorUserId
+		});
+		let refreshedOutgoing: unknown = null;
+		if (outgoingMember) {
+			const ids = ((outgoingMember as any).role_ids ?? []) as RecordId[];
+			await this.members.merge((outgoingMember as any).id, {
+				role_ids: [...ids, newRoleId],
+				updated_at: now
+			});
+			refreshedOutgoing = await this.members.findById((outgoingMember as any).id);
+		}
+
+		// Step 3 — flip ownership.
+		const updated = await this.servers.merge(serverId, {
+			owner_id: newOwnerId,
+			updated_at: now
+		});
+
+		// Step 4 — broadcasts. ROLE_CREATE first so clients have the role
+		// before MEMBER_UPDATE references it via role_ids.
+		if (this.gateway) {
+			this.gateway.emitToServer(serverId, { op: WsOp.ROLE_CREATE, d: newRole });
+			if (refreshedOutgoing) {
+				this.gateway.emitToServer(serverId, {
+					op: WsOp.MEMBER_UPDATE,
+					d: refreshedOutgoing
+				});
+			}
+			this.gateway.emitToServer(serverId, { op: WsOp.SERVER_UPDATE, d: updated });
+		}
+
+		// Step 5 — audit trail.
+		await this.audit.record({
+			serverId,
+			actorId: actorUserId,
+			action: 'role_create',
+			targetKind: 'role',
+			targetId: roleIdStr,
+			metadata: {
+				name: 'Former Owner',
+				permissions_allow: adminAllow,
+				permissions_deny: '0',
+				reason: 'auto-created by ownership transfer'
+			}
+		});
+		await this.audit.record({
+			serverId,
+			actorId: actorUserId,
+			action: 'server_transfer_ownership',
+			targetKind: 'server',
+			targetId: serverId,
+			targetUserId: newOwnerId,
+			metadata: {
+				from_user_id: actorUserId,
+				to_user_id: newOwnerId,
+				former_owner_role_id: roleIdStr
+			}
+		});
+		await this.audit.record({
+			serverId,
+			actorId: actorUserId,
+			action: 'member_role_add',
+			targetKind: 'member',
+			targetId: actorUserId,
+			targetUserId: actorUserId,
+			metadata: { role_id: roleIdStr, role_name: 'Former Owner', role_color: null }
+		});
+
+		this.logger.log(`Ownership transferred: ${serverId} ${actorUserId} -> ${newOwnerId}`);
+		return { server: updated, former_owner_role_id: roleIdStr };
+	}
+
 	async delete(serverId: string, userId: string) {
 		const server = await this.servers.findById(serverId);
 		if (!server) throw new Error('Server not found');
@@ -298,6 +416,58 @@ export class ServerService {
 			items: items.map((i) => this.serializeInvite(i as any)),
 			total
 		};
+	}
+
+	/**
+	 * Edit an existing invite's label. Same mixed-identity gate as
+	 * `deleteInvite` — the creator can edit their own; everyone else needs
+	 * MANAGE_INVITES. Scope intentionally narrow (label only) to avoid
+	 * surprises around changing scope / max_uses / expiry mid-flight.
+	 */
+	async updateInvite(
+		serverId: string,
+		code: string,
+		actorUserId: string,
+		data: { label?: string | null }
+	) {
+		const invite = await this.invites.findOne({ code });
+		if (!invite) throw new Error('Invite not found');
+		const inv = invite as any;
+		if (stringToRecordId.encode(inv.server_id) !== serverId) {
+			throw new Error('Invite does not belong to this server');
+		}
+		const isCreator = inv.created_by === actorUserId;
+		if (!isCreator) {
+			const ok = await this.roleService.hasPermission(
+				actorUserId,
+				serverId,
+				Permissions.MANAGE_INVITES
+			);
+			if (!ok) throw new Error('MANAGE_INVITES required to edit this invite');
+		}
+
+		const merge: Record<string, unknown> = { updated_at: new Date() };
+		const hasLabel = Object.prototype.hasOwnProperty.call(data, 'label');
+		if (hasLabel) {
+			const trimmed = (data.label ?? '').trim();
+			merge.label = trimmed.length ? trimmed.slice(0, 64) : null;
+		}
+
+		const updated = await this.invites.merge(inv.id, merge);
+
+		await this.audit.record({
+			serverId,
+			actorId: actorUserId,
+			action: 'invite_update',
+			targetKind: 'invite',
+			targetId: code,
+			metadata: {
+				changes: hasLabel ? { label: { from: inv.label ?? null, to: merge.label } } : {},
+				was_creator: isCreator
+			}
+		});
+		this.logger.log(`Invite updated: ${code} by ${actorUserId}`);
+		return this.serializeInvite(updated);
 	}
 
 	async deleteInvite(serverId: string, code: string, actorUserId: string) {

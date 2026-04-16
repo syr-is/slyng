@@ -4,10 +4,13 @@
 	import Settings from '@lucide/svelte/icons/settings';
 	import Sun from '@lucide/svelte/icons/sun';
 	import Moon from '@lucide/svelte/icons/moon';
+	import Copy from '@lucide/svelte/icons/copy';
+	import Check from '@lucide/svelte/icons/check';
 	import { goto } from '$app/navigation';
 	import * as Avatar from '@syren/ui/avatar';
 	import * as DropdownMenu from '@syren/ui/dropdown-menu';
 	import { Button } from '@syren/ui/button';
+	import { toast } from 'svelte-sonner';
 	import { resolveProfile, displayName, federatedHandle } from '$lib/stores/profiles.svelte';
 	import { proxied } from '$lib/utils/proxy';
 	import { getPresenceData } from '$lib/stores/presence.svelte';
@@ -40,6 +43,23 @@
 			offline: 'bg-gray-400'
 		}[presence.status]
 	);
+
+	let copied = $state(false);
+	let copyTimer: ReturnType<typeof setTimeout> | null = null;
+	async function copyDid(e: Event) {
+		// Clicking the copy button shouldn't close the dropdown.
+		e.stopPropagation();
+		e.preventDefault();
+		try {
+			await navigator.clipboard.writeText(did);
+			copied = true;
+			toast.success('DID copied');
+			if (copyTimer) clearTimeout(copyTimer);
+			copyTimer = setTimeout(() => (copied = false), 1500);
+		} catch {
+			toast.error('Failed to copy');
+		}
+	}
 </script>
 
 <DropdownMenu.Root>
@@ -88,6 +108,21 @@
 					/>
 					<span class="sr-only">Toggle theme</span>
 				</Button>
+			</div>
+			<div class="px-1 pb-1.5">
+				<button
+					type="button"
+					onclick={copyDid}
+					title={did}
+					class="flex w-full items-center gap-1.5 rounded-md border border-border bg-muted/40 px-2 py-1 text-left font-mono text-[10px] text-muted-foreground hover:bg-accent hover:text-foreground"
+				>
+					{#if copied}
+						<Check class="h-3 w-3 shrink-0 text-green-500" />
+					{:else}
+						<Copy class="h-3 w-3 shrink-0" />
+					{/if}
+					<span class="truncate">{did}</span>
+				</button>
 			</div>
 		</DropdownMenu.Label>
 		<DropdownMenu.Separator />

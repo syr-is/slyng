@@ -94,6 +94,26 @@ export class DbService implements OnModuleDestroy {
 			DEFINE INDEX IF NOT EXISTS idx_audit_target_user ON TABLE audit_log COLUMNS server_id, target_user_id;
 			DEFINE INDEX IF NOT EXISTS idx_audit_action ON TABLE audit_log COLUMNS server_id, action;
 			DEFINE INDEX IF NOT EXISTS idx_audit_channel ON TABLE audit_log COLUMNS server_id, channel_id;
+
+			DEFINE TABLE IF NOT EXISTS friendship SCHEMALESS;
+			DEFINE INDEX IF NOT EXISTS idx_friendship_pair ON TABLE friendship COLUMNS user_a_id, user_b_id UNIQUE;
+			DEFINE INDEX IF NOT EXISTS idx_friendship_user_a ON TABLE friendship COLUMNS user_a_id;
+			DEFINE INDEX IF NOT EXISTS idx_friendship_user_b ON TABLE friendship COLUMNS user_b_id;
+			DEFINE INDEX IF NOT EXISTS idx_friendship_status ON TABLE friendship COLUMNS status;
+
+			DEFINE TABLE IF NOT EXISTS user_block SCHEMALESS;
+			DEFINE INDEX IF NOT EXISTS idx_block_pair ON TABLE user_block COLUMNS blocker_id, blocked_id UNIQUE;
+			DEFINE INDEX IF NOT EXISTS idx_block_blocker ON TABLE user_block COLUMNS blocker_id;
+
+			DEFINE TABLE IF NOT EXISTS user_ignore SCHEMALESS;
+			DEFINE INDEX IF NOT EXISTS idx_ignore_pair ON TABLE user_ignore COLUMNS user_id, ignored_id UNIQUE;
+			DEFINE INDEX IF NOT EXISTS idx_ignore_user ON TABLE user_ignore COLUMNS user_id;
+
+			DEFINE TABLE IF NOT EXISTS permission_override SCHEMALESS;
+			DEFINE INDEX IF NOT EXISTS idx_perm_override_server ON TABLE permission_override COLUMNS server_id;
+			DEFINE INDEX IF NOT EXISTS idx_perm_override_scope ON TABLE permission_override COLUMNS scope_type, scope_id;
+			DEFINE INDEX IF NOT EXISTS idx_perm_override_target ON TABLE permission_override COLUMNS target_type, target_id;
+			DEFINE INDEX IF NOT EXISTS idx_perm_override_unique ON TABLE permission_override COLUMNS server_id, scope_type, scope_id, target_type, target_id UNIQUE;
 		`);
 
 		// Backfill pre-existing rows that were created before new fields were added.
@@ -109,6 +129,11 @@ export class DbService implements OnModuleDestroy {
 		);
 		await this.db.query(
 			`UPDATE server_role SET permissions_deny = '0' WHERE permissions_deny = NONE;`
+		);
+		// Relations: default DM + friend-request policies to 'open' for existing users.
+		await this.db.query(`UPDATE user SET allow_dms = 'open' WHERE allow_dms = NONE;`);
+		await this.db.query(
+			`UPDATE user SET allow_friend_requests = 'open' WHERE allow_friend_requests = NONE;`
 		);
 
 		this.logger.log('Schema initialized');
