@@ -43,10 +43,10 @@
 		loading = true;
 		error = null;
 		try {
-			const base = (instance ?? '').replace(/\/+$/, '');
-			// Call the user's syr instance directly with credentials for session cookie
+			// Proxy through syren API — direct cross-origin fetch won't send syr cookies
+			const syrPath = '/api/uploads?limit=60&sort_field=created_at&sort_order=desc';
 			const res = await fetch(
-				`${base}/api/uploads?limit=60&sort_field=created_at&sort_order=desc`,
+				`/api/syr-proxy?path=${encodeURIComponent(syrPath)}`,
 				{ credentials: 'include' }
 			);
 			if (!res.ok) throw new Error(`Failed: ${res.status}`);
