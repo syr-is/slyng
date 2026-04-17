@@ -56,6 +56,6 @@ USER sveltekit
 EXPOSE 5174
 
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
-    CMD wget --spider -q http://localhost:5174/ || exit 1
+    CMD wget -q -O /dev/null http://localhost:5174/ || exit 1
 
 CMD ["sirv", "build", "--single", "--host", "0.0.0.0", "--port", "5174"]
