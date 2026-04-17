@@ -15,16 +15,10 @@ services:
     restart: unless-stopped
 
   seaweedfs:
-    container_name: syren-seaweedfs-prod
     image: chrislusf/seaweedfs:latest
-    command: >
-      server -s3 -s3.config=/etc/seaweedfs/s3_config.json
-      -s3.allowedOrigins=${S3_CORS_ORIGINS:-*}
-      -ip=0.0.0.0
-      -filer=true
+    command: server -s3 -dir=/data -s3.port=8333 -volume.max=100 -ip=0.0.0.0
     volumes:
       - seaweedfs-prod-data:/data
-      - ./s3/s3_config.json:/etc/seaweedfs/s3_config.json
     healthcheck:
       test: ["CMD-SHELL", "wget -q --spider http://127.0.0.1:8333/ || exit 1"]
       interval: 10s
