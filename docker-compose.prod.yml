@@ -39,7 +39,10 @@ services:
       --config /etc/livekit.yaml
       --bind 0.0.0.0
       --node-ip ${LIVEKIT_NODE_IP}
-    network_mode: host
+    ports:
+      - "7880:7880"
+      - "7881:7881"
+      - "50000-50100:50000-50100/udp"
     environment:
       LIVEKIT_KEYS: "${LIVEKIT_API_KEY}: ${LIVEKIT_API_SECRET}"
     volumes:
@@ -67,7 +70,7 @@ services:
       - S3_CORS_ORIGINS=${S3_CORS_ORIGINS:-https://app.slyng.gg}
       - PUBLIC_URL=${PUBLIC_URL:-https://app.slyng.gg}
       - SYR_INSTANCE_URL=${SYR_INSTANCE_URL:-https://app.syr.is}
-      - LIVEKIT_URL=ws://172.17.0.1:7880
+      - LIVEKIT_URL=ws://livekit:7880
       - LIVEKIT_PUBLIC_URL=${LIVEKIT_PUBLIC_URL:-wss://lk.slyng.gg}
       - LIVEKIT_API_KEY=${LIVEKIT_API_KEY}
       - LIVEKIT_API_SECRET=${LIVEKIT_API_SECRET}
