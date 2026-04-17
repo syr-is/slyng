@@ -38,7 +38,7 @@ export class AuthController {
 			path: '/',
 			httpOnly: true,
 			secure: this.authService.isProduction(),
-			sameSite: 'lax' as const,
+			sameSite: 'none' as const,
 			maxAge: 600 * 1000
 		};
 		res.cookie('syren_pending_instance', instanceUrl, cookieOpts);
