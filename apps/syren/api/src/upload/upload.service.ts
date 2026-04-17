@@ -98,7 +98,7 @@ export class UploadService implements OnModuleInit {
 
 	async requestPresign(
 		userId: string,
-		data: { filename: string; mime_type: string; size: number; channel_id?: string }
+		data: { filename: string; mime_type: string; size: number; channel_id?: string; sha256?: string }
 	) {
 		if (!Number.isFinite(data.size) || data.size <= 0) {
 			throw new Error('Invalid file size');
@@ -140,7 +140,10 @@ export class UploadService implements OnModuleInit {
 			new PutObjectCommand({
 				Bucket: this.bucket,
 				Key: key,
-				ContentType: data.mime_type
+				ContentType: data.mime_type,
+				...(data.sha256 && {
+					ChecksumSHA256: Buffer.from(data.sha256, 'hex').toString('base64')
+				})
 			}),
 			{ expiresIn: 3600 }
 		);

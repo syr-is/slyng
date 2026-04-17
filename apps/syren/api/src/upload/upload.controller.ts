@@ -11,7 +11,7 @@ export class UploadController {
 	@Post('presign')
 	@ApiOperation({ summary: 'Request a presigned URL for a direct S3 PUT upload' })
 	async presign(
-		@Body() body: { filename: string; mime_type: string; size: number; channel_id?: string },
+		@Body() body: { filename: string; mime_type: string; size: number; channel_id?: string; sha256?: string },
 		@Req() req: any
 	) {
 		const userId = req.user?.id;

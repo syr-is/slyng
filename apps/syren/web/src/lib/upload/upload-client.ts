@@ -72,24 +72,27 @@ export function uploadFile(
 	const abort = new AbortController();
 
 	const promise = (async (): Promise<Attachment> => {
+		// Compute sha256 before presign so it can be included in the signature
+		const sha256 = await sha256Hex(file);
+
 		const presign = await api.uploads.presign({
 			filename: file.name,
 			mime_type: file.type || 'application/octet-stream',
 			size: file.size,
-			channel_id: opts.channelId
+			channel_id: opts.channelId,
+			sha256
 		});
 
-		// Kick probes + hash in parallel with the S3 PUT
+		// Probe dimensions in parallel with the S3 PUT
 		const probe: Promise<{ width?: number; height?: number }> = file.type.startsWith('image/')
 			? probeImage(file)
 			: file.type.startsWith('video/')
 				? probeVideo(file)
 				: Promise.resolve({});
-		const hashPromise = sha256Hex(file);
 
-		await putWithProgress(presign.signed_url, file, abort.signal, opts.onProgress);
+		await putWithProgress(presign.signed_url, file, abort.signal, opts.onProgress, sha256);
 
-		const [{ width, height }, sha256] = await Promise.all([probe, hashPromise]);
+		const { width, height } = await probe;
 
 		const attachment = await api.uploads.finalize(presign.upload_id, {
 			sha256,
@@ -110,16 +113,22 @@ export function uploadFile(
  * XHR-based PUT for upload progress reporting. `fetch` doesn't expose upload
  * progress without a streaming body (which breaks CORS on many S3 servers).
  */
+function hexToBase64(hex: string): string {
+	return btoa(hex.match(/.{2}/g)!.map((b) => String.fromCharCode(parseInt(b, 16))).join(''));
+}
+
 function putWithProgress(
 	url: string,
 	file: File,
 	signal: AbortSignal,
-	onProgress?: (p: number) => void
+	onProgress?: (p: number) => void,
+	sha256Hex?: string
 ): Promise<void> {
 	return new Promise((resolve, reject) => {
 		const xhr = new XMLHttpRequest();
 		xhr.open('PUT', url, true);
 		if (file.type) xhr.setRequestHeader('Content-Type', file.type);
+		if (sha256Hex) xhr.setRequestHeader('x-amz-checksum-sha256', hexToBase64(sha256Hex));
 
 		xhr.upload.onprogress = (e) => {
 			if (e.lengthComputable) onProgress?.(e.loaded / e.total);

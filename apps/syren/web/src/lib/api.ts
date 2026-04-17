@@ -491,7 +491,7 @@ export const api = {
 	},
 
 	uploads: {
-		presign: (data: { filename: string; mime_type: string; size: number; channel_id?: string }) =>
+		presign: (data: { filename: string; mime_type: string; size: number; channel_id?: string; sha256?: string }) =>
 			request<{ upload_id: string; signed_url: string; final_url: string; max_bytes: number }>(
 				'/uploads/presign',
 				{ method: 'POST', body: JSON.stringify(data) }
