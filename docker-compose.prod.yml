@@ -1,6 +1,5 @@
 services:
   surrealdb:
-    container_name: syren-surrealdb-prod
     image: surrealdb/surrealdb:v2.6
     user: root
     command: start --log warn --user ${SURREALDB_USER} --pass ${SURREALDB_PASS} rocksdb://data
@@ -28,16 +27,12 @@ services:
     restart: unless-stopped
 
   livekit:
-    container_name: syren-livekit-prod
     image: livekit/livekit-server:latest
     command: >
       --config /etc/livekit.yaml
       --bind 0.0.0.0
       --node-ip ${LIVEKIT_NODE_IP}
-    ports:
-      - "7880:7880"
-      - "7881:7881"
-      - "50000-60000:50000-60000/udp"
+    network_mode: host
     environment:
       LIVEKIT_KEYS: "${LIVEKIT_API_KEY}: ${LIVEKIT_API_SECRET}"
     volumes:
@@ -45,7 +40,6 @@ services:
     restart: unless-stopped
 
   syren-api:
-    container_name: syren-api-prod
     build:
       context: .
       dockerfile: docker/prod/syren-api.dockerfile
@@ -65,7 +59,6 @@ services:
     restart: unless-stopped
 
   syren:
-    container_name: syren-app-prod
     build:
       context: .
       dockerfile: docker/prod/syren.dockerfile
