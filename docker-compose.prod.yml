@@ -26,7 +26,7 @@ services:
       - seaweedfs-prod-data:/data
       - ./s3/s3_config.json:/etc/seaweedfs/s3_config.json
     healthcheck:
-      test: ["CMD", "wget", "--spider", "-q", "http://127.0.0.1:8333"]
+      test: ["CMD", "wget", "--spider", "-q", "http://0.0.0.0:8333"]
       interval: 10s
       timeout: 5s
       retries: 5
