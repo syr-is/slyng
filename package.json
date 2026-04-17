@@ -6,7 +6,7 @@
 	"scripts": {
 		"prepare": "husky",
 		"dev": "turbo dev",
-		"dev:syren": "pnpm --filter @syren/app dev",
+		"dev:syren": "pnpm --filter @syren/web dev",
 		"dev:api": "pnpm --filter @syren/api dev",
 		"build": "turbo build",
 		"preview": "turbo preview",

@@ -80,7 +80,7 @@ Point the Vite `server.https` config at the generated `.pem` pair. The API needs
 
 | Path | What |
 |------|------|
-| `apps/syren/app` | SvelteKit SPA (client) |
+| `apps/syren/web` | SvelteKit SPA (web client) |
 | `apps/syren/api` | NestJS API + WS gateway |
 | `packages/ts/types` | Shared Zod schemas (`@syren/types`) |
 | `packages/ts/ui` | shadcn-svelte component package (`@syren/ui`) |

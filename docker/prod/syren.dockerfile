@@ -11,7 +11,7 @@ COPY package.json pnpm-lock.yaml pnpm-workspace.yaml .npmrc ./
 # ---- Dependencies Stage ----
 FROM base AS deps
 
-COPY apps/syren/app/package.json ./apps/syren/app/
+COPY apps/syren/web/package.json ./apps/syren/web/
 COPY packages/ts/types/package.json ./packages/ts/types/
 COPY packages/ts/ui/package.json ./packages/ts/ui/
 
@@ -32,7 +32,7 @@ COPY packages ./packages
 
 RUN pnpm --filter @syren/types build
 RUN pnpm --filter @syren/ui build
-RUN NODE_OPTIONS="--max-old-space-size=4096" pnpm --filter @syren/app build
+RUN NODE_OPTIONS="--max-old-space-size=4096" pnpm --filter @syren/web build
 
 # ---- Production Stage ----
 FROM node:20-alpine AS production
@@ -44,7 +44,7 @@ WORKDIR /app
 RUN addgroup --system --gid 1001 nodejs \
     && adduser --system --uid 1001 sveltekit
 
-COPY --from=builder --chown=sveltekit:nodejs /app/apps/syren/app/build ./build
+COPY --from=builder --chown=sveltekit:nodejs /app/apps/syren/web/build ./build
 
 USER sveltekit
 

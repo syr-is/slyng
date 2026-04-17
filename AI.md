@@ -12,7 +12,7 @@ Federated real-time chat on the **syr platform**. Users authenticate via their s
 
 | Path | Role |
 |---|---|
-| `apps/syren/app` | SvelteKit SPA (adapter-static). **No SSR, no server files — pure client.** |
+| `apps/syren/web` | SvelteKit SPA (adapter-static). **No SSR, no server files — pure client.** |
 | `apps/syren/api` | NestJS API + WS gateway. |
 | `packages/ts/types` | Zod v4 schemas + shared constants. Dual CJS/ESM build via tsup so `RecordId` class identity survives across the ESM/CJS boundary. |
 | `packages/ts/ui` | shadcn-svelte / bits-ui components as `@syren/ui`. |
