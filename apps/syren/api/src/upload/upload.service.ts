@@ -38,25 +38,36 @@ export class UploadService implements OnModuleInit {
 		private readonly uploads: UploadRepository
 	) {}
 
+	private s3Public!: S3Client;
+
 	onModuleInit() {
 		const endpoint = this.config.get<string>('S3_ENDPOINT', 'http://localhost:8343');
 		const region = this.config.get<string>('S3_REGION', 'us-east-1');
 		const accessKeyId = this.config.get<string>('S3_ACCESS_KEY_ID', 'syren-access-key');
 		const secretAccessKey = this.config.get<string>('S3_SECRET_ACCESS_KEY', 'syren-secret-key');
 		this.bucket = this.config.get<string>('S3_BUCKET', 'syren');
-		this.publicBase = this.config
-			.get<string>('S3_PUBLIC_URL', `${endpoint}/${this.bucket}`)
-			.replace(/\/+$/, '');
+		const publicUrl = this.config.get<string>('S3_PUBLIC_URL', `${endpoint}/${this.bucket}`);
+		this.publicBase = publicUrl.replace(/\/+$/, '');
 		this.maxBytes = Number(this.config.get<string>('UPLOAD_MAX_BYTES', '524288000'));
 
+		const creds = { accessKeyId, secretAccessKey };
 		this.s3 = new S3Client({
 			endpoint,
 			region,
-			credentials: { accessKeyId, secretAccessKey },
+			credentials: creds,
 			forcePathStyle: true,
 			requestHandler: { requestTimeout: 10_000, connectionTimeout: 5_000 } as any
 		});
-		this.logger.log(`Storage ready — bucket=${this.bucket} endpoint=${endpoint}`);
+		// Public client for presigned URLs — browser needs the external endpoint
+		// S3_PUBLIC_URL is like https://s3.slyng.gg/syren — strip the bucket suffix
+		const publicEndpoint = new URL(publicUrl).origin;
+		this.s3Public = new S3Client({
+			endpoint: publicEndpoint,
+			region,
+			credentials: creds,
+			forcePathStyle: true
+		});
+		this.logger.log(`Storage ready — bucket=${this.bucket} endpoint=${endpoint} publicUrl=${publicUrl}`);
 	}
 
 	async requestPresign(
@@ -99,7 +110,7 @@ export class UploadService implements OnModuleInit {
 		});
 
 		const signedUrl = await getSignedUrl(
-			this.s3,
+			this.s3Public,
 			new PutObjectCommand({
 				Bucket: this.bucket,
 				Key: key,
