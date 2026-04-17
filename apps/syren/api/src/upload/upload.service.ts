@@ -140,8 +140,7 @@ export class UploadService implements OnModuleInit {
 			new PutObjectCommand({
 				Bucket: this.bucket,
 				Key: key,
-				ContentType: data.mime_type,
-				ContentLength: data.size
+				ContentType: data.mime_type
 			}),
 			{ expiresIn: 3600 }
 		);
