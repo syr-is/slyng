@@ -30,9 +30,13 @@ ENV SYREN_API_URL=${SYREN_API_URL}
 COPY apps/syren ./apps/syren
 COPY packages ./packages
 
-RUN pnpm install
+# Build workspace packages first (dist/ doesn't exist at install time with injection)
 RUN pnpm --filter @syren/types build
 RUN pnpm --filter @syren/ui build
+
+# Re-inject now that all dist/ folders exist
+RUN pnpm install
+
 RUN NODE_OPTIONS="--max-old-space-size=4096" pnpm --filter @syren/web build
 
 # ---- Production Stage ----
