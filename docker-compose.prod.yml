@@ -44,6 +44,8 @@ services:
       - "7880:7880"
       - "7881:7881"
       - "50000-60000:50000-60000/udp"
+    environment:
+      LIVEKIT_KEYS: "${LIVEKIT_API_KEY}: ${LIVEKIT_API_SECRET}"
     volumes:
       - ./docker/prod/livekit.yaml:/etc/livekit.yaml
     restart: unless-stopped
