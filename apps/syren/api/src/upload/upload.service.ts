@@ -1,6 +1,6 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { S3Client, PutObjectCommand, HeadObjectCommand } from '@aws-sdk/client-s3';
+import { S3Client, PutObjectCommand, HeadObjectCommand, HeadBucketCommand, CreateBucketCommand, PutBucketCorsCommand } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { RecordId } from 'surrealdb';
 import { stringToRecordId } from '@syren/types';
@@ -68,6 +68,32 @@ export class UploadService implements OnModuleInit {
 			forcePathStyle: true
 		});
 		this.logger.log(`Storage ready — bucket=${this.bucket} endpoint=${endpoint} publicUrl=${publicUrl}`);
+		this.ensureBucket().catch((err) => this.logger.error('Failed to ensure S3 bucket', err));
+	}
+
+	private async ensureBucket() {
+		try {
+			await this.s3.send(new HeadBucketCommand({ Bucket: this.bucket }));
+		} catch (err: any) {
+			const status = err?.$metadata?.httpStatusCode;
+			if (status !== 404 && err?.name !== 'NotFound' && err?.name !== 'NoSuchBucket') throw err;
+			await this.s3.send(new CreateBucketCommand({ Bucket: this.bucket }));
+			this.logger.log(`S3 bucket "${this.bucket}" created`);
+		}
+		const corsOrigins = this.config.get<string>('S3_CORS_ORIGINS', '*').split(',').map(s => s.trim()).filter(Boolean);
+		await this.s3.send(new PutBucketCorsCommand({
+			Bucket: this.bucket,
+			CORSConfiguration: {
+				CORSRules: [{
+					AllowedOrigins: corsOrigins,
+					AllowedMethods: ['GET', 'POST', 'PUT', 'DELETE', 'HEAD'],
+					AllowedHeaders: ['*'],
+					ExposeHeaders: ['ETag', 'Content-Length', 'Content-Type', 'Last-Modified', 'x-amz-request-id', 'x-amz-version-id'],
+					MaxAgeSeconds: 3600
+				}]
+			}
+		}));
+		this.logger.log(`S3 bucket "${this.bucket}" CORS set for: ${corsOrigins.join(', ')}`);
 	}
 
 	async requestPresign(
