@@ -26,11 +26,11 @@ services:
       - seaweedfs-prod-data:/data
       - ./s3/s3_config.json:/etc/seaweedfs/s3_config.json
     healthcheck:
-      test: ["CMD", "wget", "--spider", "-q", "http://0.0.0.0:8333"]
+      test: ["CMD-SHELL", "wget -q --spider http://127.0.0.1:8333/ || exit 1"]
       interval: 10s
       timeout: 5s
-      retries: 5
-      start_period: 10s
+      retries: 10
+      start_period: 15s
     restart: unless-stopped
 
   livekit:
