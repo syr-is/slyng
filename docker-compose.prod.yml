@@ -1,41 +1,83 @@
 services:
   surrealdb:
     container_name: syren-surrealdb-prod
-    image: surrealdb/surrealdb:v2.3.10
+    image: surrealdb/surrealdb:v2.6
+    user: root
     command: start --log warn --user ${SURREALDB_USER} --pass ${SURREALDB_PASS} rocksdb://data
     volumes:
       - surrealdb-prod-data:/data
     healthcheck:
-      test:
-        ["CMD-SHELL", "wget --spider -q http://localhost:8000/status || exit 1"]
+      test: ["CMD", "/surreal", "is-ready", "--endpoint", "http://localhost:8000"]
       interval: 10s
       timeout: 5s
       retries: 5
       start_period: 10s
     restart: unless-stopped
 
-  syren:
-    container_name: syren-app
+  seaweedfs:
+    container_name: syren-seaweedfs-prod
+    image: chrislusf/seaweedfs:latest
+    command: >
+      server -s3 -s3.config=/etc/seaweedfs/s3_config.json
+      -s3.allowedOrigins=${S3_CORS_ORIGINS:-*}
+      -ip=0.0.0.0
+      -filer=true
+    volumes:
+      - seaweedfs-prod-data:/data
+      - ./s3/s3_config.json:/etc/seaweedfs/s3_config.json
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://127.0.0.1:8333"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    restart: unless-stopped
+
+  livekit:
+    container_name: syren-livekit-prod
+    image: livekit/livekit-server:latest
+    command: >
+      --config /etc/livekit.yaml
+      --bind 0.0.0.0
+      --node-ip ${LIVEKIT_NODE_IP}
+    ports:
+      - "7880:7880"
+      - "7881:7881"
+      - "50000-60000:50000-60000/udp"
+    volumes:
+      - ./docker/prod/livekit.yaml:/etc/livekit.yaml
+    restart: unless-stopped
+
+  syren-api:
+    container_name: syren-api-prod
     build:
       context: .
-      dockerfile: docker/prod/syren.dockerfile
-    ports:
-      - "${PORT:-5174}:${PORT:-5174}"
+      dockerfile: docker/prod/syren-api.dockerfile
     env_file:
       - .env
     environment:
-      - PORT=${PORT:-5174}
+      - NODE_ENV=production
+      - SYREN_API_PORT=${SYREN_API_PORT:-5175}
       - SURREALDB_URL=ws://surrealdb:8000/rpc
+      - S3_ENDPOINT=http://seaweedfs:8333
+      - LIVEKIT_URL=ws://livekit:7880
     depends_on:
       surrealdb:
         condition: service_healthy
-    healthcheck:
-      test: ["CMD-SHELL", "wget --spider -q http://localhost:${PORT:-5174}/health || exit 1"]
-      interval: 30s
-      timeout: 3s
-      start_period: 5s
-      retries: 3
+      seaweedfs:
+        condition: service_healthy
+    restart: unless-stopped
+
+  syren:
+    container_name: syren-app-prod
+    build:
+      context: .
+      dockerfile: docker/prod/syren.dockerfile
+      args:
+        PUBLIC_URL: ${PUBLIC_URL:-https://slyng.gg}
+        SYREN_API_URL: ${SYREN_API_URL:-https://slyng.gg}
     restart: unless-stopped
 
 volumes:
   surrealdb-prod-data:
+  seaweedfs-prod-data:

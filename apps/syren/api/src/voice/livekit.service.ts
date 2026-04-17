@@ -8,15 +8,18 @@ export class LiveKitService {
 	private readonly apiKey: string;
 	private readonly apiSecret: string;
 	private readonly url: string;
+	private readonly publicUrl: string;
 
 	constructor(private readonly config: ConfigService) {
 		this.apiKey = this.config.get('LIVEKIT_API_KEY', 'devkey');
 		this.apiSecret = this.config.get('LIVEKIT_API_SECRET', 'devsecret');
 		this.url = this.config.get('LIVEKIT_URL', 'ws://localhost:7880');
+		this.publicUrl = this.config.get('LIVEKIT_PUBLIC_URL', this.url);
 	}
 
+	/** Public URL returned to clients (wss:// in production) */
 	getUrl(): string {
-		return this.url;
+		return this.publicUrl;
 	}
 
 	async generateToken(
