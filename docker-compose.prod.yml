@@ -2,14 +2,17 @@ services:
   surrealdb:
     image: surrealdb/surrealdb:v2.6
     user: root
-    command: start --log warn --user ${SURREALDB_USER} --pass ${SURREALDB_PASS} rocksdb://data
+    command: start --log info --user root --pass ${SURREALDB_PASS} file:/data/syren.db
     volumes:
       - surrealdb-prod-data:/data
+    environment:
+      - SURREAL_LOG=info
     healthcheck:
-      test: ["CMD", "/surreal", "is-ready", "--endpoint", "http://localhost:8000"]
+      test:
+        ["CMD", "/surreal", "is-ready", "--endpoint", "http://localhost:8000"]
       interval: 10s
       timeout: 5s
-      retries: 5
+      retries: 10
       start_period: 10s
     restart: unless-stopped
 
@@ -18,6 +21,10 @@ services:
     command: server -s3 -dir=/data -s3.port=8333 -volume.max=100 -ip=0.0.0.0
     volumes:
       - seaweedfs-prod-data:/data
+    environment:
+      - WEED_MASTER_VOLUME_GROWTH_COPY_1=2
+      - WEED_MASTER_VOLUME_GROWTH_COPY_2=1
+      - WEED_MASTER_VOLUME_GROWTH_COPY_OTHER=0
     healthcheck:
       test: ["CMD-SHELL", "wget -q --spider http://127.0.0.1:8333/ || exit 1"]
       interval: 10s
@@ -43,14 +50,30 @@ services:
     build:
       context: .
       dockerfile: docker/prod/syren-api.dockerfile
-    env_file:
-      - .env
     environment:
       - NODE_ENV=production
       - SYREN_API_PORT=${SYREN_API_PORT:-5175}
       - SURREALDB_URL=ws://surrealdb:8000/rpc
+      - SURREALDB_NAMESPACE=${SURREALDB_NAMESPACE:-syren}
+      - SURREALDB_DATABASE=${SURREALDB_DATABASE:-syren}
+      - SURREALDB_USER=${SURREALDB_USER:-root}
+      - SURREALDB_PASS=${SURREALDB_PASS}
       - S3_ENDPOINT=http://seaweedfs:8333
-      - LIVEKIT_URL=ws://livekit:7880
+      - S3_BUCKET=${S3_BUCKET:-syren}
+      - S3_REGION=${S3_REGION:-us-east-1}
+      - S3_ACCESS_KEY_ID=${S3_ACCESS_KEY_ID:-syren-access-key}
+      - S3_SECRET_ACCESS_KEY=${S3_SECRET_ACCESS_KEY:-syren-secret-key}
+      - S3_PUBLIC_URL=${S3_PUBLIC_URL:-https://s3.slyng.gg/syren}
+      - S3_CORS_ORIGINS=${S3_CORS_ORIGINS:-https://app.slyng.gg}
+      - PUBLIC_URL=${PUBLIC_URL:-https://app.slyng.gg}
+      - SYR_INSTANCE_URL=${SYR_INSTANCE_URL:-https://app.syr.is}
+      - LIVEKIT_URL=ws://172.17.0.1:7880
+      - LIVEKIT_PUBLIC_URL=${LIVEKIT_PUBLIC_URL:-wss://lk.slyng.gg}
+      - LIVEKIT_API_KEY=${LIVEKIT_API_KEY}
+      - LIVEKIT_API_SECRET=${LIVEKIT_API_SECRET}
+      - UPLOAD_MAX_BYTES=${UPLOAD_MAX_BYTES:-524288000}
+      - PROXY_MAX_BYTES=${PROXY_MAX_BYTES:-104857600}
+      - PROXY_TIMEOUT_MS=${PROXY_TIMEOUT_MS:-10000}
     depends_on:
       surrealdb:
         condition: service_healthy
@@ -63,10 +86,12 @@ services:
       context: .
       dockerfile: docker/prod/syren.dockerfile
       args:
-        PUBLIC_URL: ${PUBLIC_URL:-https://slyng.gg}
-        SYREN_API_URL: ${SYREN_API_URL:-https://slyng.gg}
+        - PUBLIC_URL=${PUBLIC_URL:-https://app.slyng.gg}
+        - SYREN_API_URL=${SYREN_API_URL:-https://app.slyng.gg}
     restart: unless-stopped
 
 volumes:
   surrealdb-prod-data:
+    driver: local
   seaweedfs-prod-data:
+    driver: local
