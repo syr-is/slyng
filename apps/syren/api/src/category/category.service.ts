@@ -109,6 +109,53 @@ export class CategoryService {
 		this.logger.log(`Category deleted: ${categoryId}`);
 	}
 
+	async reorder(serverId: string, categoryIds: string[], userId: string) {
+		if (categoryIds.length < 2) return { updated: 0 };
+
+		const allCats = (await this.findByServer(serverId)) as any[];
+		const catMap = new Map(allCats.map((c) => [stringToRecordId.encode(c.id), c]));
+
+		const toReorder: any[] = [];
+		for (const id of categoryIds) {
+			const cat = catMap.get(id);
+			if (!cat) throw new Error('Category not found');
+			toReorder.push(cat);
+		}
+
+		const positions = toReorder.map((c) => c.position as number).sort((a, b) => a - b);
+
+		const updates: { cat: any; oldPos: number; newPos: number }[] = [];
+		for (let i = 0; i < toReorder.length; i++) {
+			if (toReorder[i].position !== positions[i]) {
+				updates.push({ cat: toReorder[i], oldPos: toReorder[i].position, newPos: positions[i] });
+			}
+		}
+
+		if (!updates.length) return { updated: 0 };
+
+		const now = new Date();
+		for (const { cat, oldPos, newPos } of updates) {
+			const catId = stringToRecordId.encode(cat.id);
+			await this.categories.merge(catId, { position: newPos, updated_at: now });
+			const updated = await this.categories.findById(catId);
+			this.gateway?.emitToServer(serverId, { op: WsOp.CATEGORY_UPDATE, d: updated });
+			await this.audit.record({
+				serverId,
+				actorId: userId,
+				action: 'channel_update',
+				targetKind: 'channel',
+				targetId: catId,
+				metadata: {
+					changes: { position: { from: oldPos, to: newPos } },
+					name: cat.name,
+					kind: 'category'
+				}
+			});
+		}
+
+		return { updated: updates.length };
+	}
+
 	async swap(categoryAId: string, categoryBId: string, userId: string) {
 		const a = await this.categories.findById(categoryAId);
 		const b = await this.categories.findById(categoryBId);

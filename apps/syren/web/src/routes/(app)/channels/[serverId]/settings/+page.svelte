@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { ArrowLeft, User, Shield, Users, Ticket, Ban, Trash2, AlertTriangle } from '@lucide/svelte';
+	import { ArrowLeft, User, Shield, Users, Ticket, Ban, Trash2, AlertTriangle, Hash } from '@lucide/svelte';
 	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
 	import { Button } from '@syren/ui/button';
@@ -13,8 +13,9 @@
 	import BansPanel from '$lib/components/server-settings/bans-panel.svelte';
 	import TrashPanel from '$lib/components/server-settings/trash-panel.svelte';
 	import DangerPanel from '$lib/components/server-settings/danger-panel.svelte';
+	import ChannelsPanel from '$lib/components/server-settings/channels-panel.svelte';
 
-	type Tab = 'profile' | 'roles' | 'members' | 'invites' | 'bans' | 'trash' | 'danger';
+	type Tab = 'profile' | 'channels' | 'roles' | 'members' | 'invites' | 'bans' | 'trash' | 'danger';
 
 	const auth = getAuth();
 	const serverState = getServerState();
@@ -27,6 +28,7 @@
 
 	const tabs: { id: Tab; label: string; icon: typeof User; show: boolean }[] = $derived([
 		{ id: 'profile', label: 'Profile', icon: User, show: true },
+		{ id: 'channels', label: 'Channels', icon: Hash, show: perms.canManageChannels },
 		{ id: 'roles', label: 'Roles', icon: Shield, show: true },
 		{ id: 'members', label: 'Members', icon: Users, show: true },
 		{ id: 'invites', label: 'Invites', icon: Ticket, show: perms.canCreateInvites || perms.canManageInvites },
@@ -80,6 +82,9 @@
 			{#if activeTab === 'profile'}
 				<h1 class="mb-4 text-xl font-semibold">Server profile</h1>
 				<ProfilePanel {serverId} />
+			{:else if activeTab === 'channels'}
+				<h1 class="mb-4 text-xl font-semibold">Channels</h1>
+				<ChannelsPanel {serverId} />
 			{:else if activeTab === 'roles'}
 				<h1 class="mb-4 text-xl font-semibold">Roles</h1>
 				<RolesPanel {serverId} />

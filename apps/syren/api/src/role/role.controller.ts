@@ -80,6 +80,26 @@ export class RoleController {
 		}
 	}
 
+	@Post('servers/:serverId/roles/reorder')
+	@RequirePermission('MANAGE_ROLES')
+	@ApiOperation({ summary: 'Bulk reorder roles by position (drag-and-drop)' })
+	async reorder(
+		@Param('serverId') serverId: string,
+		@Body() body: { roleIds: string[] },
+		@Req() req: any
+	) {
+		const userId = req.user?.id;
+		if (!userId) throw new HttpException('Unauthorized', 401);
+		if (!Array.isArray(body.roleIds) || body.roleIds.length < 2) {
+			throw new HttpException('roleIds must be an array of at least 2 IDs', 400);
+		}
+		try {
+			return await this.roles.reorder(serverId, body.roleIds, userId);
+		} catch (err) {
+			throw new HttpException(err instanceof Error ? err.message : 'Failed', 400);
+		}
+	}
+
 	@Delete('roles/:roleId')
 	@RequirePermission('MANAGE_ROLES')
 	@ApiOperation({ summary: 'Soft-delete a role (move to trash)' })

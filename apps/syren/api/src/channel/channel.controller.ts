@@ -56,6 +56,26 @@ export class ChannelController {
 		}
 	}
 
+	@Post('servers/:serverId/channels/reorder')
+	@RequirePermission('MANAGE_CHANNELS')
+	@ApiOperation({ summary: 'Bulk reorder channels by position (drag-and-drop)' })
+	async reorder(
+		@Param('serverId') serverId: string,
+		@Body() body: { channelIds: string[]; categoryId?: string | null },
+		@Req() req: any
+	) {
+		const userId = req.user?.id;
+		if (!userId) throw new HttpException('Unauthorized', 401);
+		if (!Array.isArray(body.channelIds) || !body.channelIds.length) {
+			throw new HttpException('channelIds must be a non-empty array', 400);
+		}
+		try {
+			return await this.channelService.reorder(serverId, body.channelIds, userId, body.categoryId);
+		} catch (err) {
+			throw new HttpException(err instanceof Error ? err.message : 'Failed', 403);
+		}
+	}
+
 	@Delete('channels/:channelId')
 	@RequirePermission('MANAGE_CHANNELS')
 	@ApiOperation({ summary: 'Soft-delete a channel (move to trash)' })

@@ -368,6 +368,11 @@ export const api = {
 			request(`/roles/${encodeURIComponent(roleId)}`, { method: 'DELETE' }),
 		swap: (roleId: string, otherRoleId: string) =>
 			request(`/roles/${encodeURIComponent(roleId)}/swap/${encodeURIComponent(otherRoleId)}`, { method: 'POST' }),
+		reorder: (serverId: string, roleIds: string[]) =>
+			request(`/servers/${encodeURIComponent(serverId)}/roles/reorder`, {
+				method: 'POST',
+				body: JSON.stringify({ roleIds })
+			}),
 		assign: (serverId: string, userId: string, roleId: string) =>
 			request(`/servers/${encodeURIComponent(serverId)}/members/${encodeURIComponent(userId)}/roles/${encodeURIComponent(roleId)}`, { method: 'POST' }),
 		unassign: (serverId: string, userId: string, roleId: string) =>
@@ -478,6 +483,11 @@ export const api = {
 			request(`/channels/${encodeURIComponent(id)}/restore`, { method: 'POST' }),
 		hardDelete: (id: string) =>
 			request(`/channels/${encodeURIComponent(id)}/hard`, { method: 'DELETE' }),
+		reorder: (serverId: string, channelIds: string[], categoryId?: string | null) =>
+			request(`/servers/${encodeURIComponent(serverId)}/channels/reorder`, {
+				method: 'POST',
+				body: JSON.stringify({ channelIds, categoryId })
+			}),
 		restoreMessage: (channelId: string, messageId: string) =>
 			request(
 				`/channels/${encodeURIComponent(channelId)}/messages/${encodeURIComponent(messageId)}/restore`,
@@ -623,6 +633,11 @@ export const api = {
 		swap: (a: string, b: string) =>
 			request(`/categories/${encodeURIComponent(a)}/swap/${encodeURIComponent(b)}`, {
 				method: 'POST'
+			}),
+		reorder: (serverId: string, categoryIds: string[]) =>
+			request(`/servers/${encodeURIComponent(serverId)}/categories/reorder`, {
+				method: 'POST',
+				body: JSON.stringify({ categoryIds })
 			})
 	},
 

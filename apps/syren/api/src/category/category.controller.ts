@@ -63,6 +63,26 @@ export class CategoryController {
 		}
 	}
 
+	@Post('servers/:serverId/categories/reorder')
+	@RequirePermission('MANAGE_CHANNELS')
+	@ApiOperation({ summary: 'Bulk reorder categories by position (drag-and-drop)' })
+	async reorder(
+		@Param('serverId') serverId: string,
+		@Body() body: { categoryIds: string[] },
+		@Req() req: any
+	) {
+		const userId = req.user?.id;
+		if (!userId) throw new HttpException('Unauthorized', 401);
+		if (!Array.isArray(body.categoryIds) || body.categoryIds.length < 2) {
+			throw new HttpException('categoryIds must be an array of at least 2 IDs', 400);
+		}
+		try {
+			return await this.categories.reorder(serverId, body.categoryIds, userId);
+		} catch (err) {
+			throw new HttpException(err instanceof Error ? err.message : 'Failed', 400);
+		}
+	}
+
 	@Post('categories/:categoryId/swap/:otherCategoryId')
 	@RequirePermission('MANAGE_CHANNELS')
 	@ApiOperation({ summary: 'Swap two category positions' })

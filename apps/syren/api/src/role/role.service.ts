@@ -309,6 +309,61 @@ export class RoleService {
 		return { a: updatedA, b: updatedB };
 	}
 
+	async reorder(serverId: string, roleIds: string[], userId: string) {
+		if (roleIds.length < 2) return { updated: 0 };
+
+		const allRoles = (await this.findByServer(serverId)) as any[];
+		const roleMap = new Map(allRoles.map((r) => [stringToRecordId.encode(r.id), r]));
+
+		const toReorder: any[] = [];
+		for (const id of roleIds) {
+			const role = roleMap.get(id);
+			if (!role) throw new NotFoundException('Role not found');
+			if (role.is_default) throw new ForbiddenException('Cannot reorder the default role');
+			toReorder.push(role);
+		}
+
+		const isOwner = await this.isOwner(userId, serverId);
+		if (!isOwner) {
+			const actorPos = await this.highestRolePosition(userId, serverId);
+			for (const role of toReorder) {
+				if ((role.position as number) >= actorPos) {
+					throw new ForbiddenException('Cannot reorder roles at or above your highest role');
+				}
+			}
+		}
+
+		const positions = toReorder.map((r) => r.position as number).sort((a, b) => b - a);
+
+		const updates: { role: any; oldPos: number; newPos: number }[] = [];
+		for (let i = 0; i < toReorder.length; i++) {
+			if (toReorder[i].position !== positions[i]) {
+				updates.push({ role: toReorder[i], oldPos: toReorder[i].position, newPos: positions[i] });
+			}
+		}
+
+		if (!updates.length) return { updated: 0 };
+
+		for (const { role, oldPos, newPos } of updates) {
+			const roleId = stringToRecordId.encode(role.id);
+			const updated = await this.roles.merge(roleId, { position: newPos, updated_at: new Date() });
+			this.gateway?.emitToServer(serverId, { op: WsOp.ROLE_UPDATE, d: updated });
+			await this.audit.record({
+				serverId,
+				actorId: userId,
+				action: 'role_update',
+				targetKind: 'role',
+				targetId: roleId,
+				metadata: {
+					changes: { position: { from: oldPos, to: newPos } },
+					name: role.name
+				}
+			});
+		}
+
+		return { updated: updates.length };
+	}
+
 	async delete(roleId: string, userId: string) {
 		const role = await this.roles.findById(roleId);
 		if (!role) throw new NotFoundException('Role not found');

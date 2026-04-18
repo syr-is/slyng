@@ -40,6 +40,13 @@ export function clearRoles() {
 	roles = [];
 }
 
+export function reorderRoles(roleIds: string[]) {
+	const targetRoles = roles.filter((r) => roleIds.includes(r.id));
+	const positions = targetRoles.map((r) => r.position).sort((a, b) => b - a);
+	const posMap = new Map(roleIds.map((id, i) => [id, positions[i]]));
+	roles = sort(roles.map((r) => (posMap.has(r.id) ? { ...r, position: posMap.get(r.id)! } : r)));
+}
+
 function matchesActive(serverIdField: unknown): boolean {
 	if (!activeServerId) return false;
 	return recordIdString(serverIdField) === activeServerId;

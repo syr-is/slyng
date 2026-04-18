@@ -245,6 +245,68 @@ export class ChannelService {
 		return channel;
 	}
 
+	async reorder(serverId: string, channelIds: string[], userId: string, categoryId?: string | null) {
+		if (!channelIds.length) return { updated: 0 };
+
+		const allChannels = (await this.findByServer(serverId)) as any[];
+		const channelMap = new Map(allChannels.map((c) => [stringToRecordId.encode(c.id), c]));
+
+		const toReorder: any[] = [];
+		for (const id of channelIds) {
+			const ch = channelMap.get(id);
+			if (!ch) throw new NotFoundException('Channel not found');
+			toReorder.push(ch);
+		}
+
+		const positions = toReorder.map((c) => c.position as number).sort((a, b) => a - b);
+		while (positions.length < toReorder.length) {
+			positions.push((positions[positions.length - 1] ?? -1) + 1);
+		}
+
+		const wantCatRef = categoryId !== undefined
+			? (categoryId ? stringToRecordId.decode(categoryId) : null)
+			: undefined;
+
+		let count = 0;
+		for (let i = 0; i < toReorder.length; i++) {
+			const channel = toReorder[i];
+			const chId = stringToRecordId.encode(channel.id);
+			const merge: Record<string, unknown> = { updated_at: new Date() };
+			const changes: Record<string, unknown> = {};
+
+			if (channel.position !== positions[i]) {
+				merge.position = positions[i];
+				changes.position = { from: channel.position, to: positions[i] };
+			}
+
+			if (wantCatRef !== undefined) {
+				const oldCat = channel.category_id ? stringToRecordId.encode(channel.category_id) : null;
+				if (oldCat !== (categoryId ?? null)) {
+					merge.category_id = wantCatRef;
+					changes.category_id = { from: oldCat, to: categoryId ?? null };
+				}
+			}
+
+			if (!Object.keys(changes).length) continue;
+
+			await this.channels.merge(chId, merge);
+			const updated = await this.channels.findById(chId);
+			this.gateway?.emitToServer(serverId, { op: WsOp.CHANNEL_UPDATE, d: updated });
+			await this.audit.record({
+				serverId,
+				actorId: userId,
+				action: 'channel_update',
+				targetKind: 'channel',
+				targetId: chId,
+				channelId: chId,
+				metadata: { changes, name: channel.name }
+			});
+			count++;
+		}
+
+		return { updated: count };
+	}
+
 	async findDMChannels(userId: string) {
 		const myParticipations = await this.participants.findMany({ user_id: userId });
 		if (!myParticipations.length) return [];

@@ -111,6 +111,30 @@ export function setServerCategories(cats: CategoryData[]) {
 	serverCategories = cats;
 }
 
+export function reorderChannels(channelIds: string[], categoryId?: string | null) {
+	const targets = serverChannels.filter((c) => channelIds.includes(c.id));
+	const positions = targets.map((c) => c.position).sort((a, b) => a - b);
+	while (positions.length < channelIds.length) positions.push((positions.at(-1) ?? -1) + 1);
+	const posMap = new Map(channelIds.map((id, i) => [id, positions[i]]));
+	serverChannels = serverChannels
+		.map((c) => {
+			if (!posMap.has(c.id)) return c;
+			const update = { ...c, position: posMap.get(c.id)! };
+			if (categoryId !== undefined) update.category_id = categoryId ?? undefined;
+			return update;
+		})
+		.sort((a, b) => a.position - b.position);
+}
+
+export function reorderCategories(categoryIds: string[]) {
+	const targets = serverCategories.filter((c) => categoryIds.includes(c.id));
+	const positions = targets.map((c) => c.position).sort((a, b) => a - b);
+	const posMap = new Map(categoryIds.map((id, i) => [id, positions[i]]));
+	serverCategories = serverCategories
+		.map((c) => (posMap.has(c.id) ? { ...c, position: posMap.get(c.id)! } : c))
+		.sort((a, b) => a.position - b.position);
+}
+
 // ── Realtime sidebar updates ──
 
 function matchesActiveServer(serverIdField: unknown): boolean {
@@ -132,7 +156,7 @@ onWsEvent(WsOp.CHANNEL_UPDATE, (data) => {
 	if (idx < 0) return;
 	const next = [...serverChannels];
 	next[idx] = { ...next[idx], ...ch };
-	serverChannels = next;
+	serverChannels = next.sort((a, b) => a.position - b.position);
 });
 
 onWsEvent(WsOp.CHANNEL_DELETE, (data) => {
