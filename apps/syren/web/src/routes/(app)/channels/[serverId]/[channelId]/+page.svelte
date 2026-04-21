@@ -282,6 +282,17 @@
 		}
 	}
 
+	function formatDateLabel(date: Date): string {
+		const now = new Date();
+		const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+		const target = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+		const diff = today.getTime() - target.getTime();
+		const days = diff / (1000 * 60 * 60 * 24);
+		if (days === 0) return 'Today';
+		if (days === 1) return 'Yesterday';
+		return date.toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' });
+	}
+
 	function handleReply(messageId: string) {
 		// Ignore duplicates; append up to MAX_REPLIES total
 		if (replyTo.some((r) => r.id === messageId)) return;
@@ -420,7 +431,17 @@
 				</div>
 			{:else}
 				<div bind:this={messagesInner} class="flex min-h-full flex-col justify-end py-4">
-					{#each groupedMessages as { msg: message, grouped } (message.id)}
+					{#each groupedMessages as { msg: message, grouped }, idx (message.id)}
+						{@const msgDate = new Date(message.created_at).toDateString()}
+						{@const prevDate = idx > 0 ? new Date(groupedMessages[idx - 1].msg.created_at).toDateString() : null}
+						{#if msgDate !== prevDate}
+							<div class="relative my-4 flex items-center justify-center">
+								<div class="absolute inset-0 flex items-center"><div class="w-full border-t border-border"></div></div>
+								<span class="relative bg-background px-3 text-xs font-medium text-muted-foreground">
+									{formatDateLabel(new Date(message.created_at))}
+								</span>
+							</div>
+						{/if}
 						<MessageItem
 							{message}
 							{grouped}
