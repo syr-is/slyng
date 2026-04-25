@@ -19,5 +19,10 @@ export default defineConfig({
 	envPrefix: ['VITE_', 'TAURI_'],
 	ssr: {
 		noExternal: [/^@syren\/(ui|app-core)($|\/)/]
+	},
+	resolve: {
+		// See web/vite.config.ts — same singleton-store duplication concern
+		// when @syren/app-core is hard-copied into multiple node_modules.
+		dedupe: ['@syren/app-core', '@syren/ui', '@syren/types', 'svelte']
 	}
 });
