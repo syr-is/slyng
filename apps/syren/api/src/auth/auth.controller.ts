@@ -6,6 +6,22 @@ import type { Request, Response } from 'express';
 
 const SESSION_COOKIE = 'syren_session';
 
+/**
+ * A redirect target is allowed when it is either:
+ *  - a same-origin path on the API host (legacy web behavior), or
+ *  - an absolute URL under `tauri://localhost/...` so the Tauri native shell
+ *    can round-trip back to its bundled origin after OAuth instead of
+ *    landing on the deployed web app.
+ *
+ * Any other shape (full https URL, javascript:, etc.) is rejected — this
+ * stops the field from being a generic open redirect.
+ */
+function isAllowedRedirect(value: unknown): value is string {
+	if (typeof value !== 'string' || !value) return false;
+	if (value.startsWith('/')) return true;
+	return /^tauri:\/\/localhost\/[^\s]*$/.test(value);
+}
+
 @ApiTags('auth')
 @Controller('auth')
 export class AuthController {
@@ -47,7 +63,7 @@ export class AuthController {
 			maxAge: 600 * 1000
 		};
 		res.cookie('syren_pending_instance', instanceUrl, cookieOpts);
-		if (body.redirect && typeof body.redirect === 'string' && body.redirect.startsWith('/')) {
+		if (isAllowedRedirect(body.redirect)) {
 			res.cookie('syren_post_login_redirect', body.redirect, cookieOpts);
 		}
 
@@ -136,7 +152,7 @@ export class AuthController {
 				maxAge: 30 * 24 * 60 * 60 * 1000 // 30 days
 			});
 
-			const target = postLoginRedirect && postLoginRedirect.startsWith('/') ? postLoginRedirect : '/channels/@me';
+			const target = isAllowedRedirect(postLoginRedirect) ? postLoginRedirect : '/channels/@me';
 			return res.redirect(target);
 		} catch (err) {
 			const msg = err instanceof Error ? err.message : 'Auth failed';

@@ -41,7 +41,12 @@
 				method: 'POST',
 				credentials: 'include',
 				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({ instance_url: normalized })
+				body: JSON.stringify({
+					instance_url: normalized,
+					// Round-trip back to the native shell after OAuth instead
+					// of landing on the deployed web app served by the API host.
+					redirect: 'tauri://localhost/channels/@me'
+				})
 			});
 			const data = await res.json();
 			if (!res.ok) {
