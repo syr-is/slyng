@@ -16,17 +16,20 @@
 <Toaster richColors position="bottom-right" />
 
 <style>
-	/* Hard-bake the safe-area insets at the layout root so every screen
-	 * — setup, login, the chat tree — sits inside the visible region.
+	/* Block-level safe-area shell. Flow layout (no position: fixed —
+	 * fixed elements interact poorly with the iOS software keyboard).
 	 * Combined with the `h-screen` / `min-h-screen` overrides in app.css
-	 * (which subtract the same insets) full-viewport children fit exactly. */
+	 * (which subtract the same insets) full-viewport children fit exactly.
+	 *
+	 * Padding is supplied with the `max(...)` guard so we never go below
+	 * the constant fallback — useful in WebViews that report 0 for the
+	 * env values even though the page does render under the unsafe area. */
 	.app-shell {
-		position: fixed;
-		inset: 0;
-		padding-top: env(safe-area-inset-top);
-		padding-right: env(safe-area-inset-right);
-		padding-bottom: env(safe-area-inset-bottom);
-		padding-left: env(safe-area-inset-left);
+		min-height: 100dvh;
+		padding-top: max(env(safe-area-inset-top), 0px);
+		padding-right: max(env(safe-area-inset-right), 0px);
+		padding-bottom: max(env(safe-area-inset-bottom), 0px);
+		padding-left: max(env(safe-area-inset-left), 0px);
 		box-sizing: border-box;
 		display: flex;
 		flex-direction: column;

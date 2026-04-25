@@ -20,14 +20,28 @@
 	let { rail, sidebar, main, members, desktopMinPx = 768 }: Props = $props();
 
 	let pane = $state<Pane>('main');
-	let isDesktop = $state(false);
+
+	// Desktop = wide AND fine pointer. A 1024-px iPad in portrait has
+	// `pointer: coarse`, so we still give it the mobile drawer UX rather
+	// than cramming three panes onto a touch screen.
+	function computeDesktop(): boolean {
+		if (typeof window === 'undefined') return false;
+		const wide = window.matchMedia(`(min-width: ${desktopMinPx}px)`).matches;
+		const fine = window.matchMedia('(pointer: fine)').matches;
+		return wide && fine;
+	}
+	let isDesktop = $state(computeDesktop());
 
 	onMount(() => {
-		const mq = window.matchMedia(`(min-width: ${desktopMinPx}px)`);
-		const update = () => (isDesktop = mq.matches);
-		update();
-		mq.addEventListener('change', update);
-		return () => mq.removeEventListener('change', update);
+		const mqWide = window.matchMedia(`(min-width: ${desktopMinPx}px)`);
+		const mqFine = window.matchMedia('(pointer: fine)');
+		const update = () => (isDesktop = computeDesktop());
+		mqWide.addEventListener('change', update);
+		mqFine.addEventListener('change', update);
+		return () => {
+			mqWide.removeEventListener('change', update);
+			mqFine.removeEventListener('change', update);
+		};
 	});
 
 	function onSwipe(event: SwipeCustomEvent) {
