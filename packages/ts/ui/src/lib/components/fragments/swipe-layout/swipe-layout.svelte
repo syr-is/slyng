@@ -1,6 +1,7 @@
 <script lang="ts">
-	import { onMount, type Snippet } from 'svelte';
+	import { type Snippet } from 'svelte';
 	import { useSwipe, type SwipeCustomEvent } from 'svelte-gestures';
+	import { IsMobile } from '../../ui/sidebar/is-mobile.svelte.js';
 
 	type Pane = 'left' | 'main' | 'right';
 
@@ -21,28 +22,11 @@
 
 	let pane = $state<Pane>('main');
 
-	// Desktop = wide AND fine pointer. A 1024-px iPad in portrait has
-	// `pointer: coarse`, so we still give it the mobile drawer UX rather
-	// than cramming three panes onto a touch screen.
-	function computeDesktop(): boolean {
-		if (typeof window === 'undefined') return false;
-		const wide = window.matchMedia(`(min-width: ${desktopMinPx}px)`).matches;
-		const fine = window.matchMedia('(pointer: fine)').matches;
-		return wide && fine;
-	}
-	let isDesktop = $state(computeDesktop());
-
-	onMount(() => {
-		const mqWide = window.matchMedia(`(min-width: ${desktopMinPx}px)`);
-		const mqFine = window.matchMedia('(pointer: fine)');
-		const update = () => (isDesktop = computeDesktop());
-		mqWide.addEventListener('change', update);
-		mqFine.addEventListener('change', update);
-		return () => {
-			mqWide.removeEventListener('change', update);
-			mqFine.removeEventListener('change', update);
-		};
-	});
+	// Use the same `IsMobile` primitive the sidebar / syner relies on —
+	// straight `(max-width: <breakpoint - 1>px)` matchMedia, no pointer
+	// quirks. Anything wider stays in the static three-pane desktop view.
+	const isMobile = new IsMobile(desktopMinPx);
+	const isDesktop = $derived(!isMobile.current);
 
 	function onSwipe(event: SwipeCustomEvent) {
 		if (isDesktop) return;
