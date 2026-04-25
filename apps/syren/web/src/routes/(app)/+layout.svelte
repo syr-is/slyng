@@ -1,30 +1,31 @@
 <script lang="ts">
 	import { onDestroy } from 'svelte';
 	import { toast } from 'svelte-sonner';
-	import ServerList from '$lib/components/server-list.svelte';
-	import CreateServerDialog from '$lib/components/create-server-dialog.svelte';
-	import ScreenShareView from '$lib/components/screen-share-view.svelte';
-	import { setServers } from '$lib/stores/servers.svelte';
-	import { checkAuth, getAuth } from '$lib/stores/auth.svelte';
-	import { connectWs, disconnectWs } from '$lib/stores/ws.svelte';
-	import { getPresenceData } from '$lib/stores/presence.svelte';
-	import { startIdleWatcher, stopIdleWatcher, syncStatus } from '$lib/stores/idle.svelte';
-	import { api } from '$lib/api';
+	import ServerList from '@syren/ui/fragments/server-list.svelte';
+	import CreateServerDialog from '@syren/ui/fragments/create-server-dialog.svelte';
+	import ScreenShareView from '@syren/ui/fragments/screen-share-view.svelte';
+	import SwipeLayout from '@syren/ui/fragments/swipe-layout';
+	import { setServers } from '@syren/app-core/stores/servers.svelte';
+	import { checkAuth, getAuth } from '@syren/app-core/stores/auth.svelte';
+	import { connectWs, disconnectWs } from '@syren/app-core/stores/ws.svelte';
+	import { getPresenceData } from '@syren/app-core/stores/presence.svelte';
+	import { startIdleWatcher, stopIdleWatcher, syncStatus } from '@syren/app-core/stores/idle.svelte';
+	import { api } from '@syren/app-core/api';
 	// Side-effect imports — ensure WS listeners in these stores register
 	// BEFORE connectWs() runs, so we don't miss the READY snapshot or
 	// any messages that arrive in the gap before child pages mount.
-	import '$lib/stores/presence.svelte';
-	import '$lib/stores/messages.svelte';
-	import '$lib/stores/roles.svelte';
-	import '$lib/stores/members.svelte';
-	import '$lib/stores/profiles.svelte';
-	import '$lib/stores/stories.svelte';
-	import '$lib/stores/emojis.svelte';
-	import '$lib/stores/gifs.svelte';
-	import '$lib/stores/typing.svelte';
-	import '$lib/stores/posts.svelte';
-	import { loadTrustedDomains } from '$lib/stores/trusted-domains.svelte';
-	import { loadRelations, clearRelations } from '$lib/stores/relations.svelte';
+	import '@syren/app-core/stores/presence.svelte';
+	import '@syren/app-core/stores/messages.svelte';
+	import '@syren/app-core/stores/roles.svelte';
+	import '@syren/app-core/stores/members.svelte';
+	import '@syren/app-core/stores/profiles.svelte';
+	import '@syren/app-core/stores/stories.svelte';
+	import '@syren/app-core/stores/emojis.svelte';
+	import '@syren/app-core/stores/gifs.svelte';
+	import '@syren/app-core/stores/typing.svelte';
+	import '@syren/app-core/stores/posts.svelte';
+	import { loadTrustedDomains } from '@syren/app-core/stores/trusted-domains.svelte';
+	import { loadRelations, clearRelations } from '@syren/app-core/stores/relations.svelte';
 
 	let { children } = $props();
 	let showCreateServer = $state(false);
@@ -48,7 +49,7 @@
 		}
 
 		// Connect WebSocket — server auto-identifies from httpOnly cookie
-		connectWs(window.location.origin);
+		connectWs();
 		startIdleWatcher();
 		loadTrustedDomains();
 		loadRelations();
@@ -91,11 +92,17 @@
 	</div>
 {:then ready}
 	{#if ready}
-		<div class="flex h-screen overflow-hidden bg-background">
-			<ServerList onCreateServer={() => (showCreateServer = true)} />
-			<div class="flex min-h-0 min-w-0 flex-1">
-				{@render children?.()}
-			</div>
+		<div class="h-screen overflow-hidden bg-background">
+			<SwipeLayout>
+				{#snippet rail()}
+					<ServerList onCreateServer={() => (showCreateServer = true)} />
+				{/snippet}
+				{#snippet main()}
+					<div class="flex h-full min-h-0 min-w-0 flex-1">
+						{@render children?.()}
+					</div>
+				{/snippet}
+			</SwipeLayout>
 		</div>
 
 		<CreateServerDialog

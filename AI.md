@@ -13,9 +13,11 @@ Federated real-time chat on the **syr platform**. Users authenticate via their s
 | Path | Role |
 |---|---|
 | `apps/syren/web` | SvelteKit SPA (adapter-static). **No SSR, no server files — pure client.** |
+| `apps/syren/native` | Tauri 2 + SvelteKit shell. Same SPA, runtime-configurable API host (`@tauri-apps/plugin-store`), first-run setup screen at `/setup`. |
 | `apps/syren/api` | NestJS API + WS gateway. |
 | `packages/ts/types` | Zod v4 schemas + shared constants. Dual CJS/ESM build via tsup so `RecordId` class identity survives across the ESM/CJS boundary. |
-| `packages/ts/ui` | shadcn-svelte / bits-ui components as `@syren/ui`. |
+| `packages/ts/ui` | shadcn-svelte / bits-ui components as `@syren/ui`. Primitives in `components/ui/`; cross-app composed components in `components/fragments/` (e.g. `swipe-layout`). |
+| `packages/ts/app-core` | Runtime-configurable API host helpers (`@syren/app-core/host`). Future home for shared API client / WS / stores extracted from the web app. |
 
 ## Stack
 
@@ -104,6 +106,12 @@ The proxy is auth-gated (`syren_session` cookie), 100 MB cap, SSRF guard. Oversi
 Identity table holds DID + `syr_instance_url` only. Everything else (display_name, avatar_url, banner_url, stories, emojis) is resolved from the user's syr manifest and cached reactively in `profiles.svelte.ts` / `stories.svelte.ts` / `emojis.svelte.ts`. `PROFILE_UPDATE` WS events invalidate caches.
 
 If you're tempted to add a column to the user table for a profile field, don't.
+
+### 8a. API host is runtime-configurable
+
+Never hardcode `/api` or `window.location.origin` in client code. Use `apiUrl(path)` and `wsOrigin()` from `@syren/app-core/host`. The web app calls `setHost('')` (same-origin) in its root `+layout.ts`; the native app calls `setHost(<user-chosen URL>)` after reading from Tauri's store. Every `fetch()` against the syren API passes `credentials: 'include'` so cookies flow cross-origin from the Tauri webview.
+
+When adding shared cross-app components (used by both web and native), put them in `packages/ts/ui/src/lib/components/fragments/<name>/` and add a corresponding `./fragments/<name>` subpath export in `packages/ts/ui/package.json`. Stick to UI-level components there — non-UI logic (stores, api/ws clients) belongs in `@syren/app-core`.
 
 ### 9. Copy syr patterns rather than reinvent
 

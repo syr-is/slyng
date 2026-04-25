@@ -1,0 +1,74 @@
+{
+	"name": "@syren/app-core",
+	"version": "0.0.1",
+	"type": "module",
+	"svelte": "./dist/index.js",
+	"types": "./dist/index.d.ts",
+	"exports": {
+		".": {
+			"types": "./dist/index.d.ts",
+			"svelte": "./dist/index.js",
+			"default": "./dist/index.js"
+		},
+		"./host": {
+			"types": "./dist/host.d.ts",
+			"svelte": "./dist/host.js",
+			"import": "./dist/host.js",
+			"default": "./dist/host.js"
+		},
+		"./api": {
+			"types": "./dist/api.d.ts",
+			"svelte": "./dist/api.js",
+			"import": "./dist/api.js",
+			"default": "./dist/api.js"
+		},
+		"./stores/*": {
+			"types": "./dist/stores/*.d.ts",
+			"svelte": "./dist/stores/*.js",
+			"import": "./dist/stores/*.js",
+			"default": "./dist/stores/*.js"
+		},
+		"./utils/*": {
+			"types": "./dist/utils/*.d.ts",
+			"svelte": "./dist/utils/*.js",
+			"import": "./dist/utils/*.js",
+			"default": "./dist/utils/*.js"
+		},
+		"./voice/*": {
+			"types": "./dist/voice/*.d.ts",
+			"svelte": "./dist/voice/*.js",
+			"import": "./dist/voice/*.js",
+			"default": "./dist/voice/*.js"
+		},
+		"./upload/*": {
+			"types": "./dist/upload/*.d.ts",
+			"svelte": "./dist/upload/*.js",
+			"import": "./dist/upload/*.js",
+			"default": "./dist/upload/*.js"
+		}
+	},
+	"files": ["dist", "src", "!dist/**/*.test.*"],
+	"scripts": {
+		"dev": "chokidar \"src/**/*\" -c \"pnpm build\" --initial",
+		"build": "svelte-kit sync && svelte-package",
+		"check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
+		"prepare": "svelte-kit sync || echo ''"
+	},
+	"peerDependencies": {
+		"svelte": "^5.0.0"
+	},
+	"dependencies": {
+		"@syren/types": "workspace:*",
+		"livekit-client": "^2.18.3"
+	},
+	"devDependencies": {
+		"@sveltejs/kit": "^2.43.2",
+		"@sveltejs/package": "^2.3.10",
+		"@sveltejs/vite-plugin-svelte": "^6.2.0",
+		"chokidar-cli": "^3.0.0",
+		"svelte": "^5.39.5",
+		"svelte-check": "^4.3.2",
+		"typescript": "^5.9.2",
+		"vite": "^7.1.7"
+	}
+}

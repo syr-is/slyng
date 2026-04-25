@@ -26,6 +26,6 @@ export default defineConfig({
 		strictPort: true
 	},
 	ssr: {
-		noExternal: [/^@syren\/ui($|\/)/]
+		noExternal: [/^@syren\/(ui|app-core)($|\/)/]
 	}
 });

@@ -8,6 +8,7 @@
 		"dev": "turbo dev",
 		"dev:syren": "pnpm --filter @syren/web dev",
 		"dev:api": "pnpm --filter @syren/api dev",
+		"dev:native": "pnpm --filter @syren/native tauri:dev",
 		"build": "turbo build",
 		"preview": "turbo preview",
 		"format": "turbo format",
@@ -21,6 +22,7 @@
 	"license": "ISC",
 	"packageManager": "pnpm@10.29.3",
 	"dependencies": {
+		"@syren/app-core": "workspace:*",
 		"@syren/types": "workspace:*",
 		"@syren/ui": "workspace:*"
 	},

@@ -97,6 +97,16 @@
 			"types": "./dist/utils.d.ts",
 			"import": "./dist/utils.js",
 			"default": "./dist/utils.js"
+		},
+		"./fragments/swipe-layout": {
+			"types": "./dist/components/fragments/swipe-layout/index.d.ts",
+			"svelte": "./dist/components/fragments/swipe-layout/index.js",
+			"default": "./dist/components/fragments/swipe-layout/index.js"
+		},
+		"./fragments/*.svelte": {
+			"types": "./dist/components/fragments/*.svelte.d.ts",
+			"svelte": "./dist/components/fragments/*.svelte",
+			"default": "./dist/components/fragments/*.svelte"
 		}
 	},
 	"files": ["dist", "src", "!dist/**/*.test.*"],
@@ -111,13 +121,20 @@
 		"add": "shadcn-svelte add"
 	},
 	"peerDependencies": {
+		"@sveltejs/kit": "^2.0.0",
 		"svelte": "^5.0.0"
 	},
 	"dependencies": {
+		"@lucide/svelte": "^0.564.0",
+		"@syren/app-core": "workspace:*",
+		"@syren/types": "workspace:*",
 		"bits-ui": "^2.15.4",
 		"clsx": "^2.1.1",
 		"mode-watcher": "^1.1.0",
-		"svelte-sonner": "^1.0.5"
+		"svelte-gestures": "^5.1.3",
+		"svelte-sonner": "^1.0.5",
+		"tailwind-merge": "^3.3.1",
+		"tailwind-variants": "^3.2.2"
 	},
 	"devDependencies": {
 		"@eslint/compat": "catalog:",

@@ -10,6 +10,7 @@ import {
 } from '@nestjs/common';
 import { ApiTags, ApiOperation } from '@nestjs/swagger';
 import { ConfigService } from '@nestjs/config';
+import { Public } from '../auth/public.decorator';
 import { isIP } from 'node:net';
 import { Readable } from 'node:stream';
 import type { Response, Request } from 'express';
@@ -57,6 +58,7 @@ export class ProxyController {
 	 * GET /api/proxy?url=<target>
 	 * Streams the upstream response through to the client.
 	 */
+	@Public()
 	@Get()
 	@ApiOperation({ summary: 'Fetch a remote URL through syren to hide the client IP' })
 	async proxy(@Query('url') target: string, @Req() req: Request, @Res() res: Response) {
@@ -147,6 +149,7 @@ export class ProxyController {
 	 * HEAD the upstream and report size / type / cap status — lets the client
 	 * decide whether to render via the proxy or show the oversize warning.
 	 */
+	@Public()
 	@Get('info')
 	@ApiOperation({ summary: 'HEAD a remote URL to decide whether the proxy can serve it' })
 	async info(@Query('url') target: string, @Req() req: Request) {
@@ -212,7 +215,14 @@ export class ProxyController {
 	}
 
 	private getActorDid(req: Request): string {
-		return (req as any).user?.did ?? (req as any).user?.id ?? 'anonymous';
+		// Prefer the authenticated session's DID; fall back to client IP so the
+		// rate-limit bucket still meaningfully throttles unauthenticated callers
+		// (e.g. native app loading <img> cross-origin without cookies).
+		const did = (req as any).user?.did ?? (req as any).user?.id;
+		if (did) return did;
+		const fwd = req.headers['x-forwarded-for'];
+		const ip = Array.isArray(fwd) ? fwd[0] : fwd?.split(',')[0]?.trim();
+		return ip || req.ip || req.socket?.remoteAddress || 'anonymous';
 	}
 
 	private checkRate(did: string): boolean {
