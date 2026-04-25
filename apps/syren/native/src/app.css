@@ -1,35 +1,23 @@
 @import '@syren/ui/styles';
 
-/* Tauri mobile safe-area insets (notch, status bar, home indicator).
- * `viewport-fit=cover` in app.html opts the viewport into the
- * unsafe area and exposes env(safe-area-inset-*); on desktop those
- * resolve to 0, making this a no-op. */
+/* Tauri mobile safe-area insets (notch / status bar / home indicator).
+ * `viewport-fit=cover` in app.html unlocks env(safe-area-inset-*); on
+ * desktop those values are 0 so all utilities below become no-ops.
+ *
+ * Strategy: pad the body so all content is offset away from the
+ * unsafe area, then shrink `h-screen` / `min-h-screen` by the same
+ * amount so children that fill the viewport actually fit. */
+
 @layer base {
 	html,
 	body {
 		margin: 0;
-		box-sizing: border-box;
-		min-height: 100dvh;
 	}
-
 	body {
-		padding-top: env(safe-area-inset-top);
-		padding-right: env(safe-area-inset-right);
-		padding-bottom: env(safe-area-inset-bottom);
-		padding-left: env(safe-area-inset-left);
-	}
-
-	/* Existing layouts use `h-screen` / `min-h-screen` (100vh/svh).
-	 * Re-define them to subtract the OS-occupied insets so children
-	 * fit within the visible safe area instead of overflowing. */
-	.h-screen {
-		height: 100dvh;
-		height: calc(100dvh - env(safe-area-inset-top) - env(safe-area-inset-bottom));
-	}
-
-	.min-h-screen {
+		box-sizing: border-box;
+		padding: env(safe-area-inset-top) env(safe-area-inset-right)
+			env(safe-area-inset-bottom) env(safe-area-inset-left);
 		min-height: 100dvh;
-		min-height: calc(100dvh - env(safe-area-inset-top) - env(safe-area-inset-bottom));
 	}
 }
 
@@ -44,4 +32,46 @@
 }
 @utility pr-safe {
 	padding-right: env(safe-area-inset-right);
+}
+@utility p-safe {
+	padding: env(safe-area-inset-top) env(safe-area-inset-right)
+		env(safe-area-inset-bottom) env(safe-area-inset-left);
+}
+@utility mt-safe {
+	margin-top: env(safe-area-inset-top);
+}
+@utility mb-safe {
+	margin-bottom: env(safe-area-inset-bottom);
+}
+
+/* h-screen-safe: viewport height minus top + bottom insets.
+ * Use this on the outermost layout wrapper instead of h-screen on
+ * native, so children that rely on h-full get the right height.
+ *
+ * Source order matters — placing this AFTER `@import '@syren/ui/styles'`
+ * keeps it last in the utilities cascade so it wins over any util
+ * Tailwind generates with the same name. */
+@utility h-screen-safe {
+	height: 100dvh;
+	height: calc(100dvh - env(safe-area-inset-top) - env(safe-area-inset-bottom));
+}
+@utility min-h-screen-safe {
+	min-height: 100dvh;
+	min-height: calc(100dvh - env(safe-area-inset-top) - env(safe-area-inset-bottom));
+}
+
+/* Belt-and-braces override of the built-in Tailwind utilities so any
+ * route that already says `h-screen` / `min-h-screen` (we share these
+ * route files with the web app) automatically becomes safe-area-aware
+ * on native — no markup changes needed. The selector specificity and
+ * source order put us after Tailwind's generated rule. */
+@layer utilities {
+	.h-screen {
+		height: 100dvh;
+		height: calc(100dvh - env(safe-area-inset-top) - env(safe-area-inset-bottom));
+	}
+	.min-h-screen {
+		min-height: 100dvh;
+		min-height: calc(100dvh - env(safe-area-inset-top) - env(safe-area-inset-bottom));
+	}
 }
