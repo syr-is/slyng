@@ -4,6 +4,29 @@
 		<meta charset="utf-8" />
 		<link rel="icon" href="%sveltekit.assets%/favicon.png" />
 		<meta name="viewport" content="width=device-width, initial-scale=1" />
+		<script>
+			// If the deployed web app gets loaded inside a Tauri WebView (most
+			// commonly because an OAuth callback's `Location: tauri://...` was
+			// blocked and we landed on the API host instead), bounce back to
+			// the bundled native origin synchronously — before any SvelteKit
+			// chunk has a chance to load. Runs once; no-op on regular browsers.
+			(function () {
+				try {
+					if (
+						typeof window !== 'undefined' &&
+						('__TAURI_INTERNALS__' in window || '__TAURI__' in window) &&
+						location.host !== 'localhost' &&
+						location.host !== 'tauri.localhost' &&
+						location.protocol !== 'tauri:'
+					) {
+						var target = 'tauri://localhost' + location.pathname + location.search + location.hash;
+						location.replace(target);
+					}
+				} catch (_) {
+					/* never block initial paint */
+				}
+			})();
+		</script>
 		%sveltekit.head%
 	</head>
 	<body data-sveltekit-preload-data="hover">
