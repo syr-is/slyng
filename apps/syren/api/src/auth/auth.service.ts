@@ -1,8 +1,12 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 import { DbService } from '../db/db.service';
 import { RecordId } from 'surrealdb';
 import { UserRepository, PlatformSessionRepository } from './user.repository';
+
+const STATE_TTL_MS = 10 * 60 * 1000; // 10 minutes
+const STATE_REPLAY_TTL_MS = 11 * 60 * 1000; // slightly larger than TTL
 
 @Injectable()
 export class AuthService {
@@ -25,6 +29,78 @@ export class AuthService {
 
 	isProduction(): boolean {
 		return this.config.get('NODE_ENV', 'development') === 'production';
+	}
+
+	// In-memory single-use guard for OAuth state tokens. Cleared periodically.
+	private readonly seenStates = new Map<string, number>();
+
+	private getStateSecret(): string {
+		// SYREN_STATE_SECRET is the stable HMAC key. Fall back to the
+		// session secret or a process-lifetime random — the fallback breaks
+		// state validation across restarts but keeps dev usable.
+		let secret = this.config.get<string>('SYREN_STATE_SECRET');
+		if (secret) return secret;
+		secret = this.config.get<string>('SYREN_SESSION_SECRET');
+		if (secret) return secret;
+		if (!this._fallbackSecret) {
+			this._fallbackSecret = randomBytes(32).toString('hex');
+			this.logger.warn(
+				'No SYREN_STATE_SECRET / SYREN_SESSION_SECRET set; using a process-lifetime fallback. OAuth state validation will reset on every restart.'
+			);
+		}
+		return this._fallbackSecret;
+	}
+	private _fallbackSecret?: string;
+
+	/**
+	 * Issue a self-contained OAuth state token.
+	 * Format: `<random>.<timestamp>.<hmac>` (each part base64url).
+	 *
+	 * The cookie-less variant — survives Tauri webviews and other
+	 * environments where third-party Set-Cookie from fetch is dropped.
+	 */
+	issueOAuthState(): string {
+		const random = randomBytes(24).toString('base64url');
+		const ts = Date.now().toString();
+		const sig = this.signState(random, ts);
+		return `${random}.${ts}.${sig}`;
+	}
+
+	/**
+	 * Validate a state token. Returns true on first validation; subsequent
+	 * presentations of the same token within the replay window return false
+	 * to prevent replay.
+	 */
+	verifyOAuthState(token: string): boolean {
+		if (!token) return false;
+		const parts = token.split('.');
+		if (parts.length !== 3) return false;
+		const [random, ts, sig] = parts;
+		const expected = this.signState(random, ts);
+		const a = Buffer.from(sig, 'base64url');
+		const b = Buffer.from(expected, 'base64url');
+		if (a.length !== b.length || !timingSafeEqual(a, b)) return false;
+		const issued = Number(ts);
+		if (!Number.isFinite(issued) || Date.now() - issued > STATE_TTL_MS) return false;
+
+		// Single-use enforcement.
+		this.cleanSeenStates();
+		if (this.seenStates.has(token)) return false;
+		this.seenStates.set(token, Date.now());
+		return true;
+	}
+
+	private signState(random: string, ts: string): string {
+		return createHmac('sha256', this.getStateSecret())
+			.update(`${random}.${ts}`)
+			.digest('base64url');
+	}
+
+	private cleanSeenStates(): void {
+		const cutoff = Date.now() - STATE_REPLAY_TTL_MS;
+		for (const [k, v] of this.seenStates) {
+			if (v < cutoff) this.seenStates.delete(k);
+		}
 	}
 
 	async fetchInstanceManifest(instanceUrl: string) {

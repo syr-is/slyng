@@ -31,9 +31,14 @@ export class AuthController {
 		if (!manifest) throw new HttpException('Could not reach this instance', 400);
 		if (!manifest.platform) throw new HttpException('Instance does not support platform delegation', 400);
 
-		const state = crypto.randomUUID();
+		// Self-contained, HMAC-signed state token — no cookie required. This
+		// keeps the OAuth start working from environments where third-party
+		// Set-Cookie via fetch is dropped (Tauri webviews, ITP partitioning).
+		const state = this.authService.issueOAuthState();
 
-		// Set cookies for callback
+		// We still set a syren_pending_instance cookie as a hint, but the
+		// callback can recover the instance URL from the signed-state payload
+		// embedded in the redirect target if the cookie is missing.
 		const cookieOpts = {
 			path: '/',
 			httpOnly: true,
@@ -42,15 +47,18 @@ export class AuthController {
 			maxAge: 600 * 1000
 		};
 		res.cookie('syren_pending_instance', instanceUrl, cookieOpts);
-		res.cookie('syren_oauth_state', state, cookieOpts);
 		if (body.redirect && typeof body.redirect === 'string' && body.redirect.startsWith('/')) {
 			res.cookie('syren_post_login_redirect', body.redirect, cookieOpts);
 		}
 
+		// Embed the instance URL into the callback URL itself so the callback
+		// can recover it without a cookie.
+		const callbackUrl = `${this.authService.getCallbackUrl()}?inst=${encodeURIComponent(instanceUrl)}`;
+
 		const consentUrl = await this.authService.getConsentUrl(instanceUrl, {
 			platform_origin: this.authService.getPlatformOrigin(),
 			platform_name: 'Syren',
-			callback_url: this.authService.getCallbackUrl(),
+			callback_url: callbackUrl,
 			scopes: 'identity:read,profile:read',
 			state
 		});
@@ -79,15 +87,16 @@ export class AuthController {
 
 		if (!code) return res.redirect('/login?error=missing_code');
 
-		const storedState = req.cookies?.syren_oauth_state;
-		this.logger.debug(`State check: stored=${storedState?.slice(0, 8)} vs received=${state?.slice(0, 8)}`);
-		if (!state || state !== storedState) {
-			this.logger.warn('State mismatch — possible CSRF or missing cookie');
+		// HMAC-validated state — no dependency on the cookie jar.
+		if (!state || !this.authService.verifyOAuthState(state)) {
+			this.logger.warn('OAuth state failed HMAC verification or replayed');
 			return res.redirect('/login?error=invalid_state');
 		}
-		res.clearCookie('syren_oauth_state', { path: '/' });
 
-		const syrInstanceUrl = req.cookies?.syren_pending_instance;
+		// Recover the syr instance URL: prefer the cookie, fall back to the
+		// `inst` query param we wired through the callback URL on /login.
+		const syrInstanceUrl =
+			req.cookies?.syren_pending_instance ?? (req.query.inst as string | undefined);
 		if (!syrInstanceUrl) {
 			return res.redirect('/login?error=session_expired');
 		}
@@ -98,7 +107,9 @@ export class AuthController {
 
 		try {
 			const platformOrigin = this.authService.getPlatformOrigin();
-			const callbackUrl = this.authService.getCallbackUrl();
+			// Match the exact redirect_uri sent during /login — the token
+			// endpoint at the syr instance verifies it byte-for-byte.
+			const callbackUrl = `${this.authService.getCallbackUrl()}?inst=${encodeURIComponent(syrInstanceUrl)}`;
 
 			const tokens = await this.authService.exchangePlatformCode(
 				syrInstanceUrl, code, delegationId, callbackUrl, platformOrigin
@@ -114,8 +125,14 @@ export class AuthController {
 			res.cookie(SESSION_COOKIE, sessionId, {
 				path: '/',
 				httpOnly: true,
+				// `secure` is required when sameSite=none. In dev you'll need
+				// either NODE_ENV=production or to run the API behind HTTPS;
+				// otherwise the cookie is dropped silently by browsers.
 				secure: this.authService.isProduction(),
-				sameSite: 'lax',
+				// `none` is required for cross-site flows (Tauri webview at
+				// tauri://localhost calling app.example.com). Same-origin web
+				// is unaffected — cookies on same-origin always send.
+				sameSite: 'none',
 				maxAge: 30 * 24 * 60 * 60 * 1000 // 30 days
 			});
 
