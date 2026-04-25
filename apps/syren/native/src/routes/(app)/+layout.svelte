@@ -87,12 +87,12 @@
 </script>
 
 {#await bootstrap}
-	<div class="flex h-screen items-center justify-center bg-background">
+	<div class="flex min-h-0 flex-1 items-center justify-center bg-background">
 		<p class="text-sm text-muted-foreground">Loading...</p>
 	</div>
 {:then ready}
 	{#if ready}
-		<div class="h-screen overflow-hidden bg-background">
+		<div class="min-h-0 flex-1 overflow-hidden bg-background">
 			<SwipeLayout>
 				{#snippet rail()}
 					<ServerList onCreateServer={() => (showCreateServer = true)} />
@@ -113,7 +113,7 @@
 
 		<ScreenShareView />
 	{:else}
-		<div class="flex h-screen items-center justify-center bg-background">
+		<div class="flex min-h-0 flex-1 items-center justify-center bg-background">
 			<p class="text-sm text-muted-foreground">Redirecting to login...</p>
 		</div>
 	{/if}

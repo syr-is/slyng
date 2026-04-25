@@ -20,6 +20,6 @@
 	});
 </script>
 
-<div class="flex min-h-screen items-center justify-center bg-background">
+<div class="flex min-h-0 flex-1 items-center justify-center bg-background">
 	<p class="text-sm text-muted-foreground">{checking ? 'Connecting…' : 'Redirecting…'}</p>
 </div>
