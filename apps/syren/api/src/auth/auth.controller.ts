@@ -67,9 +67,13 @@ export class AuthController {
 			res.cookie('syren_post_login_redirect', body.redirect, cookieOpts);
 		}
 
-		// Embed the instance URL into the callback URL itself so the callback
-		// can recover it without a cookie.
-		const callbackUrl = `${this.authService.getCallbackUrl()}?inst=${encodeURIComponent(instanceUrl)}`;
+		// Embed both the instance URL AND the validated post-login redirect
+		// into the callback URL itself. This rides through the syr round-trip
+		// as URL params, surviving cross-site cookie loss in webviews where
+		// the cookies above never make it back from third-party fetch context.
+		const cbParams = new URLSearchParams({ inst: instanceUrl });
+		if (isAllowedRedirect(body.redirect)) cbParams.set('redirect', body.redirect);
+		const callbackUrl = `${this.authService.getCallbackUrl()}?${cbParams.toString()}`;
 
 		const consentUrl = await this.authService.getConsentUrl(instanceUrl, {
 			platform_origin: this.authService.getPlatformOrigin(),
@@ -123,9 +127,23 @@ export class AuthController {
 
 		try {
 			const platformOrigin = this.authService.getPlatformOrigin();
+
+			// Recover the post-login redirect from EITHER the URL query (added
+			// during /login as a cookie-independent backup) or the cookie
+			// (used by the original web flow). Validate either one.
+			const queryRedirect = req.query.redirect as string | undefined;
+			const cookieRedirect = req.cookies?.syren_post_login_redirect;
+			const postLoginRedirect = isAllowedRedirect(queryRedirect)
+				? queryRedirect
+				: isAllowedRedirect(cookieRedirect)
+					? cookieRedirect
+					: undefined;
+
 			// Match the exact redirect_uri sent during /login — the token
 			// endpoint at the syr instance verifies it byte-for-byte.
-			const callbackUrl = `${this.authService.getCallbackUrl()}?inst=${encodeURIComponent(syrInstanceUrl)}`;
+			const cbParams = new URLSearchParams({ inst: syrInstanceUrl });
+			if (postLoginRedirect) cbParams.set('redirect', postLoginRedirect);
+			const callbackUrl = `${this.authService.getCallbackUrl()}?${cbParams.toString()}`;
 
 			const tokens = await this.authService.exchangePlatformCode(
 				syrInstanceUrl, code, delegationId, callbackUrl, platformOrigin
@@ -136,8 +154,7 @@ export class AuthController {
 			const sessionId = await this.authService.createSession(tokens, syrInstanceUrl);
 
 			res.clearCookie('syren_pending_instance', { path: '/' });
-			const postLoginRedirect = req.cookies?.syren_post_login_redirect;
-			if (postLoginRedirect) res.clearCookie('syren_post_login_redirect', { path: '/' });
+			if (cookieRedirect) res.clearCookie('syren_post_login_redirect', { path: '/' });
 			res.cookie(SESSION_COOKIE, sessionId, {
 				path: '/',
 				httpOnly: true,
@@ -153,7 +170,27 @@ export class AuthController {
 			});
 
 			const target = isAllowedRedirect(postLoginRedirect) ? postLoginRedirect : '/channels/@me';
-			return res.redirect(target);
+			// Same-origin paths use a normal 302. Custom-scheme targets like
+			// `tauri://localhost/...` can be silently blocked by Android
+			// WebView / WKWebView when delivered via a cross-scheme HTTP
+			// Location header — send an HTML+JS page instead so the
+			// navigation is initiated from script (allowed for custom
+			// schemes the host app has registered).
+			if (target.startsWith('/')) {
+				return res.redirect(target);
+			}
+			const escaped = JSON.stringify(target);
+			res.status(200).type('html').send(`<!DOCTYPE html>
+<html lang="en"><head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="refresh" content="0;url=${target.replace(/"/g, '&quot;')}">
+<title>Signing you in…</title>
+<style>html,body{margin:0;height:100%;background:#0a0a0b;color:#fafafa;font-family:system-ui,sans-serif;display:flex;align-items:center;justify-content:center}</style>
+</head><body>
+<p>Signing you in…</p>
+<script>window.location.replace(${escaped});</script>
+</body></html>`);
 		} catch (err) {
 			const msg = err instanceof Error ? err.message : 'Auth failed';
 			return res.redirect(`/login?error=${encodeURIComponent(msg)}`);
