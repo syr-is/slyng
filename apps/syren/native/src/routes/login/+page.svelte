@@ -43,9 +43,10 @@
 				headers: { 'Content-Type': 'application/json' },
 				body: JSON.stringify({
 					instance_url: normalized,
-					// Round-trip back to the native shell after OAuth instead
-					// of landing on the deployed web app served by the API host.
-					redirect: 'tauri://localhost/channels/@me'
+					// Round-trip back to whatever native origin the current
+					// platform uses — `tauri://localhost` on macOS/iOS,
+					// `http://tauri.localhost` on Android/Windows/Linux.
+					redirect: `${location.origin}/channels/@me`
 				})
 			});
 			const data = await res.json();

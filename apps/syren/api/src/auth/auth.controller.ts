@@ -9,9 +9,11 @@ const SESSION_COOKIE = 'syren_session';
 /**
  * A redirect target is allowed when it is either:
  *  - a same-origin path on the API host (legacy web behavior), or
- *  - an absolute URL under `tauri://localhost/...` so the Tauri native shell
- *    can round-trip back to its bundled origin after OAuth instead of
- *    landing on the deployed web app.
+ *  - an absolute URL under one of the bundled Tauri shell origins, so the
+ *    native app can round-trip back to itself after OAuth instead of
+ *    landing on the deployed web app. Tauri uses different schemes per
+ *    platform: `tauri://localhost` on macOS/iOS,
+ *    `http://tauri.localhost` (or https) on Android/Windows/Linux.
  *
  * Any other shape (full https URL, javascript:, etc.) is rejected — this
  * stops the field from being a generic open redirect.
@@ -19,7 +21,7 @@ const SESSION_COOKIE = 'syren_session';
 function isAllowedRedirect(value: unknown): value is string {
 	if (typeof value !== 'string' || !value) return false;
 	if (value.startsWith('/')) return true;
-	return /^tauri:\/\/localhost\/[^\s]*$/.test(value);
+	return /^(tauri:\/\/localhost|https?:\/\/tauri\.localhost)\/[^\s]*$/.test(value);
 }
 
 @ApiTags('auth')

@@ -6,22 +6,26 @@
 		<meta name="viewport" content="width=device-width, initial-scale=1" />
 		<script>
 			// If the deployed web app gets loaded inside a Tauri WebView (most
-			// commonly because an OAuth callback's `Location: tauri://...` was
-			// blocked and we landed on the API host instead), bounce back to
-			// the bundled native origin synchronously — before any SvelteKit
-			// chunk has a chance to load. Runs once; no-op on regular browsers.
+			// commonly because an OAuth callback's `Location: <native-scheme>`
+			// was blocked and we landed on the API host instead), bounce back
+			// to the bundled native origin synchronously — before any
+			// SvelteKit chunk has a chance to load. No-op on regular browsers.
+			//
+			// Tauri uses different schemes per platform:
+			//   - macOS / iOS:                   tauri://localhost
+			//   - Android / Windows / Linux:     http://tauri.localhost
 			(function () {
 				try {
-					if (
-						typeof window !== 'undefined' &&
-						('__TAURI_INTERNALS__' in window || '__TAURI__' in window) &&
-						location.host !== 'localhost' &&
-						location.host !== 'tauri.localhost' &&
-						location.protocol !== 'tauri:'
-					) {
-						var target = 'tauri://localhost' + location.pathname + location.search + location.hash;
-						location.replace(target);
-					}
+					if (typeof window === 'undefined') return;
+					var inTauri = '__TAURI_INTERNALS__' in window || '__TAURI__' in window;
+					if (!inTauri) return;
+					var alreadyNative =
+						location.host === 'tauri.localhost' || location.protocol === 'tauri:';
+					if (alreadyNative) return;
+					var ua = navigator.userAgent || '';
+					var isApple = /iPad|iPhone|iPod|Mac OS X/.test(ua);
+					var origin = isApple ? 'tauri://localhost' : 'http://tauri.localhost';
+					location.replace(origin + location.pathname + location.search + location.hash);
 				} catch (_) {
 					/* never block initial paint */
 				}
