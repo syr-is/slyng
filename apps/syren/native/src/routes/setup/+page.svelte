@@ -15,8 +15,22 @@
 	function normalize(input: string): string {
 		let s = input.trim().replace(/\/+$/, '');
 		if (!s) return '';
-		if (!/^https?:\/\//i.test(s)) s = `https://${s}`;
-		return s;
+		// User-explicit protocol always wins — http://localhost is preserved
+		// for local-testing scenarios.
+		if (/^https?:\/\//i.test(s)) return s;
+		// No protocol: default to http:// for localhost / loopback / private
+		// LAN / `.local` (mDNS) hosts; https:// for everything else.
+		const host = s.split('/')[0].split(':')[0].toLowerCase();
+		const isLocal =
+			host === 'localhost' ||
+			host === '127.0.0.1' ||
+			host === '::1' ||
+			host.endsWith('.local') ||
+			host.endsWith('.localhost') ||
+			/^10\./.test(host) ||
+			/^192\.168\./.test(host) ||
+			/^172\.(1[6-9]|2\d|3[01])\./.test(host);
+		return `${isLocal ? 'http' : 'https'}://${s}`;
 	}
 
 	async function testAndSave(e: SubmitEvent) {
@@ -87,7 +101,10 @@
 				disabled={testing}
 			/>
 			<p class="text-xs text-muted-foreground">
-				Enter the host. <span class="font-mono">https://</span> is added automatically.
+				Enter the host. <span class="font-mono">https://</span> is added automatically (or
+				<span class="font-mono">http://</span> for <span class="font-mono">localhost</span> / LAN
+				addresses). To force one, type <span class="font-mono">http://</span> or
+				<span class="font-mono">https://</span> yourself.
 			</p>
 			{#if error}
 				<p class="text-sm text-destructive">{error}</p>
