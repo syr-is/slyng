@@ -50,6 +50,7 @@
 		"vitest": "^4.0.18"
 	},
 	"dependencies": {
+		"@syren/app-core": "workspace:*",
 		"@syren/types": "workspace:*",
 		"@syren/ui": "workspace:*",
 		"clsx": "^2.1.1",

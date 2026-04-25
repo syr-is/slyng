@@ -28,12 +28,18 @@ export class UploadController {
 	async finalize(
 		@Param('uploadId') uploadId: string,
 		@Body() body: { sha256?: string; width?: number; height?: number },
-		@Req() req: any
+		@Req() req: any,
+		@Res({ passthrough: true }) res: Response
 	) {
 		const userId = req.user?.id;
 		if (!userId) throw new HttpException('Unauthorized', 401);
 		try {
-			return await this.uploads.finalize(uploadId, userId, body);
+			const result = await this.uploads.finalize(uploadId, userId, body);
+			if (result && 'status' in result && result.status === 'finalizing') {
+				res.status(202);
+				return result;
+			}
+			return result;
 		} catch (err) {
 			throw new HttpException(err instanceof Error ? err.message : 'Failed', 400);
 		}

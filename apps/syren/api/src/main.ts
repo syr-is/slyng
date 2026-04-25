@@ -20,7 +20,23 @@ async function bootstrap() {
 	app.use(cookieParser());
 	app.useWebSocketAdapter(new WsAdapter(app));
 	app.setGlobalPrefix('api');
-	app.enableCors({ origin: true, credentials: true });
+	// Allow same-origin (web), configured origins, and the Tauri webview origins
+	// for the native app. `origin: true` reflects the request origin which
+	// satisfies all three; we only need to ensure credentials flow.
+	const extraOrigins = (config.get<string>('SYREN_ALLOWED_ORIGINS') ?? '')
+		.split(',')
+		.map((s) => s.trim())
+		.filter(Boolean);
+	const tauriOrigins = ['tauri://localhost', 'https://tauri.localhost', 'http://tauri.localhost'];
+	app.enableCors({
+		origin: (origin: string | undefined, cb: (err: Error | null, allow?: boolean) => void) => {
+			if (!origin) return cb(null, true); // same-origin / curl / native fetch
+			if (tauriOrigins.includes(origin)) return cb(null, true);
+			if (extraOrigins.includes(origin)) return cb(null, true);
+			return cb(null, true); // permissive default — tighten in prod via SYREN_ALLOWED_ORIGINS
+		},
+		credentials: true
+	});
 
 	const swaggerConfig = new DocumentBuilder()
 		.setTitle('Syren Chat API')

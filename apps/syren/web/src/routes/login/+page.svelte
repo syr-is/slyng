@@ -1,7 +1,8 @@
 <script lang="ts">
 	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
-	import { checkAuth } from '$lib/stores/auth.svelte';
+	import { checkAuth } from '@syren/app-core/stores/auth.svelte';
+	import { apiUrl } from '@syren/app-core/host';
 
 	let activeTab = $state<'syr' | 'local'>('syr');
 	let loading = $state(false);
@@ -32,8 +33,9 @@
 
 		try {
 			const postLoginRedirect = page.url.searchParams.get('redirect') ?? undefined;
-			const res = await fetch('/api/auth/login', {
+			const res = await fetch(apiUrl('/auth/login'), {
 				method: 'POST',
+				credentials: 'include',
 				headers: { 'Content-Type': 'application/json' },
 				body: JSON.stringify({ instance_url: instanceUrl.trim(), redirect: postLoginRedirect })
 			});

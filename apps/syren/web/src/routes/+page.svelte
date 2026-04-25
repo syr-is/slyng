@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { goto } from '$app/navigation';
-	import { checkAuth } from '$lib/stores/auth.svelte';
+	import { checkAuth } from '@syren/app-core/stores/auth.svelte';
 
 	const redirect = checkAuth().then((user) => {
 		goto(user ? '/channels/@me' : '/login', { replaceState: true });
