@@ -5,6 +5,7 @@
 	import { Input } from '@syren/ui/input';
 	import { Label } from '@syren/ui/label';
 	import { apiUrl } from '@syren/app-core/host';
+	import { normalizeHost, isValidHost } from '$lib/normalize-host';
 	import { Loader2 } from '@lucide/svelte';
 
 	let instanceUrl = $state('');
@@ -24,31 +25,11 @@
 		errorMsg = map[urlError] ?? decodeURIComponent(urlError);
 	}
 
-	function normalizeInstance(input: string): string {
-		let s = input.trim().replace(/\/+$/, '');
-		if (!s) return '';
-		// Honour user-explicit protocol so http://localhost works for dev.
-		if (/^https?:\/\//i.test(s)) return s;
-		const host = s.split('/')[0].split(':')[0].toLowerCase();
-		const isLocal =
-			host === 'localhost' ||
-			host === '127.0.0.1' ||
-			host === '::1' ||
-			host.endsWith('.local') ||
-			host.endsWith('.localhost') ||
-			/^10\./.test(host) ||
-			/^192\.168\./.test(host) ||
-			/^172\.(1[6-9]|2\d|3[01])\./.test(host);
-		return `${isLocal ? 'http' : 'https'}://${s}`;
-	}
-
 	async function handleSyrLogin(e: SubmitEvent) {
 		e.preventDefault();
-		const normalized = normalizeInstance(instanceUrl);
+		const normalized = normalizeHost(instanceUrl);
 		if (!normalized) return;
-		try {
-			new URL(normalized);
-		} catch {
+		if (!isValidHost(normalized)) {
 			errorMsg = "That doesn't look like a valid URL.";
 			return;
 		}

@@ -6,43 +6,21 @@
 	import { Label } from '@syren/ui/label';
 	import { Loader2 } from '@lucide/svelte';
 	import { setStoredHost } from '$lib/host-store';
+	import { normalizeHost, isValidHost } from '$lib/normalize-host';
 	import { setHost } from '@syren/app-core/host';
 
 	let url = $state('');
 	let testing = $state(false);
 	let error = $state<string | null>(null);
 
-	function normalize(input: string): string {
-		let s = input.trim().replace(/\/+$/, '');
-		if (!s) return '';
-		// User-explicit protocol always wins — http://localhost is preserved
-		// for local-testing scenarios.
-		if (/^https?:\/\//i.test(s)) return s;
-		// No protocol: default to http:// for localhost / loopback / private
-		// LAN / `.local` (mDNS) hosts; https:// for everything else.
-		const host = s.split('/')[0].split(':')[0].toLowerCase();
-		const isLocal =
-			host === 'localhost' ||
-			host === '127.0.0.1' ||
-			host === '::1' ||
-			host.endsWith('.local') ||
-			host.endsWith('.localhost') ||
-			/^10\./.test(host) ||
-			/^192\.168\./.test(host) ||
-			/^172\.(1[6-9]|2\d|3[01])\./.test(host);
-		return `${isLocal ? 'http' : 'https'}://${s}`;
-	}
-
 	async function testAndSave(e: SubmitEvent) {
 		e.preventDefault();
-		const trimmed = normalize(url);
+		const trimmed = normalizeHost(url);
 		if (!trimmed) {
 			error = 'Enter your API host URL';
 			return;
 		}
-		try {
-			new URL(trimmed);
-		} catch {
+		if (!isValidHost(trimmed)) {
 			error = "That doesn't look like a valid URL.";
 			return;
 		}
