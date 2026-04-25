@@ -12,6 +12,8 @@ COPY package.json pnpm-lock.yaml pnpm-workspace.yaml turbo.json .npmrc ./
 # Copy app and packages package.json for dependency resolution
 COPY apps/syren/web/package.json ./apps/syren/web/
 COPY packages/ts/types/package.json ./packages/ts/types/
+COPY packages/ts/ui/package.json ./packages/ts/ui/
+COPY packages/ts/app-core/package.json ./packages/ts/app-core/
 
 # Install dependencies from workspace root
 RUN pnpm install --frozen-lockfile

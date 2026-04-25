@@ -14,6 +14,7 @@ FROM base AS deps
 COPY apps/syren/api/package.json ./apps/syren/api/
 COPY packages/ts/types/package.json ./packages/ts/types/
 COPY packages/ts/ui/package.json ./packages/ts/ui/
+COPY packages/ts/app-core/package.json ./packages/ts/app-core/
 
 RUN echo "inject-workspace-packages=true" >> .npmrc
 RUN pnpm install

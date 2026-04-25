@@ -14,6 +14,7 @@ FROM base AS deps
 COPY apps/syren/web/package.json ./apps/syren/web/
 COPY packages/ts/types/package.json ./packages/ts/types/
 COPY packages/ts/ui/package.json ./packages/ts/ui/
+COPY packages/ts/app-core/package.json ./packages/ts/app-core/
 
 RUN echo "inject-workspace-packages=true" >> .npmrc
 RUN pnpm install
@@ -31,7 +32,9 @@ COPY apps/syren ./apps/syren
 COPY packages ./packages
 
 # Build workspace packages first (dist/ doesn't exist at install time with injection)
+# Order matters: types → app-core → ui (ui depends on app-core).
 RUN pnpm --filter @syren/types build
+RUN pnpm --filter @syren/app-core build
 RUN pnpm --filter @syren/ui build
 
 # Re-inject now that all dist/ folders exist
