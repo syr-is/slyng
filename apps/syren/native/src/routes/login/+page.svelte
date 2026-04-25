@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { goto } from '$app/navigation';
+	import { page } from '$app/state';
 	import { Button } from '@syren/ui/button';
 	import { Input } from '@syren/ui/input';
 	import { Label } from '@syren/ui/label';
@@ -10,9 +11,37 @@
 	let loading = $state(false);
 	let errorMsg = $state<string | null>(null);
 
+	// Surface error code from a previous OAuth callback round-trip.
+	const urlError = page.url.searchParams.get('error');
+	if (urlError) {
+		const map: Record<string, string> = {
+			invalid_state:
+				"Login session expired or got mixed up. This is usually a cookie issue — try once more, and if it keeps happening on this device, contact your admin.",
+			session_expired: 'Login session expired. Try again.',
+			missing_code: 'Sign-in was cancelled.',
+			missing_delegation_id: 'Your syr instance returned an incomplete response. Try again.'
+		};
+		errorMsg = map[urlError] ?? decodeURIComponent(urlError);
+	}
+
+	function normalizeInstance(input: string): string {
+		let s = input.trim().replace(/\/+$/, '');
+		if (!s) return '';
+		if (!/^https?:\/\//i.test(s)) s = `https://${s}`;
+		return s;
+	}
+
 	async function handleSyrLogin(e: SubmitEvent) {
 		e.preventDefault();
-		if (!instanceUrl.trim()) return;
+		const normalized = normalizeInstance(instanceUrl);
+		if (!normalized) return;
+		try {
+			new URL(normalized);
+		} catch {
+			errorMsg = "That doesn't look like a valid URL.";
+			return;
+		}
+		instanceUrl = normalized;
 		loading = true;
 		errorMsg = null;
 		try {
@@ -20,17 +49,13 @@
 				method: 'POST',
 				credentials: 'include',
 				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({ instance_url: instanceUrl.trim() })
+				body: JSON.stringify({ instance_url: normalized })
 			});
 			const data = await res.json();
 			if (!res.ok) {
 				errorMsg = data.message || 'Failed to connect';
 				return;
 			}
-			// Open consent URL in default browser; backend redirects to /api/auth/callback.
-			// On native, let the system browser handle this. Tauri's opener plugin or
-			// `window.open` with `target=_blank` both work; webview navigation also works
-			// for HTTPS hosts.
 			window.location.href = data.consent_url;
 		} catch (err) {
 			errorMsg = err instanceof Error ? err.message : 'Connection failed';
@@ -55,11 +80,19 @@
 			<Label for="instance">Instance URL</Label>
 			<Input
 				id="instance"
-				type="url"
-				placeholder="https://syr.example.com"
+				type="text"
+				inputmode="url"
+				placeholder="syr.example.com"
 				bind:value={instanceUrl}
+				autocomplete="off"
+				autocorrect="off"
+				autocapitalize="off"
+				spellcheck={false}
 				disabled={loading}
 			/>
+			<p class="text-xs text-muted-foreground">
+				Just the host. <span class="font-mono">https://</span> is added automatically.
+			</p>
 			{#if errorMsg}
 				<p class="text-sm text-destructive">{errorMsg}</p>
 			{/if}

@@ -1,1 +1,47 @@
 @import '@syren/ui/styles';
+
+/* Tauri mobile safe-area insets (notch, status bar, home indicator).
+ * `viewport-fit=cover` in app.html opts the viewport into the
+ * unsafe area and exposes env(safe-area-inset-*); on desktop those
+ * resolve to 0, making this a no-op. */
+@layer base {
+	html,
+	body {
+		margin: 0;
+		box-sizing: border-box;
+		min-height: 100dvh;
+	}
+
+	body {
+		padding-top: env(safe-area-inset-top);
+		padding-right: env(safe-area-inset-right);
+		padding-bottom: env(safe-area-inset-bottom);
+		padding-left: env(safe-area-inset-left);
+	}
+
+	/* Existing layouts use `h-screen` / `min-h-screen` (100vh/svh).
+	 * Re-define them to subtract the OS-occupied insets so children
+	 * fit within the visible safe area instead of overflowing. */
+	.h-screen {
+		height: 100dvh;
+		height: calc(100dvh - env(safe-area-inset-top) - env(safe-area-inset-bottom));
+	}
+
+	.min-h-screen {
+		min-height: 100dvh;
+		min-height: calc(100dvh - env(safe-area-inset-top) - env(safe-area-inset-bottom));
+	}
+}
+
+@utility pt-safe {
+	padding-top: env(safe-area-inset-top);
+}
+@utility pb-safe {
+	padding-bottom: env(safe-area-inset-bottom);
+}
+@utility pl-safe {
+	padding-left: env(safe-area-inset-left);
+}
+@utility pr-safe {
+	padding-right: env(safe-area-inset-right);
+}

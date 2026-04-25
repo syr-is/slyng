@@ -12,17 +12,27 @@
 	let testing = $state(false);
 	let error = $state<string | null>(null);
 
+	function normalize(input: string): string {
+		let s = input.trim().replace(/\/+$/, '');
+		if (!s) return '';
+		if (!/^https?:\/\//i.test(s)) s = `https://${s}`;
+		return s;
+	}
+
 	async function testAndSave(e: SubmitEvent) {
 		e.preventDefault();
-		const trimmed = url.trim().replace(/\/$/, '');
+		const trimmed = normalize(url);
 		if (!trimmed) {
 			error = 'Enter your API host URL';
 			return;
 		}
-		if (!/^https?:\/\//.test(trimmed)) {
-			error = 'URL must start with http:// or https://';
+		try {
+			new URL(trimmed);
+		} catch {
+			error = "That doesn't look like a valid URL.";
 			return;
 		}
+		url = trimmed; // reflect the normalized value back into the field
 		testing = true;
 		error = null;
 		try {
@@ -66,8 +76,9 @@
 			<Label for="host">API host URL</Label>
 			<Input
 				id="host"
-				type="url"
-				placeholder="https://syren.example.com"
+				type="text"
+				inputmode="url"
+				placeholder="syren.example.com"
 				bind:value={url}
 				autocomplete="off"
 				autocorrect="off"
@@ -75,6 +86,9 @@
 				spellcheck={false}
 				disabled={testing}
 			/>
+			<p class="text-xs text-muted-foreground">
+				Enter the host. <span class="font-mono">https://</span> is added automatically.
+			</p>
 			{#if error}
 				<p class="text-sm text-destructive">{error}</p>
 			{/if}
