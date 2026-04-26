@@ -134,19 +134,24 @@
 	// what we need. Hover-card UX is re-created with manual timers.
 	//
 	// `hoverOpen` is derived from a shared rune so only ONE card is open at
-	// a time across the whole app — opening this one stamps `activeId = did`
-	// on the rune, which immediately makes every other card's `hoverOpen`
-	// derivation false and closes them.
+	// a time across the whole app — opening this one stamps the rune with
+	// THIS instance's id, which immediately makes every other card's
+	// `hoverOpen` derivation false and closes them.
+	//
+	// Keyed by a unique per-instance id (not `did`!) because a single user
+	// usually has many messages on screen, and keying on `did` would open
+	// the card on every message from that sender at once.
+	const cardId = `pcard-${crypto.randomUUID()}`;
 	const active = getActiveProfileCard();
-	const hoverOpen = $derived(active.value === did);
+	const hoverOpen = $derived(active.value === cardId);
 	let menuOpen = $state(false);
 	const cardOpen = $derived(hoverOpen || menuOpen || viewerOpen);
 
 	function openCard() {
-		setActiveProfileCard(did);
+		setActiveProfileCard(cardId);
 	}
 	function closeCard() {
-		if (active.value === did) setActiveProfileCard(null);
+		if (active.value === cardId) setActiveProfileCard(null);
 	}
 
 	let hoverTimer: ReturnType<typeof setTimeout> | null = null;
