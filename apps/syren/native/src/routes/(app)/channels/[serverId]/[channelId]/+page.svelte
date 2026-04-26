@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { onDestroy } from 'svelte';
 	import { Hash, Users, Pin, ScrollText, Eye, EyeOff } from '@lucide/svelte';
 	import { goto } from '$app/navigation';
 	import { toast } from 'svelte-sonner';
@@ -8,6 +9,7 @@
 	import PinsPanel from '@syren/ui/fragments/pins-panel.svelte';
 	import VoiceRoomView from '@syren/ui/fragments/voice-room-view.svelte';
 	import { Permissions } from '@syren/types';
+	import { setPageMembers } from '$lib/page-sidebar.svelte';
 	import { api } from '@syren/app-core/api';
 	import { subscribeChannels } from '@syren/app-core/stores/ws.svelte';
 	import { setCurrentChannel, getMessages, addMessage } from '@syren/app-core/stores/messages.svelte';
@@ -60,6 +62,20 @@
 
 	const messageStore = getMessages();
 	const typingStore = getTyping();
+
+	// Members panel: register/unregister with the page-level snippet store
+	// so the (app) layout's SwipeLayout can render it as the right pane
+	// (drawer on mobile, always-visible column on desktop). Toggling
+	// `showMembers` flips registration on/off so the existing header
+	// Users-icon button still hides/reveals it.
+	$effect(() => {
+		if (showMembers) {
+			setPageMembers(membersDrawer);
+		} else {
+			setPageMembers(undefined);
+		}
+	});
+	onDestroy(() => setPageMembers(undefined));
 
 	let loadedChannelId: string | null = null;
 
@@ -479,14 +495,17 @@
 	</div>
 	{/if}
 
-	{#if showMembers}
-		<MemberList
-			{serverId}
-			serverOwnerId={serverState.activeServerOwnerId}
-			canManageRoles={perms.canManageRoles}
-		/>
-	{/if}
+	<!-- Members panel is rendered in SwipeLayout's right pane (drawer on
+	     mobile, always-visible column on desktop) via setPageMembers above. -->
 </div>
+
+{#snippet membersDrawer()}
+	<MemberList
+		{serverId}
+		serverOwnerId={serverState.activeServerOwnerId}
+		canManageRoles={perms.canManageRoles}
+	/>
+{/snippet}
 
 <PinsPanel
 	open={showPins}

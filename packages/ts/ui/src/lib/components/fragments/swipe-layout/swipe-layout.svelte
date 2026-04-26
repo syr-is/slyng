@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { type Snippet } from 'svelte';
-	import { Menu } from '@lucide/svelte';
+	import { Menu, Users } from '@lucide/svelte';
 	import { useSwipe, type SwipeCustomEvent } from 'svelte-gestures';
 	import { IsMobile } from '../../ui/sidebar/is-mobile.svelte.js';
 
@@ -55,6 +55,10 @@
 	function openDrawer() {
 		if (pane === 'main') pane = 'left';
 	}
+
+	function openMembers() {
+		if (pane === 'main') pane = 'right';
+	}
 </script>
 
 {#if isDesktop}
@@ -106,6 +110,16 @@
 						onclick={openDrawer}
 					>
 						<Menu class="h-4 w-4" />
+					</button>
+				{/if}
+				{#if pane === 'main' && members}
+					<button
+						type="button"
+						aria-label="Open members"
+						class="absolute right-2 top-2 z-30 flex h-8 w-8 items-center justify-center rounded-md bg-background/85 text-foreground shadow-md ring-1 ring-border backdrop-blur-sm hover:bg-background"
+						onclick={openMembers}
+					>
+						<Users class="h-4 w-4" />
 					</button>
 				{/if}
 			</div>

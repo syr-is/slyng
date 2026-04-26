@@ -163,7 +163,7 @@
 						{#if canModerate}
 							<button
 								onclick={() => handleUnpin(pin.id)}
-								class="shrink-0 self-start rounded p-1 text-muted-foreground opacity-0 transition-opacity hover:bg-accent hover:text-destructive group-hover:opacity-100"
+								class="shrink-0 self-start rounded p-1 text-muted-foreground opacity-0 transition-opacity hover:bg-accent hover:text-destructive group-hover:opacity-100 tap:opacity-100"
 								title="Unpin"
 							>
 								<PinOff class="h-4 w-4" />

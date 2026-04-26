@@ -5,6 +5,7 @@
 	import { ModeWatcher } from 'mode-watcher';
 	import * as Tooltip from '@syren/ui/tooltip';
 	import { setApiTransport, type ApiTransport } from '@syren/app-core/host';
+	import { setWsTokenProvider } from '@syren/app-core/stores/ws.svelte';
 	import { getStoredHostSync } from '$lib/host-store';
 
 	let { children } = $props();
@@ -31,6 +32,21 @@
 	}
 	console.log('[+layout root] setApiTransport called; proxy fn type =', typeof proxy);
 	setApiTransport(proxy as ApiTransport);
+
+	// WS auth: native can't ride the syren_session cookie because the WS
+	// origin (app.slyng.gg) isn't the WebView origin (tauri.localhost), so
+	// the gateway's auto-identify path doesn't fire. Hand the persisted
+	// session id to ws.svelte.ts; it sends an explicit IDENTIFY after open.
+	setWsTokenProvider(async () => {
+		const apiHost = getStoredHostSync();
+		if (!apiHost) return null;
+		try {
+			return (await invoke('session_token', { apiHost })) as string | null;
+		} catch (err) {
+			console.warn('[+layout root] session_token invoke failed', err);
+			return null;
+		}
+	});
 </script>
 
 <ModeWatcher />

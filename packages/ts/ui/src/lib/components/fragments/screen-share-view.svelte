@@ -84,7 +84,7 @@
 					></video>
 					<div class="absolute inset-x-0 bottom-0 flex items-center justify-between gap-1 bg-gradient-to-t from-black/80 to-transparent px-2 py-1 text-[11px] text-white">
 						<span class="truncate">{displayName(profile, userId)}</span>
-						<div class="flex gap-0.5 opacity-0 transition-opacity group-hover:opacity-100">
+						<div class="flex gap-0.5 opacity-0 transition-opacity group-hover:opacity-100 tap:opacity-100">
 							<button
 								onclick={() => (expandedUser = userId)}
 								class="rounded bg-black/60 p-1 hover:bg-black/80"

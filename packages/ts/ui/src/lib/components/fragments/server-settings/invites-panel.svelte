@@ -231,7 +231,7 @@
 						>
 							<span class="truncate">{row.label}</span>
 							{#if canEdit(row)}
-								<Pencil class="h-3 w-3 opacity-0 transition-opacity group-hover:opacity-60" />
+								<Pencil class="h-3 w-3 opacity-0 transition-opacity group-hover:opacity-60 tap:opacity-60" />
 							{/if}
 						</button>
 					{:else if canEdit(row)}

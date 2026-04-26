@@ -13,6 +13,7 @@
 	import { proxied } from '@syren/app-core/utils/proxy';
 	import ProfileHoverCard from './profile-hover-card.svelte';
 	import SafeMedia from './safe-media.svelte';
+	import { IsMobile } from '../ui/sidebar/is-mobile.svelte.js';
 	import SafeLink from './safe-link.svelte';
 
 	const {
@@ -180,13 +181,34 @@
 	const senderIgnored = $derived(relations.isIgnored(message.sender_id));
 	let revealedBlocked = $state(false);
 	let expandedIgnored = $state(false);
+
+	// On touch devices the action bar can't ride hover. Tap the message
+	// body to toggle the bar; tapping a child button (react / reply /
+	// edit / delete) keeps the bar open and runs the action. Hover still
+	// works on desktop because we gate mouseenter/mouseleave on
+	// !IsMobile.current.
+	const isMobile = new IsMobile();
+	function handleRowClick(e: MouseEvent) {
+		if (!isMobile.current) return;
+		const target = e.target as HTMLElement;
+		// Ignore clicks that originated on buttons / links / inputs — the
+		// action bar's own controls live inside this same row, and we
+		// don't want a Reply tap to also collapse the bar.
+		if (target.closest('button, a, input, textarea, [role="button"], [role="menuitem"]')) return;
+		showActions = !showActions;
+		if (!showActions) {
+			showEmojiPicker = false;
+			confirmDelete = false;
+		}
+	}
 </script>
 
 <div
 	data-message-id={message.id}
 	class="group relative px-4 transition-[box-shadow] hover:bg-accent/30 {grouped ? 'py-0.5 mt-0.5' : 'py-1 mt-2'}"
-	onmouseenter={() => (showActions = true)}
-	onmouseleave={() => { showActions = false; showEmojiPicker = false; confirmDelete = false; }}
+	onmouseenter={() => { if (!isMobile.current) showActions = true; }}
+	onmouseleave={() => { if (!isMobile.current) { showActions = false; showEmojiPicker = false; confirmDelete = false; } }}
+	onclick={handleRowClick}
 >
 	{#if replyIds.length > 0}
 		<div class="ml-10 mb-0.5 flex flex-col gap-0.5">
@@ -282,7 +304,7 @@
 				 24h "16:07"); any sliver of overflow is absorbed by the
 				 surrounding gap + row padding. -->
 			<div
-				class="mt-0.5 flex h-5 w-11 shrink-0 items-start justify-center whitespace-nowrap pt-[2px] text-[10px] text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100"
+				class="mt-0.5 flex h-5 w-11 shrink-0 items-start justify-center whitespace-nowrap pt-[2px] text-[10px] text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100 tap:opacity-100"
 				title={fullTime}
 			>
 				{time}
@@ -473,7 +495,7 @@
 							{#if isOwn && onClearEmbeds}
 								<button
 									onclick={() => onClearEmbeds?.(message.id)}
-									class="absolute right-1 top-1 rounded p-0.5 text-muted-foreground opacity-0 transition-opacity hover:bg-accent hover:text-destructive group-hover:opacity-100"
+									class="absolute right-1 top-1 rounded p-0.5 text-muted-foreground opacity-0 transition-opacity hover:bg-accent hover:text-destructive group-hover:opacity-100 tap:opacity-100"
 									title="Remove embed"
 								>
 									<X class="h-3.5 w-3.5" />

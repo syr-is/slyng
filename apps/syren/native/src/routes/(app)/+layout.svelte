@@ -26,7 +26,7 @@
 	import '@syren/app-core/stores/posts.svelte';
 	import { loadTrustedDomains } from '@syren/app-core/stores/trusted-domains.svelte';
 	import { loadRelations, clearRelations } from '@syren/app-core/stores/relations.svelte';
-	import { getPageSidebar } from '$lib/page-sidebar.svelte';
+	import { getPageSidebar, getPageMembers } from '$lib/page-sidebar.svelte';
 
 	let { children } = $props();
 	let showCreateServer = $state(false);
@@ -38,6 +38,7 @@
 	// main panel — that way mobile gets a clean main view by default
 	// and swipe-right reveals rail + page sidebar together.
 	const pageSidebar = $derived(getPageSidebar().value);
+	const pageMembers = $derived(getPageMembers().value);
 
 	// Keep the idle watcher's baseline in sync with whatever the server says
 	// our real status is (restored-from-DB on reconnect, another-tab change,
@@ -104,7 +105,7 @@
 {:then ready}
 	{#if ready}
 		<div class="min-h-0 flex-1 overflow-hidden bg-background">
-			<SwipeLayout sidebar={pageSidebar}>
+			<SwipeLayout sidebar={pageSidebar} members={pageMembers}>
 				{#snippet rail()}
 					<ServerList onCreateServer={() => (showCreateServer = true)} />
 				{/snippet}
