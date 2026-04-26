@@ -4,12 +4,20 @@ mod session_store;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-	#[cfg(target_os = "ios")]
+	#[cfg(any(target_os = "ios", target_os = "android"))]
 	use tauri::Manager;
 
 	let builder = tauri::Builder::default()
 		.plugin(tauri_plugin_store::Builder::default().build())
-		.plugin(tauri_plugin_http::init())
+		.plugin(tauri_plugin_opener::init())
+		.plugin(tauri_plugin_http::init());
+
+	// Mobile: register the syren:// scheme via the deep-link plugin so
+	// the OAuth callback URL routes back into the app.
+	#[cfg(any(target_os = "android", target_os = "ios"))]
+	let builder = builder.plugin(tauri_plugin_deep_link::init());
+
+	let builder = builder
 		.manage(auth::ClientHandle::new())
 		.setup(|_app| {
 			#[cfg(target_os = "ios")]
@@ -18,6 +26,23 @@ pub fn run() {
 					ios::install_safe_area(&window);
 				}
 			}
+
+			#[cfg(any(target_os = "android", target_os = "ios"))]
+			{
+				use tauri_plugin_deep_link::DeepLinkExt;
+				let app_handle = _app.handle().clone();
+				_app.deep_link().on_open_url(move |event| {
+					for url in event.urls() {
+						if url.scheme() == "syren"
+							&& url.host_str() == Some("auth")
+							&& url.path() == "/callback"
+						{
+							auth::handle_callback_url(&app_handle, url.as_str());
+						}
+					}
+				});
+			}
+
 			Ok(())
 		})
 		.invoke_handler(tauri::generate_handler![

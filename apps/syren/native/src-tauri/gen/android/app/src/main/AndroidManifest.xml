@@ -22,6 +22,20 @@
                 <!-- AndroidTV support -->
                 <category android:name="android.intent.category.LEANBACK_LAUNCHER" />
             </intent-filter>
+
+            <!-- Custom URL scheme — registers `syren://*` so the OAuth
+                 callback delivered as `syren://auth/callback?code=…` is
+                 routed to this Activity. tauri-plugin-deep-link's
+                 mobile config in tauri.conf.json only generates HTTPS
+                 Universal Link filters; custom schemes need a manual
+                 intent filter, which is why this lives outside the
+                 plugin's auto-generated block below. -->
+            <intent-filter android:autoVerify="false">
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="syren" />
+            </intent-filter>
         </activity>
 
         <provider

@@ -7,25 +7,27 @@ import type { Request, Response } from 'express';
 const SESSION_COOKIE = 'syren_session';
 
 /**
- * A redirect target is allowed when it is either:
- *  - a same-origin path on the API host (legacy web behavior), or
- *  - an absolute URL under one of the bundled Tauri shell origins, so the
- *    native app can round-trip back to itself after OAuth instead of
- *    landing on the deployed web app. Tauri uses different schemes per
- *    platform: `tauri://localhost` on macOS/iOS,
- *    `http://tauri.localhost` (or https) on Android/Windows/Linux.
+ * A redirect target is allowed when it is one of:
+ *  - a same-origin path on the API host (the legacy web flow);
+ *  - the bundled Tauri shell origins, for in-app SPA navigation;
+ *  - `syren://auth/callback` — the mobile native app's deep-link
+ *    redirect (handled by `tauri-plugin-deep-link`); or
+ *  - `http://localhost:<port>/` — the desktop native app's loopback
+ *    redirect (handled by `tauri-plugin-oauth`, which binds a random
+ *    port for each handshake).
  *
- * Any other shape (full https URL, javascript:, etc.) is rejected — this
- * stops the field from being a generic open redirect.
+ * Any other shape (arbitrary external https, javascript:, etc.) is
+ * rejected — this stops the field from being a generic open redirect.
  */
 function isAllowedRedirect(value: unknown): value is string {
 	if (typeof value !== 'string' || !value) return false;
 	if (value.startsWith('/')) return true;
 	if (/^(tauri:\/\/localhost|https?:\/\/tauri\.localhost)\/[^\s]*$/.test(value)) return true;
-	// Native app deep-link callback. The redirect target must be exactly
-	// the OAuth callback path on our scheme — anything else would be a
-	// generic open redirect.
-	return /^syren:\/\/auth\/callback(?:\?[^\s]*)?$/.test(value);
+	if (/^syren:\/\/auth\/callback(?:\?[^\s]*)?$/.test(value)) return true;
+	// Loopback for tauri-plugin-oauth on desktop. Port is dynamic; we
+	// only accept the exact `http://localhost:<port>/` shape (no path,
+	// optional trailing query).
+	return /^http:\/\/localhost:\d{2,5}\/?(?:\?[^\s]*)?$/.test(value);
 }
 
 function isCustomSchemeRedirect(target: string): boolean {

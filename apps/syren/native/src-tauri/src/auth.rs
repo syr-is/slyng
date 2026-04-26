@@ -1,27 +1,32 @@
 //! OAuth orchestration on the native side.
 //!
-//! Flow:
-//!   1. JS `client.auth.startLogin(instanceUrl)` → invoke('start_login', ...).
-//!      Rust calls `syren_client::login_start` with `redirect=syren://auth/callback`,
-//!      gets a `consent_url`, opens it in the system browser via tauri-plugin-shell.
-//!   2. User consents on their syr instance.
-//!   3. syr.is redirects to https://<api>/api/auth/callback?...
-//!   4. The API completes the OAuth handshake, then 302/HTML-bounces to
-//!      `syren://auth/callback?code=<one-shot>` (we'll add the bridge endpoint
-//!      in Phase 9).
-//!   5. The OS routes that URL into the Tauri app via tauri-plugin-deep-link.
-//!   6. Our deep-link handler invokes `complete_login(code)` →
-//!      `syren_client::login_complete` swaps the bridge code for a session id,
-//!      stores it, fetches `/auth/me`, emits `auth-changed` to the frontend.
+//! Two redirect strategies, picked by target:
+//!
+//! - **Desktop** (`tauri-plugin-oauth`): we spin up a localhost HTTP
+//!   server on a random port for the duration of the handshake. The
+//!   API receives `http://localhost:<port>/` as the redirect_uri,
+//!   the system browser hits that URL after the OAuth callback's
+//!   bounce, and the plugin's request handler calls us with the
+//!   full URL (which carries the bridge `?code=…`).
+//!
+//! - **Mobile** (`tauri-plugin-deep-link`): we register `syren://`
+//!   at the OS level. The API redirects to `syren://auth/callback?code=…`,
+//!   the OS routes it into Tauri, and the deep-link plugin fires our
+//!   on_open_url handler.
+//!
+//! Both code paths funnel into [`handle_callback_url`], which parses
+//! the bridge code, calls `syren_client::login_complete`, persists
+//! the session, and emits `auth-changed` for the JS-side login form.
 
 use crate::session_store::TauriStoreSession;
 use std::sync::Arc;
 use syren_client::{Client, LoginResponse};
-use tauri::{AppHandle, Emitter, Manager, Runtime, State, WebviewUrl, WebviewWindowBuilder};
+use tauri::{AppHandle, Emitter, Manager, Runtime, State};
+use tauri_plugin_opener::OpenerExt;
 use tokio::sync::Mutex;
 
-pub const REDIRECT_URI: &str = "syren://auth/callback";
-const OAUTH_WINDOW_LABEL: &str = "oauth";
+#[cfg(any(target_os = "android", target_os = "ios"))]
+pub const MOBILE_REDIRECT_URI: &str = "syren://auth/callback";
 
 /// Process-wide handle. Built once `start_login` is called or as soon
 /// as the user supplies a host on first run.
@@ -54,6 +59,38 @@ impl ClientHandle {
 	}
 }
 
+/// Pull the bridge `code` out of an OAuth callback URL, exchange it
+/// for a real session via syren-client, and emit the result. Same
+/// logic for desktop (loopback) and mobile (deep-link) paths.
+pub fn handle_callback_url<R: Runtime>(app: &AppHandle<R>, url_str: &str) {
+	let code = url::Url::parse(url_str)
+		.ok()
+		.and_then(|u| {
+			u.query_pairs()
+				.find(|(k, _)| k == "code")
+				.map(|(_, v)| v.into_owned())
+		});
+	let app = app.clone();
+	tauri::async_runtime::spawn(async move {
+		let Some(code) = code else {
+			let _ = app.emit("auth-error", "missing bridge code on callback");
+			return;
+		};
+		let Some(client) = app.state::<ClientHandle>().current().await else {
+			let _ = app.emit("auth-error", "no active client");
+			return;
+		};
+		match client.login_complete(code).await {
+			Ok(identity) => {
+				let _ = app.emit("auth-changed", &identity);
+			}
+			Err(e) => {
+				let _ = app.emit("auth-error", &e.to_string());
+			}
+		}
+	});
+}
+
 #[tauri::command]
 pub async fn start_login<R: Runtime>(
 	app: AppHandle<R>,
@@ -62,83 +99,37 @@ pub async fn start_login<R: Runtime>(
 	instance_url: String,
 ) -> Result<LoginResponse, String> {
 	let client = state.ensure(&app, &api_host).await?;
+
+	// Build the platform-appropriate redirect_uri before kicking off
+	// the OAuth handshake. On mobile this is the registered deep
+	// link; on desktop it's a freshly bound loopback port.
+	let redirect_uri = build_redirect_uri(&app)?;
+
 	let resp = client
-		.login_start(instance_url, Some(REDIRECT_URI.to_string()))
+		.login_start(instance_url, Some(redirect_uri))
 		.await
 		.map_err(|e| e.to_string())?;
 
-	// If a previous attempt left the popup open (user closed it
-	// without completing), reuse the slot. Otherwise build a fresh
-	// child WebView window inside the app and load the consent URL
-	// there. We never leave the app — the moment the popup tries to
-	// navigate to `syren://auth/callback?code=…` the on_navigation
-	// hook below intercepts it, completes login on the Rust side,
-	// emits `auth-changed`, and closes the popup.
-	if let Some(existing) = app.get_webview_window(OAUTH_WINDOW_LABEL) {
-		let _ = existing.close();
-	}
-
-	let consent: url::Url = resp
-		.consent_url
-		.parse()
-		.map_err(|e| format!("invalid consent URL: {e}"))?;
-	let app_handle = app.clone();
-
-	WebviewWindowBuilder::new(
-		&app,
-		OAUTH_WINDOW_LABEL,
-		WebviewUrl::External(consent),
-	)
-	.title("Sign in with syr")
-	.inner_size(480.0, 720.0)
-	.on_navigation(move |url| {
-		// Intercept the OAuth bridge URL the API redirects to after
-		// token exchange (`syren://auth/callback?code=…`). We complete
-		// login in Rust and tear down the popup. Returning `false`
-		// cancels the actual cross-scheme navigation — we've handled it.
-		let is_callback = url.scheme() == "syren"
-			&& url.host_str() == Some("auth")
-			&& url.path() == "/callback";
-		if !is_callback {
-			return true;
-		}
-		let code = url
-			.query_pairs()
-			.find(|(k, _)| k == "code")
-			.map(|(_, v)| v.into_owned());
-		let h = app_handle.clone();
-		tauri::async_runtime::spawn(async move {
-			let close_popup = || {
-				if let Some(w) = h.get_webview_window(OAUTH_WINDOW_LABEL) {
-					let _ = w.close();
-				}
-			};
-			let Some(code) = code else {
-				let _ = h.emit("auth-error", "missing bridge code on callback");
-				close_popup();
-				return;
-			};
-			let Some(client) = h.state::<ClientHandle>().current().await else {
-				let _ = h.emit("auth-error", "no active client");
-				close_popup();
-				return;
-			};
-			match client.login_complete(code).await {
-				Ok(identity) => {
-					let _ = h.emit("auth-changed", &identity);
-				}
-				Err(e) => {
-					let _ = h.emit("auth-error", &e.to_string());
-				}
-			}
-			close_popup();
-		});
-		false
-	})
-	.build()
-	.map_err(|e| e.to_string())?;
+	app.opener()
+		.open_url(resp.consent_url.clone(), None::<&str>)
+		.map_err(|e| e.to_string())?;
 
 	Ok(resp)
+}
+
+#[cfg(any(target_os = "android", target_os = "ios"))]
+fn build_redirect_uri<R: Runtime>(_app: &AppHandle<R>) -> Result<String, String> {
+	Ok(MOBILE_REDIRECT_URI.to_string())
+}
+
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
+fn build_redirect_uri<R: Runtime>(app: &AppHandle<R>) -> Result<String, String> {
+	let app_clone = app.clone();
+	let port = tauri_plugin_oauth::start(move |url| {
+		handle_callback_url(&app_clone, &url);
+	})
+	.map_err(|e| e.to_string())?;
+	Ok(format!("http://localhost:{port}/"))
 }
 
 #[tauri::command]
