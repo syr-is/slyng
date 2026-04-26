@@ -29,6 +29,7 @@
 	import { proxied } from '@syren/app-core/utils/proxy';
 	import StoryViewer from './story-viewer.svelte';
 	import SafeLink from './safe-link.svelte';
+	import { getActiveProfileCard, setActiveProfileCard } from './active-profile-card.svelte.js';
 	import { getMembers, type MemberData } from '@syren/app-core/stores/members.svelte';
 	import { getRoles, type RoleData } from '@syren/app-core/stores/roles.svelte';
 	import { getServerState } from '@syren/app-core/stores/servers.svelte';
@@ -131,9 +132,22 @@
 	// hood and ignores controlled `open` on pointer-leave). Popover fully
 	// respects controlled state and dismisses on click-outside — exactly
 	// what we need. Hover-card UX is re-created with manual timers.
-	let hoverOpen = $state(false);
+	//
+	// `hoverOpen` is derived from a shared rune so only ONE card is open at
+	// a time across the whole app — opening this one stamps `activeId = did`
+	// on the rune, which immediately makes every other card's `hoverOpen`
+	// derivation false and closes them.
+	const active = getActiveProfileCard();
+	const hoverOpen = $derived(active.value === did);
 	let menuOpen = $state(false);
 	const cardOpen = $derived(hoverOpen || menuOpen || viewerOpen);
+
+	function openCard() {
+		setActiveProfileCard(did);
+	}
+	function closeCard() {
+		if (active.value === did) setActiveProfileCard(null);
+	}
 
 	let hoverTimer: ReturnType<typeof setTimeout> | null = null;
 	const OPEN_DELAY = 300;
@@ -141,13 +155,13 @@
 
 	function scheduleOpen() {
 		cancelTimer();
-		hoverTimer = setTimeout(() => { hoverOpen = true; }, OPEN_DELAY);
+		hoverTimer = setTimeout(() => { openCard(); }, OPEN_DELAY);
 	}
 
 	function scheduleClose() {
 		if (menuOpen || viewerOpen) return;
 		cancelTimer();
-		hoverTimer = setTimeout(() => { hoverOpen = false; }, CLOSE_DELAY);
+		hoverTimer = setTimeout(() => { closeCard(); }, CLOSE_DELAY);
 	}
 
 	function cancelTimer() {
@@ -158,7 +172,7 @@
 		if (!next) {
 			// Click-outside dismiss — always close, even if menu was open.
 			cancelTimer();
-			hoverOpen = false;
+			closeCard();
 			menuOpen = false;
 		}
 	}
@@ -273,7 +287,7 @@
 
 <Popover.Root open={cardOpen} onOpenChange={handlePopoverOpenChange}>
 	<Popover.Trigger
-		onclick={(e: MouseEvent) => { e.preventDefault(); hoverOpen = true; }}
+		onclick={(e: MouseEvent) => { e.preventDefault(); openCard(); }}
 		onpointerenter={(e: PointerEvent) => { if (e.pointerType === 'mouse') scheduleOpen(); }}
 		onpointerleave={(e: PointerEvent) => { if (e.pointerType === 'mouse') scheduleClose(); }}
 		class={triggerClass}
@@ -396,35 +410,16 @@
 				</div>
 			{/if}
 
-			{#if profile.web_profile_url || !isSelf}
+			{#if profile.web_profile_url}
 				<div class="flex flex-wrap items-center gap-x-3 gap-y-1">
-					{#if !isSelf}
-						<button
-							type="button"
-							onclick={(e: MouseEvent) => {
-								// stopPropagation so any popover-level click handler
-								// in bits-ui doesn't swallow the navigation; close
-								// the card *after* goto fires so the route change
-								// is the one tearing it down.
-								e.stopPropagation();
-								goto(`/channels/@me/posts/${encodeURIComponent(did)}${resolvedInstance ? `?instance=${encodeURIComponent(resolvedInstance)}` : ''}`);
-								hoverOpen = false;
-							}}
-							class="inline-flex items-center gap-1 text-xs text-primary hover:underline"
-						>
-							<Newspaper class="h-3 w-3" />
-							View posts
-						</button>
-					{/if}
-					{#if profile.web_profile_url}
-						<SafeLink
-							href={profile.web_profile_url}
-							class="inline-flex items-center gap-1 text-xs text-primary hover:underline"
-						>
-							View full profile
-							<ExternalLink class="h-3 w-3" />
-						</SafeLink>
-					{/if}
+					<SafeLink
+						href={profile.web_profile_url}
+						class="inline-flex items-center gap-1 text-xs text-primary hover:underline"
+					>
+						<Newspaper class="h-3 w-3" />
+						Open profile
+						<ExternalLink class="h-3 w-3" />
+					</SafeLink>
 				</div>
 			{/if}
 
