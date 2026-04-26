@@ -107,6 +107,11 @@
 			"types": "./dist/components/fragments/*.svelte.d.ts",
 			"svelte": "./dist/components/fragments/*.svelte",
 			"default": "./dist/components/fragments/*.svelte"
+		},
+		"./pages/*.svelte": {
+			"types": "./dist/components/pages/*.svelte.d.ts",
+			"svelte": "./dist/components/pages/*.svelte",
+			"default": "./dist/components/pages/*.svelte"
 		}
 	},
 	"files": ["dist", "src", "!dist/**/*.test.*"],
