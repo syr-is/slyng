@@ -10,6 +10,8 @@
 	import VoiceRoomView from '@syren/ui/fragments/voice-room-view.svelte';
 	import { Permissions } from '@syren/types';
 	import { setPageMembers } from '$lib/page-sidebar.svelte';
+	import { setPane } from '@syren/ui/fragments/swipe-layout';
+	import { IsMobile } from '@syren/ui/sidebar';
 	import { api } from '@syren/app-core/api';
 	import { subscribeChannels } from '@syren/app-core/stores/ws.svelte';
 	import { setCurrentChannel, getMessages, addMessage } from '@syren/app-core/stores/messages.svelte';
@@ -62,20 +64,29 @@
 
 	const messageStore = getMessages();
 	const typingStore = getTyping();
+	const isMobile = new IsMobile();
 
-	// Members panel: register/unregister with the page-level snippet store
-	// so the (app) layout's SwipeLayout can render it as the right pane
-	// (drawer on mobile, always-visible column on desktop). Toggling
-	// `showMembers` flips registration on/off so the existing header
-	// Users-icon button still hides/reveals it.
+	// Members panel: always register on mobile so the swipe / button can
+	// always reveal it; on desktop the existing `showMembers` toggle
+	// continues to hide / show the right column.
 	$effect(() => {
-		if (showMembers) {
+		if (isMobile.current || showMembers) {
 			setPageMembers(membersDrawer);
 		} else {
 			setPageMembers(undefined);
 		}
 	});
 	onDestroy(() => setPageMembers(undefined));
+
+	function toggleMembers() {
+		if (isMobile.current) {
+			// On mobile the panel is always registered — the button just
+			// opens the SwipeLayout drawer.
+			setPane('right');
+		} else {
+			showMembers = !showMembers;
+		}
+	}
 
 	let loadedChannelId: string | null = null;
 
@@ -424,7 +435,7 @@
 					</button>
 				{/if}
 				<button
-					onclick={() => (showMembers = !showMembers)}
+					onclick={toggleMembers}
 					class="rounded p-1 text-muted-foreground hover:text-foreground"
 					title="Toggle member list"
 				>
