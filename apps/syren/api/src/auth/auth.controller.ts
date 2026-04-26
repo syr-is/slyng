@@ -21,7 +21,29 @@ const SESSION_COOKIE = 'syren_session';
 function isAllowedRedirect(value: unknown): value is string {
 	if (typeof value !== 'string' || !value) return false;
 	if (value.startsWith('/')) return true;
-	return /^(tauri:\/\/localhost|https?:\/\/tauri\.localhost)\/[^\s]*$/.test(value);
+	if (/^(tauri:\/\/localhost|https?:\/\/tauri\.localhost)\/[^\s]*$/.test(value)) return true;
+	// Native app deep-link callback. The redirect target must be exactly
+	// the OAuth callback path on our scheme — anything else would be a
+	// generic open redirect.
+	return /^syren:\/\/auth\/callback(?:\?[^\s]*)?$/.test(value);
+}
+
+function isCustomSchemeRedirect(target: string): boolean {
+	return !target.startsWith('/') && !target.startsWith('http');
+}
+
+/**
+ * Read the active session id from either the `syren_session` cookie
+ * (web) or `Authorization: Bearer <id>` header (native / WASM client).
+ */
+function readSessionId(req: Request): string | undefined {
+	const cookie = req.cookies?.[SESSION_COOKIE] as string | undefined;
+	if (cookie) return cookie;
+	const auth = req.headers['authorization'];
+	if (typeof auth === 'string' && /^Bearer\s+/i.test(auth)) {
+		return auth.replace(/^Bearer\s+/i, '').trim() || undefined;
+	}
+	return undefined;
 }
 
 @ApiTags('auth')
@@ -171,13 +193,24 @@ export class AuthController {
 				maxAge: 30 * 24 * 60 * 60 * 1000 // 30 days
 			});
 
-			const target = isAllowedRedirect(postLoginRedirect) ? postLoginRedirect : '/channels/@me';
-			// Same-origin paths use a normal 302. Custom-scheme targets like
-			// `tauri://localhost/...` can be silently blocked by Android
-			// WebView / WKWebView when delivered via a cross-scheme HTTP
-			// Location header — send an HTML+JS page instead so the
-			// navigation is initiated from script (allowed for custom
-			// schemes the host app has registered).
+			let target = isAllowedRedirect(postLoginRedirect) ? postLoginRedirect : '/channels/@me';
+
+			// For custom-scheme targets (the native app's `syren://`) the
+			// session cookie is useless — cookies are tied to web origins.
+			// Issue a one-shot bridge token instead and append it to the
+			// redirect URL; the native app POSTs to /api/auth/exchange to
+			// swap it for the real session id.
+			if (isCustomSchemeRedirect(target)) {
+				const bridge = this.authService.issueBridgeToken(sessionId);
+				const sep = target.includes('?') ? '&' : '?';
+				target = `${target}${sep}code=${encodeURIComponent(bridge)}`;
+			}
+
+			// Same-origin paths use a normal 302. Custom-scheme targets
+			// can be silently blocked by Android WebView / WKWebView when
+			// delivered via a cross-scheme HTTP Location header — send
+			// an HTML+JS page instead so the navigation is initiated
+			// from script (allowed for registered custom schemes).
 			if (target.startsWith('/')) {
 				return res.redirect(target);
 			}
@@ -193,6 +226,7 @@ export class AuthController {
 <p>Signing you in…</p>
 <script>window.location.replace(${escaped});</script>
 </body></html>`);
+			return;
 		} catch (err) {
 			const msg = err instanceof Error ? err.message : 'Auth failed';
 			return res.redirect(`/login?error=${encodeURIComponent(msg)}`);
@@ -203,21 +237,39 @@ export class AuthController {
 	@Post('logout')
 	@ApiOperation({ summary: 'Logout — clears session' })
 	async logout(@Req() req: Request, @Res() res: Response) {
-		const sessionId = req.cookies?.[SESSION_COOKIE];
+		const sessionId = readSessionId(req);
 		if (sessionId) {
 			try {
 				await this.authService.deleteSession(sessionId);
 			} catch { /* best effort */ }
 		}
 		res.clearCookie(SESSION_COOKIE, { path: '/' });
-		return res.redirect('/login');
+		// Native client (Bearer auth) sends fetch(); web sends top-level
+		// nav. Return JSON for both — the redirect was for the legacy
+		// web flow only.
+		res.status(200).json({ success: true });
+	}
+
+	/**
+	 * Swap a one-shot bridge code (issued during the OAuth callback for
+	 * custom-scheme redirects) for the long-lived session id. Used by
+	 * the native client.
+	 */
+	@Public()
+	@Post('exchange')
+	@ApiOperation({ summary: 'Exchange a one-shot bridge code for a session id' })
+	async exchange(@Body() body: { code: string }) {
+		if (!body?.code) throw new HttpException('Missing code', 400);
+		const sessionId = this.authService.consumeBridgeToken(body.code);
+		if (!sessionId) throw new HttpException('Invalid or expired bridge code', 400);
+		return { session: sessionId };
 	}
 
 	@Public()
 	@Get('me')
 	@ApiOperation({ summary: 'Get session identity (DID + instance). Profiles resolved client-side.' })
 	async me(@Req() req: Request) {
-		const sessionId = req.cookies?.[SESSION_COOKIE];
+		const sessionId = readSessionId(req);
 		if (!sessionId) throw new HttpException('Not authenticated', 401);
 
 		const session = await this.authService.getSession(sessionId);

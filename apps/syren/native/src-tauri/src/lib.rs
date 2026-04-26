@@ -1,19 +1,98 @@
+mod auth;
+mod commands;
+mod session_store;
+
+use tauri::{Emitter, Manager};
+use tauri_plugin_deep_link::DeepLinkExt;
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
 	tauri::Builder::default()
 		.plugin(tauri_plugin_store::Builder::default().build())
-		.setup(|_app| {
+		.plugin(tauri_plugin_opener::init())
+		.plugin(tauri_plugin_http::init())
+		.plugin(tauri_plugin_deep_link::init())
+		.manage(auth::ClientHandle::new())
+		.setup(|app| {
 			#[cfg(target_os = "ios")]
 			{
-				use tauri::Manager;
-				if let Some(window) = _app.get_webview_window("main") {
+				if let Some(window) = app.get_webview_window("main") {
 					ios::install_safe_area(&window);
 				}
 			}
+
+			// Register the syren:// scheme for OAuth callback URLs on
+			// platforms that don't auto-register from the manifest
+			// (mostly desktop). On iOS / Android the scheme is registered
+			// at install time via the plugin's manifest hooks.
+			#[cfg(any(windows, target_os = "linux", target_os = "macos"))]
+			{
+				let _ = app.deep_link().register("syren");
+			}
+
+			// Wire the deep-link callback. Every URL the OS hands us is
+			// inspected; `syren://auth/callback?code=...` triggers the
+			// OAuth completion path. Other schemes are ignored.
+			let app_handle = app.handle().clone();
+			app.deep_link().on_open_url(move |event| {
+				for url in event.urls() {
+					if url.scheme() == "syren" && url.path() == "/auth/callback" {
+						if let Some(code) = url
+							.query_pairs()
+							.find(|(k, _)| k == "code")
+							.map(|(_, v)| v.into_owned())
+						{
+							let h = app_handle.clone();
+							tauri::async_runtime::spawn(async move {
+								let state: tauri::State<auth::ClientHandle> = h.state();
+								if let Ok(identity) = call_complete_login(&h, &state, code).await {
+									let _ = h.emit("auth-changed", &identity);
+								}
+							});
+						}
+					}
+				}
+			});
+
 			Ok(())
 		})
+		.invoke_handler(tauri::generate_handler![
+			auth::start_login,
+			auth::complete_login,
+			auth::logout,
+			commands::me,
+			commands::servers_list,
+			commands::server_get,
+			commands::server_channels,
+			commands::server_members,
+			commands::channel_messages,
+			commands::channel_send,
+			commands::channel_typing,
+			commands::users_me,
+			commands::dm_channels,
+			commands::roles_list,
+			commands::my_permissions,
+			commands::categories_list,
+			commands::relations_snapshot,
+			commands::invite_preview,
+			commands::invite_join,
+		])
 		.run(tauri::generate_context!())
 		.expect("error while running tauri application");
+}
+
+async fn call_complete_login<R: tauri::Runtime>(
+	app: &tauri::AppHandle<R>,
+	state: &tauri::State<'_, auth::ClientHandle>,
+	code: String,
+) -> Result<syren_client::Identity, String> {
+	let client = state
+		.current()
+		.await
+		.ok_or_else(|| "no active client".to_string())?;
+	let identity = client.login_complete(code).await.map_err(|e| e.to_string())?;
+	let _ = app.emit("auth-changed", &identity);
+	Ok(identity)
 }
 
 #[cfg(target_os = "ios")]
@@ -24,24 +103,14 @@ mod ios {
 	use std::ffi::c_void;
 	use tauri::WebviewWindow;
 
-	// UIScrollViewContentInsetAdjustmentBehavior.never == 2
 	const CONTENT_INSET_ADJUSTMENT_NEVER: i64 = 2;
 
-	/// Configure the WKWebView so `env(safe-area-inset-*)` returns the real
-	/// notch / home-indicator depths in CSS, then bootstrap a JS poller that
-	/// mirrors those values into `--syren-sai-*` custom properties on the
-	/// document root. The CSS layout reads `--syren-sai-*` first and falls
-	/// back to env() — keeps parity with the Android side.
 	pub fn install_safe_area(window: &WebviewWindow) {
 		let _ = window.with_webview(|webview| unsafe {
 			let wkwebview: *mut AnyObject = webview.inner() as *mut _;
 			if wkwebview.is_null() {
 				return;
 			}
-
-			// 1. Stop UIKit auto-shrinking the WebView's content area.
-			//    With `.never` the WebView extends behind the unsafe area
-			//    and CSS `env(safe-area-inset-*)` reports actual values.
 			let scroll_view: *mut AnyObject = msg_send![wkwebview, scrollView];
 			if !scroll_view.is_null() {
 				let _: () = msg_send![
@@ -49,11 +118,6 @@ mod ios {
 					setContentInsetAdjustmentBehavior: CONTENT_INSET_ADJUSTMENT_NEVER
 				];
 			}
-
-			// 2. Bootstrap the JS-side mirror. After step 1, env() resolves
-			//    correctly; the script reads it from a hidden probe element
-			//    and republishes as `--syren-sai-*` so the layout always
-			//    reads from one source regardless of platform.
 			let js_ns = NSString::from_str(BOOTSTRAP_JS);
 			let _: () = msg_send![
 				wkwebview,
@@ -91,10 +155,7 @@ mod ios {
     apply();
   }
   var t = null;
-  window.addEventListener('resize', function () {
-    clearTimeout(t);
-    t = setTimeout(apply, 80);
-  }, { passive: true });
+  window.addEventListener('resize', function () { clearTimeout(t); t = setTimeout(apply, 80); }, { passive: true });
   window.addEventListener('orientationchange', apply, { passive: true });
 })();
 "#;

@@ -21,7 +21,17 @@ export class AuthGuard implements CanActivate {
 		if (isPublic) return true;
 
 		const request = context.switchToHttp().getRequest<Request>();
-		const sessionId = request.cookies?.syren_session;
+
+		// Accept the session via either the syren_session cookie (web) or
+		// `Authorization: Bearer <session>` (native / WASM client). Same
+		// session row in the DB; same trust level.
+		const cookieSession = request.cookies?.syren_session as string | undefined;
+		const auth = request.headers['authorization'];
+		const bearerSession =
+			typeof auth === 'string' && /^Bearer\s+/i.test(auth)
+				? auth.replace(/^Bearer\s+/i, '').trim()
+				: undefined;
+		const sessionId = cookieSession || bearerSession;
 
 		if (!sessionId) return false;
 

@@ -36,5 +36,17 @@
 			"icons/icon.ico"
 		]
 	},
-	"plugins": {}
+	"plugins": {
+		"deep-link": {
+			"mobile": [
+				{
+					"host": "auth",
+					"pathPrefix": ["/callback"]
+				}
+			],
+			"desktop": {
+				"schemes": ["syren"]
+			}
+		}
+	}
 }

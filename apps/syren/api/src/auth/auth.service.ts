@@ -7,6 +7,7 @@ import { UserRepository, PlatformSessionRepository } from './user.repository';
 
 const STATE_TTL_MS = 10 * 60 * 1000; // 10 minutes
 const STATE_REPLAY_TTL_MS = 11 * 60 * 1000; // slightly larger than TTL
+const BRIDGE_TTL_MS = 2 * 60 * 1000; // 2 minutes — one-shot OAuth handoff
 
 @Injectable()
 export class AuthService {
@@ -100,6 +101,38 @@ export class AuthService {
 		const cutoff = Date.now() - STATE_REPLAY_TTL_MS;
 		for (const [k, v] of this.seenStates) {
 			if (v < cutoff) this.seenStates.delete(k);
+		}
+	}
+
+	/**
+	 * One-shot OAuth bridge tokens — issued at callback time when the
+	 * redirect target is a custom scheme (e.g. `syren://`) so the
+	 * native app can swap the bridge token for the real session id
+	 * without depending on cross-site cookies. The token is single-use
+	 * and expires after 2 minutes.
+	 */
+	private readonly bridgeTokens = new Map<string, { sessionId: string; createdAt: number }>();
+
+	issueBridgeToken(sessionId: string): string {
+		this.cleanBridgeTokens();
+		const token = randomBytes(24).toString('base64url');
+		this.bridgeTokens.set(token, { sessionId, createdAt: Date.now() });
+		return token;
+	}
+
+	consumeBridgeToken(token: string): string | null {
+		this.cleanBridgeTokens();
+		const entry = this.bridgeTokens.get(token);
+		if (!entry) return null;
+		this.bridgeTokens.delete(token);
+		if (Date.now() - entry.createdAt > BRIDGE_TTL_MS) return null;
+		return entry.sessionId;
+	}
+
+	private cleanBridgeTokens(): void {
+		const cutoff = Date.now() - BRIDGE_TTL_MS;
+		for (const [k, v] of this.bridgeTokens) {
+			if (v.createdAt < cutoff) this.bridgeTokens.delete(k);
 		}
 	}
 

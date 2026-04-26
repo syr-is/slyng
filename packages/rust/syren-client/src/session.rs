@@ -1,17 +1,15 @@
 use async_trait::async_trait;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
-#[cfg(not(target_arch = "wasm32"))]
-use tokio::sync::RwLock;
-
-#[cfg(target_arch = "wasm32")]
-use std::sync::RwLock;
-
-/// Where the syren session token lives. Rust callers (Tauri) plug in a
-/// store backed by `tauri-plugin-store`; the WASM/web caller uses
+/// Where the syren session token lives. Native Tauri plugs in an impl
+/// backed by `tauri-plugin-store`; the WASM/web caller uses
 /// `LocalStorageStore`. Default in-memory variant is provided for tests
 /// and for transient flows.
-#[async_trait(?Send)]
+///
+/// We use `std::sync::Mutex` so the `Send + Sync` bound holds on
+/// every target — Tauri commands require `Send` futures, and on WASM
+/// the lock contention is irrelevant (single-threaded event loop).
+#[async_trait]
 pub trait SessionStore: Sync + Send {
 	async fn get(&self) -> Option<String>;
 	async fn set(&self, session_id: &str);
@@ -21,7 +19,7 @@ pub trait SessionStore: Sync + Send {
 /// Simple in-memory store. Lost when the process exits.
 #[derive(Default, Clone)]
 pub struct MemoryStore {
-	inner: Arc<RwLock<Option<String>>>,
+	inner: Arc<Mutex<Option<String>>>,
 }
 
 impl MemoryStore {
@@ -31,38 +29,23 @@ impl MemoryStore {
 
 	pub fn with(value: Option<String>) -> Self {
 		Self {
-			inner: Arc::new(RwLock::new(value)),
+			inner: Arc::new(Mutex::new(value)),
 		}
 	}
 }
 
-#[cfg(not(target_arch = "wasm32"))]
-#[async_trait(?Send)]
+#[async_trait]
 impl SessionStore for MemoryStore {
 	async fn get(&self) -> Option<String> {
-		self.inner.read().await.clone()
+		self.inner.lock().ok().and_then(|g| g.clone())
 	}
 	async fn set(&self, session_id: &str) {
-		*self.inner.write().await = Some(session_id.to_string());
-	}
-	async fn clear(&self) {
-		*self.inner.write().await = None;
-	}
-}
-
-#[cfg(target_arch = "wasm32")]
-#[async_trait(?Send)]
-impl SessionStore for MemoryStore {
-	async fn get(&self) -> Option<String> {
-		self.inner.read().ok().and_then(|g| g.clone())
-	}
-	async fn set(&self, session_id: &str) {
-		if let Ok(mut g) = self.inner.write() {
+		if let Ok(mut g) = self.inner.lock() {
 			*g = Some(session_id.to_string());
 		}
 	}
 	async fn clear(&self) {
-		if let Ok(mut g) = self.inner.write() {
+		if let Ok(mut g) = self.inner.lock() {
 			*g = None;
 		}
 	}
@@ -86,8 +69,15 @@ impl LocalStorageStore {
 	}
 }
 
+// Safety: WASM is single-threaded; web_sys handles aren't Send, but
+// we never actually move them across threads.
 #[cfg(target_arch = "wasm32")]
-#[async_trait(?Send)]
+unsafe impl Send for LocalStorageStore {}
+#[cfg(target_arch = "wasm32")]
+unsafe impl Sync for LocalStorageStore {}
+
+#[cfg(target_arch = "wasm32")]
+#[async_trait]
 impl SessionStore for LocalStorageStore {
 	async fn get(&self) -> Option<String> {
 		Self::ls()?.get_item(&self.key).ok().flatten()
