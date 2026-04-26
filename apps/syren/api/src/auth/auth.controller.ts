@@ -169,37 +169,101 @@ export class AuthController {
 
 			let target = isAllowedRedirect(postLoginRedirect) ? postLoginRedirect : '/channels/@me';
 
-			// For custom-scheme targets (the native app's `syren://`) the
-			// session cookie is useless — cookies are tied to web origins.
-			// Issue a one-shot bridge token instead and append it to the
-			// redirect URL; the native app POSTs to /api/auth/exchange to
-			// swap it for the real session id.
-			if (isCustomSchemeRedirect(target)) {
+			// For non-HTTP redirect targets (the native app's deep link
+			// or loopback) the session cookie is useless — cookies are
+			// scoped to web origins. Issue a one-shot bridge token
+			// instead, attach it as `?code=…`, and let the native client
+			// swap it for the real session id via /auth/exchange.
+			if (isCustomSchemeRedirect(target) || target.startsWith('http://localhost:')) {
 				const bridge = this.authService.issueBridgeToken(sessionId);
 				const sep = target.includes('?') ? '&' : '?';
 				target = `${target}${sep}code=${encodeURIComponent(bridge)}`;
 			}
 
-			// Same-origin paths use a normal 302. Custom-scheme targets
-			// can be silently blocked by Android WebView / WKWebView when
-			// delivered via a cross-scheme HTTP Location header — send
-			// an HTML+JS page instead so the navigation is initiated
-			// from script (allowed for registered custom schemes).
+			// Same-origin path → normal 302 (legacy web flow).
 			if (target.startsWith('/')) {
 				return res.redirect(target);
 			}
-			const escaped = JSON.stringify(target);
+
+			// Desktop loopback (tauri-plugin-oauth listens on
+			// http://localhost:<port>/). A regular 302 is fine — the
+			// browser hits the loopback, plugin-oauth captures the URL
+			// (with `?code=…`), and emits a default success page. No
+			// custom HTML needed here.
+			if (target.startsWith('http://localhost:')) {
+				return res.redirect(target);
+			}
+
+			// Mobile custom scheme (`syren://auth/callback?code=…`).
+			// Chrome on Android refuses to follow cross-scheme JS-driven
+			// navigations from the page (no user gesture), and even
+			// Location: redirects can be blocked. The robust pattern
+			// every production mobile-OAuth flow uses:
+			//   1. Try `intent://` syntax with a fallback URL — Chrome
+			//      may honour it, and gives us a graceful fallback if
+			//      not.
+			//   2. Show a visible "Continue in App" button so the user
+			//      can complete it with a single tap if auto-launch
+			//      doesn't fire.
+			//   3. Auto-launch attempts (meta refresh + scripted click)
+			//      as best-effort; iOS Safari and most non-Chromium
+			//      browsers honour them.
+			const codeParam = (() => {
+				try {
+					return new URL(target).searchParams.get('code') ?? '';
+				} catch {
+					return '';
+				}
+			})();
+			const fallbackUrl = `${this.authService.getPlatformOrigin()}/login`;
+			const intentUrl =
+				`intent://auth/callback?code=${encodeURIComponent(codeParam)}` +
+				`#Intent;scheme=syren;package=is.syr.syren;` +
+				`S.browser_fallback_url=${encodeURIComponent(fallbackUrl)};end`;
+			const directUrl = target;
+			const escapedDirect = JSON.stringify(directUrl);
+			const escapedIntent = JSON.stringify(intentUrl);
 			res.status(200).type('html').send(`<!DOCTYPE html>
-<html lang="en"><head>
+<html lang="en">
+<head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta http-equiv="refresh" content="0;url=${target.replace(/"/g, '&quot;')}">
-<title>Signing you in…</title>
-<style>html,body{margin:0;height:100%;background:#0a0a0b;color:#fafafa;font-family:system-ui,sans-serif;display:flex;align-items:center;justify-content:center}</style>
-</head><body>
-<p>Signing you in…</p>
-<script>window.location.replace(${escaped});</script>
-</body></html>`);
+<meta http-equiv="refresh" content="0;url=${directUrl.replace(/"/g, '&quot;')}">
+<title>Sign-in successful</title>
+<style>
+html,body{margin:0;min-height:100vh;background:#0a0a0b;color:#fafafa;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;display:flex;align-items:center;justify-content:center}
+.card{max-width:360px;padding:32px 24px;text-align:center}
+h1{font-size:20px;margin:0 0 8px;font-weight:600}
+p{margin:0 0 16px;font-size:14px;color:#a1a1aa;line-height:1.5}
+.btn{display:inline-block;padding:14px 24px;border-radius:9999px;background:#fafafa;color:#0a0a0b;font-weight:600;text-decoration:none;font-size:15px;margin-top:12px}
+.btn:active{opacity:.8}
+.muted{margin-top:24px;font-size:12px;color:#71717a}
+</style>
+</head>
+<body>
+<div class="card">
+<h1>Sign-in successful</h1>
+<p>You'll be returned to the app. If nothing happens, tap the button below.</p>
+<a id="open" class="btn" href=${escapedDirect}>Open Syren</a>
+<p class="muted">You can close this tab once the app opens.</p>
+</div>
+<script>
+(function () {
+  var direct = ${escapedDirect};
+  var intent = ${escapedIntent};
+  var link = document.getElementById('open');
+  if (/Android/i.test(navigator.userAgent)) {
+    link.href = intent;
+  }
+  // Best-effort auto-launch. Chrome on Android typically blocks this
+  // without a user gesture, but iOS Safari and many other browsers
+  // honour it. The visible button is the guaranteed path.
+  setTimeout(function () { try { link.click(); } catch (_) {} }, 50);
+  setTimeout(function () { try { window.location.href = link.href; } catch (_) {} }, 250);
+})();
+</script>
+</body>
+</html>`);
 			return;
 		} catch (err) {
 			const msg = err instanceof Error ? err.message : 'Auth failed';
