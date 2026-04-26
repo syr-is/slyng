@@ -30,6 +30,7 @@
 	import StoryViewer from './story-viewer.svelte';
 	import SafeLink from './safe-link.svelte';
 	import { getActiveProfileCard, setActiveProfileCard } from './active-profile-card.svelte.js';
+	import { getPaneState } from './swipe-layout/swipe-pane.svelte.js';
 	import { getMembers, type MemberData } from '@syren/app-core/stores/members.svelte';
 	import { getRoles, type RoleData } from '@syren/app-core/stores/roles.svelte';
 	import { getServerState } from '@syren/app-core/stores/servers.svelte';
@@ -153,6 +154,23 @@
 	function closeCard() {
 		if (active.value === cardId) setActiveProfileCard(null);
 	}
+
+	// Popover is portaled to document.body, so when the SwipeLayout pane
+	// changes (e.g. user opens a card in the members drawer, then swipes
+	// back to the chat), the trigger slides off-screen with the track but
+	// the portaled popover stays put — stranded over the wrong content.
+	// Detect pane transitions and close any card we own.
+	const paneState = getPaneState();
+	let lastPane: string | null = null;
+	$effect(() => {
+		const current = paneState.value;
+		if (lastPane !== null && current !== lastPane && active.value === cardId) {
+			closeCard();
+			menuOpen = false;
+			cancelTimer();
+		}
+		lastPane = current;
+	});
 
 	let hoverTimer: ReturnType<typeof setTimeout> | null = null;
 	const OPEN_DELAY = 300;
