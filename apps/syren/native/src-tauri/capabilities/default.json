@@ -2,12 +2,13 @@
 	"$schema": "../gen/schemas/desktop-schema.json",
 	"identifier": "default",
 	"description": "Default capability set for Syren native shell",
-	"windows": ["main"],
+	"windows": ["main", "oauth"],
 	"permissions": [
 		"core:default",
+		"core:webview:allow-create-webview-window",
+		"core:webview:allow-webview-close",
+		"core:window:allow-close",
 		"store:default",
-		"opener:allow-open-url",
-		"deep-link:default",
 		"http:default"
 	]
 }

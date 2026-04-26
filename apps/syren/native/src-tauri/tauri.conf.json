@@ -36,11 +36,5 @@
 			"icons/icon.ico"
 		]
 	},
-	"plugins": {
-		"deep-link": {
-			"desktop": {
-				"schemes": ["syren"]
-			}
-		}
-	}
+	"plugins": {}
 }

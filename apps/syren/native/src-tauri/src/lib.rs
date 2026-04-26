@@ -2,63 +2,26 @@ mod auth;
 mod commands;
 mod session_store;
 
-use tauri::{Emitter, Manager};
-use tauri_plugin_deep_link::DeepLinkExt;
-
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-	tauri::Builder::default()
+	#[cfg(target_os = "ios")]
+	use tauri::Manager;
+
+	let builder = tauri::Builder::default()
 		.plugin(tauri_plugin_store::Builder::default().build())
-		.plugin(tauri_plugin_opener::init())
 		.plugin(tauri_plugin_http::init())
-		.plugin(tauri_plugin_deep_link::init())
 		.manage(auth::ClientHandle::new())
-		.setup(|app| {
+		.setup(|_app| {
 			#[cfg(target_os = "ios")]
 			{
-				if let Some(window) = app.get_webview_window("main") {
+				if let Some(window) = _app.get_webview_window("main") {
 					ios::install_safe_area(&window);
 				}
 			}
-
-			// Register the syren:// scheme for OAuth callback URLs on
-			// platforms that don't auto-register from the manifest
-			// (mostly desktop). On iOS / Android the scheme is registered
-			// at install time via the plugin's manifest hooks.
-			#[cfg(any(windows, target_os = "linux", target_os = "macos"))]
-			{
-				let _ = app.deep_link().register("syren");
-			}
-
-			// Wire the deep-link callback. Every URL the OS hands us is
-			// inspected; `syren://auth/callback?code=...` triggers the
-			// OAuth completion path. Other schemes are ignored.
-			let app_handle = app.handle().clone();
-			app.deep_link().on_open_url(move |event| {
-				for url in event.urls() {
-					if url.scheme() == "syren" && url.path() == "/auth/callback" {
-						if let Some(code) = url
-							.query_pairs()
-							.find(|(k, _)| k == "code")
-							.map(|(_, v)| v.into_owned())
-						{
-							let h = app_handle.clone();
-							tauri::async_runtime::spawn(async move {
-								let state: tauri::State<auth::ClientHandle> = h.state();
-								if let Ok(identity) = call_complete_login(&h, &state, code).await {
-									let _ = h.emit("auth-changed", &identity);
-								}
-							});
-						}
-					}
-				}
-			});
-
 			Ok(())
 		})
 		.invoke_handler(tauri::generate_handler![
 			auth::start_login,
-			auth::complete_login,
 			auth::logout,
 			commands::proxy_request,
 			commands::me,
@@ -77,23 +40,11 @@ pub fn run() {
 			commands::relations_snapshot,
 			commands::invite_preview,
 			commands::invite_join,
-		])
+		]);
+
+	builder
 		.run(tauri::generate_context!())
 		.expect("error while running tauri application");
-}
-
-async fn call_complete_login<R: tauri::Runtime>(
-	app: &tauri::AppHandle<R>,
-	state: &tauri::State<'_, auth::ClientHandle>,
-	code: String,
-) -> Result<syren_client::Identity, String> {
-	let client = state
-		.current()
-		.await
-		.ok_or_else(|| "no active client".to_string())?;
-	let identity = client.login_complete(code).await.map_err(|e| e.to_string())?;
-	let _ = app.emit("auth-changed", &identity);
-	Ok(identity)
 }
 
 #[cfg(target_os = "ios")]
