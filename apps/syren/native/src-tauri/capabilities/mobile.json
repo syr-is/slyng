@@ -1,0 +1,8 @@
+{
+	"$schema": "../gen/schemas/mobile-schema.json",
+	"identifier": "mobile",
+	"description": "Mobile-only capabilities — deep-link for OAuth callback",
+	"platforms": ["iOS", "android"],
+	"windows": ["main"],
+	"permissions": ["deep-link:default"]
+}

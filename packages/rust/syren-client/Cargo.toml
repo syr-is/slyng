@@ -1,0 +1,49 @@
+[package]
+name = "syren-client"
+version = "0.0.1"
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+description = "Unified Rust + WASM API client for the syren chat platform"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+# Disable wasm-opt — bundled wasm-opt fails on certain reqwest output;
+# Vite/SvelteKit's build pipeline handles minification of the wasm
+# anyway. Re-enable once the upstream wasm-opt bundled in wasm-pack
+# catches up.
+[package.metadata.wasm-pack.profile.release]
+wasm-opt = false
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+serde_urlencoded = "0.7"
+thiserror = "1"
+url = "2"
+futures-util = "0.3"
+async-trait = "0.1"
+
+# reqwest with no default TLS — each target picks its own.
+reqwest = { version = "0.12", default-features = false, features = ["json", "stream"] }
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+reqwest = { version = "0.12", default-features = false, features = ["json", "stream", "rustls-tls", "cookies"] }
+tokio = { version = "1", features = ["sync", "rt", "macros", "time"] }
+tokio-tungstenite = { version = "0.24", features = ["rustls-tls-native-roots"] }
+reqwest_cookie_store = "0.8"
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+wasm-bindgen = "0.2"
+wasm-bindgen-futures = "0.4"
+js-sys = "0.3"
+web-sys = { version = "0.3", features = ["Storage", "Window", "WebSocket", "MessageEvent", "BinaryType", "CloseEvent", "ErrorEvent"] }
+serde-wasm-bindgen = "0.6"
+gloo-net = { version = "0.6", default-features = false, features = ["websocket", "http"] }
+gloo-timers = { version = "0.3", features = ["futures"] }
+getrandom = { version = "0.2", features = ["js"] }
+
+[dev-dependencies]
+tokio = { version = "1", features = ["full"] }
+wiremock = "0.6"

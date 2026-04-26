@@ -261,7 +261,9 @@
 	});
 
 	async function handleSignOut() {
-		await fetch(apiUrl('/auth/logout'), { method: 'POST', credentials: 'include' });
+		try {
+			await api.auth.logout();
+		} catch { /* best effort */ }
 		window.location.href = '/login';
 	}
 </script>

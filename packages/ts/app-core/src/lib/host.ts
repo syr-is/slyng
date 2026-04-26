@@ -17,6 +17,32 @@ export function getHost(): string {
 	return _baseUrl;
 }
 
+/**
+ * Pluggable HTTP transport. The web app leaves this unset, so api.ts
+ * falls through to its default `fetch` implementation (cookies,
+ * same-origin). The Tauri native shell installs an implementation
+ * that forwards every request through a single Rust command, so all
+ * HTTP flows through `syren-client`'s reqwest with persistent cookies
+ * and the session id stored in `tauri-plugin-store` — no auth state
+ * ever leaks into JS.
+ *
+ * Called once from the platform's boot path. `null` clears it.
+ */
+export type ApiTransport = <T = unknown>(
+	path: string,
+	options: { method?: string; body?: unknown }
+) => Promise<T>;
+
+let _transport: ApiTransport | null = null;
+
+export function setApiTransport(t: ApiTransport | null): void {
+	_transport = t;
+}
+
+export function getApiTransport(): ApiTransport | null {
+	return _transport;
+}
+
 /** Build an absolute API URL for `path` (which must start with `/`). */
 export function apiUrl(path: string): string {
 	return `${_baseUrl}/api${path}`;

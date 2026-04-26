@@ -7,21 +7,45 @@ import type { Request, Response } from 'express';
 const SESSION_COOKIE = 'syren_session';
 
 /**
- * A redirect target is allowed when it is either:
- *  - a same-origin path on the API host (legacy web behavior), or
- *  - an absolute URL under one of the bundled Tauri shell origins, so the
- *    native app can round-trip back to itself after OAuth instead of
- *    landing on the deployed web app. Tauri uses different schemes per
- *    platform: `tauri://localhost` on macOS/iOS,
- *    `http://tauri.localhost` (or https) on Android/Windows/Linux.
+ * A redirect target is allowed when it is one of:
+ *  - a same-origin path on the API host (the legacy web flow);
+ *  - the bundled Tauri shell origins, for in-app SPA navigation;
+ *  - `syren://auth/callback` — the mobile native app's deep-link
+ *    redirect (handled by `tauri-plugin-deep-link`); or
+ *  - `http://localhost:<port>/` — the desktop native app's loopback
+ *    redirect (handled by `tauri-plugin-oauth`, which binds a random
+ *    port for each handshake).
  *
- * Any other shape (full https URL, javascript:, etc.) is rejected — this
- * stops the field from being a generic open redirect.
+ * Any other shape (arbitrary external https, javascript:, etc.) is
+ * rejected — this stops the field from being a generic open redirect.
  */
 function isAllowedRedirect(value: unknown): value is string {
 	if (typeof value !== 'string' || !value) return false;
 	if (value.startsWith('/')) return true;
-	return /^(tauri:\/\/localhost|https?:\/\/tauri\.localhost)\/[^\s]*$/.test(value);
+	if (/^(tauri:\/\/localhost|https?:\/\/tauri\.localhost)\/[^\s]*$/.test(value)) return true;
+	if (/^syren:\/\/auth\/callback(?:\?[^\s]*)?$/.test(value)) return true;
+	// Loopback for tauri-plugin-oauth on desktop. Port is dynamic; we
+	// only accept the exact `http://localhost:<port>/` shape (no path,
+	// optional trailing query).
+	return /^http:\/\/localhost:\d{2,5}\/?(?:\?[^\s]*)?$/.test(value);
+}
+
+function isCustomSchemeRedirect(target: string): boolean {
+	return !target.startsWith('/') && !target.startsWith('http');
+}
+
+/**
+ * Read the active session id from either the `syren_session` cookie
+ * (web) or `Authorization: Bearer <id>` header (native / WASM client).
+ */
+function readSessionId(req: Request): string | undefined {
+	const cookie = req.cookies?.[SESSION_COOKIE] as string | undefined;
+	if (cookie) return cookie;
+	const auth = req.headers['authorization'];
+	if (typeof auth === 'string' && /^Bearer\s+/i.test(auth)) {
+		return auth.replace(/^Bearer\s+/i, '').trim() || undefined;
+	}
+	return undefined;
 }
 
 @ApiTags('auth')
@@ -49,33 +73,18 @@ export class AuthController {
 		if (!manifest) throw new HttpException('Could not reach this instance', 400);
 		if (!manifest.platform) throw new HttpException('Instance does not support platform delegation', 400);
 
-		// Self-contained, HMAC-signed state token — no cookie required. This
-		// keeps the OAuth start working from environments where third-party
-		// Set-Cookie via fetch is dropped (Tauri webviews, ITP partitioning).
-		const state = this.authService.issueOAuthState();
+		// Self-contained, HMAC-signed state token. Carries the instance
+		// URL and the post-login redirect target inside the signed
+		// payload, so the callback URL itself stays static — no query
+		// params on it whatsoever. This is what keeps syr's token
+		// endpoint happy: it does a byte-level callback_url match
+		// between consent and token-exchange.
+		const state = this.authService.issueOAuthState({
+			inst: instanceUrl,
+			redirect: isAllowedRedirect(body.redirect) ? body.redirect : undefined
+		});
 
-		// We still set a syren_pending_instance cookie as a hint, but the
-		// callback can recover the instance URL from the signed-state payload
-		// embedded in the redirect target if the cookie is missing.
-		const cookieOpts = {
-			path: '/',
-			httpOnly: true,
-			secure: this.authService.isProduction(),
-			sameSite: 'none' as const,
-			maxAge: 600 * 1000
-		};
-		res.cookie('syren_pending_instance', instanceUrl, cookieOpts);
-		if (isAllowedRedirect(body.redirect)) {
-			res.cookie('syren_post_login_redirect', body.redirect, cookieOpts);
-		}
-
-		// Embed both the instance URL AND the validated post-login redirect
-		// into the callback URL itself. This rides through the syr round-trip
-		// as URL params, surviving cross-site cookie loss in webviews where
-		// the cookies above never make it back from third-party fetch context.
-		const cbParams = new URLSearchParams({ inst: instanceUrl });
-		if (isAllowedRedirect(body.redirect)) cbParams.set('redirect', body.redirect);
-		const callbackUrl = `${this.authService.getCallbackUrl()}?${cbParams.toString()}`;
+		const callbackUrl = this.authService.getCallbackUrl();
 
 		const consentUrl = await this.authService.getConsentUrl(instanceUrl, {
 			platform_origin: this.authService.getPlatformOrigin(),
@@ -110,18 +119,19 @@ export class AuthController {
 		if (!code) return res.redirect('/login?error=missing_code');
 
 		// HMAC-validated state — no dependency on the cookie jar.
-		if (!state || !this.authService.verifyOAuthState(state)) {
+		const verified = state ? this.authService.verifyOAuthState(state) : null;
+		if (!verified) {
 			this.logger.warn('OAuth state failed HMAC verification or replayed');
 			return res.redirect('/login?error=invalid_state');
 		}
 
-		// Recover the syr instance URL: prefer the cookie, fall back to the
-		// `inst` query param we wired through the callback URL on /login.
-		const syrInstanceUrl =
-			req.cookies?.syren_pending_instance ?? (req.query.inst as string | undefined);
-		if (!syrInstanceUrl) {
-			return res.redirect('/login?error=session_expired');
-		}
+		// Recover the syr instance URL and post-login redirect from the
+		// signed state payload — they were sealed in there during /login,
+		// so no cookies / query-params on the callback URL are required.
+		const syrInstanceUrl = verified.inst;
+		const postLoginRedirect = isAllowedRedirect(verified.redirect)
+			? verified.redirect
+			: undefined;
 
 		if (!delegationId) {
 			return res.redirect('/login?error=missing_delegation_id');
@@ -130,22 +140,11 @@ export class AuthController {
 		try {
 			const platformOrigin = this.authService.getPlatformOrigin();
 
-			// Recover the post-login redirect from EITHER the URL query (added
-			// during /login as a cookie-independent backup) or the cookie
-			// (used by the original web flow). Validate either one.
-			const queryRedirect = req.query.redirect as string | undefined;
-			const cookieRedirect = req.cookies?.syren_post_login_redirect;
-			const postLoginRedirect = isAllowedRedirect(queryRedirect)
-				? queryRedirect
-				: isAllowedRedirect(cookieRedirect)
-					? cookieRedirect
-					: undefined;
-
-			// Match the exact redirect_uri sent during /login — the token
-			// endpoint at the syr instance verifies it byte-for-byte.
-			const cbParams = new URLSearchParams({ inst: syrInstanceUrl });
-			if (postLoginRedirect) cbParams.set('redirect', postLoginRedirect);
-			const callbackUrl = `${this.authService.getCallbackUrl()}?${cbParams.toString()}`;
+			// `callback_url` MUST be byte-identical to what we sent during
+			// the consent step — syr.is verifies it on the token endpoint.
+			// Keeping it static (no query params) eliminates URL-encoding
+			// drift between consent and exchange.
+			const callbackUrl = this.authService.getCallbackUrl();
 
 			const tokens = await this.authService.exchangePlatformCode(
 				syrInstanceUrl, code, delegationId, callbackUrl, platformOrigin
@@ -154,9 +153,6 @@ export class AuthController {
 			await this.authService.upsertUser(tokens, syrInstanceUrl);
 
 			const sessionId = await this.authService.createSession(tokens, syrInstanceUrl);
-
-			res.clearCookie('syren_pending_instance', { path: '/' });
-			if (cookieRedirect) res.clearCookie('syren_post_login_redirect', { path: '/' });
 			res.cookie(SESSION_COOKIE, sessionId, {
 				path: '/',
 				httpOnly: true,
@@ -171,28 +167,104 @@ export class AuthController {
 				maxAge: 30 * 24 * 60 * 60 * 1000 // 30 days
 			});
 
-			const target = isAllowedRedirect(postLoginRedirect) ? postLoginRedirect : '/channels/@me';
-			// Same-origin paths use a normal 302. Custom-scheme targets like
-			// `tauri://localhost/...` can be silently blocked by Android
-			// WebView / WKWebView when delivered via a cross-scheme HTTP
-			// Location header — send an HTML+JS page instead so the
-			// navigation is initiated from script (allowed for custom
-			// schemes the host app has registered).
+			let target = isAllowedRedirect(postLoginRedirect) ? postLoginRedirect : '/channels/@me';
+
+			// For non-HTTP redirect targets (the native app's deep link
+			// or loopback) the session cookie is useless — cookies are
+			// scoped to web origins. Issue a one-shot bridge token
+			// instead, attach it as `?code=…`, and let the native client
+			// swap it for the real session id via /auth/exchange.
+			if (isCustomSchemeRedirect(target) || target.startsWith('http://localhost:')) {
+				const bridge = this.authService.issueBridgeToken(sessionId);
+				const sep = target.includes('?') ? '&' : '?';
+				target = `${target}${sep}code=${encodeURIComponent(bridge)}`;
+			}
+
+			// Same-origin path → normal 302 (legacy web flow).
 			if (target.startsWith('/')) {
 				return res.redirect(target);
 			}
-			const escaped = JSON.stringify(target);
+
+			// Desktop loopback (tauri-plugin-oauth listens on
+			// http://localhost:<port>/). A regular 302 is fine — the
+			// browser hits the loopback, plugin-oauth captures the URL
+			// (with `?code=…`), and emits a default success page. No
+			// custom HTML needed here.
+			if (target.startsWith('http://localhost:')) {
+				return res.redirect(target);
+			}
+
+			// Mobile custom scheme (`syren://auth/callback?code=…`).
+			// Chrome on Android refuses to follow cross-scheme JS-driven
+			// navigations from the page (no user gesture), and even
+			// Location: redirects can be blocked. The robust pattern
+			// every production mobile-OAuth flow uses:
+			//   1. Try `intent://` syntax with a fallback URL — Chrome
+			//      may honour it, and gives us a graceful fallback if
+			//      not.
+			//   2. Show a visible "Continue in App" button so the user
+			//      can complete it with a single tap if auto-launch
+			//      doesn't fire.
+			//   3. Auto-launch attempts (meta refresh + scripted click)
+			//      as best-effort; iOS Safari and most non-Chromium
+			//      browsers honour them.
+			const codeParam = (() => {
+				try {
+					return new URL(target).searchParams.get('code') ?? '';
+				} catch {
+					return '';
+				}
+			})();
+			const fallbackUrl = `${this.authService.getPlatformOrigin()}/login`;
+			const intentUrl =
+				`intent://auth/callback?code=${encodeURIComponent(codeParam)}` +
+				`#Intent;scheme=syren;package=is.syr.syren;` +
+				`S.browser_fallback_url=${encodeURIComponent(fallbackUrl)};end`;
+			const directUrl = target;
+			const escapedDirect = JSON.stringify(directUrl);
+			const escapedIntent = JSON.stringify(intentUrl);
 			res.status(200).type('html').send(`<!DOCTYPE html>
-<html lang="en"><head>
+<html lang="en">
+<head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta http-equiv="refresh" content="0;url=${target.replace(/"/g, '&quot;')}">
-<title>Signing you in…</title>
-<style>html,body{margin:0;height:100%;background:#0a0a0b;color:#fafafa;font-family:system-ui,sans-serif;display:flex;align-items:center;justify-content:center}</style>
-</head><body>
-<p>Signing you in…</p>
-<script>window.location.replace(${escaped});</script>
-</body></html>`);
+<meta http-equiv="refresh" content="0;url=${directUrl.replace(/"/g, '&quot;')}">
+<title>Sign-in successful</title>
+<style>
+html,body{margin:0;min-height:100vh;background:#0a0a0b;color:#fafafa;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;display:flex;align-items:center;justify-content:center}
+.card{max-width:360px;padding:32px 24px;text-align:center}
+h1{font-size:20px;margin:0 0 8px;font-weight:600}
+p{margin:0 0 16px;font-size:14px;color:#a1a1aa;line-height:1.5}
+.btn{display:inline-block;padding:14px 24px;border-radius:9999px;background:#fafafa;color:#0a0a0b;font-weight:600;text-decoration:none;font-size:15px;margin-top:12px}
+.btn:active{opacity:.8}
+.muted{margin-top:24px;font-size:12px;color:#71717a}
+</style>
+</head>
+<body>
+<div class="card">
+<h1>Sign-in successful</h1>
+<p>You'll be returned to the app. If nothing happens, tap the button below.</p>
+<a id="open" class="btn" href=${escapedDirect}>Open Syren</a>
+<p class="muted">You can close this tab once the app opens.</p>
+</div>
+<script>
+(function () {
+  var direct = ${escapedDirect};
+  var intent = ${escapedIntent};
+  var link = document.getElementById('open');
+  if (/Android/i.test(navigator.userAgent)) {
+    link.href = intent;
+  }
+  // Best-effort auto-launch. Chrome on Android typically blocks this
+  // without a user gesture, but iOS Safari and many other browsers
+  // honour it. The visible button is the guaranteed path.
+  setTimeout(function () { try { link.click(); } catch (_) {} }, 50);
+  setTimeout(function () { try { window.location.href = link.href; } catch (_) {} }, 250);
+})();
+</script>
+</body>
+</html>`);
+			return;
 		} catch (err) {
 			const msg = err instanceof Error ? err.message : 'Auth failed';
 			return res.redirect(`/login?error=${encodeURIComponent(msg)}`);
@@ -203,21 +275,39 @@ export class AuthController {
 	@Post('logout')
 	@ApiOperation({ summary: 'Logout — clears session' })
 	async logout(@Req() req: Request, @Res() res: Response) {
-		const sessionId = req.cookies?.[SESSION_COOKIE];
+		const sessionId = readSessionId(req);
 		if (sessionId) {
 			try {
 				await this.authService.deleteSession(sessionId);
 			} catch { /* best effort */ }
 		}
 		res.clearCookie(SESSION_COOKIE, { path: '/' });
-		return res.redirect('/login');
+		// Native client (Bearer auth) sends fetch(); web sends top-level
+		// nav. Return JSON for both — the redirect was for the legacy
+		// web flow only.
+		res.status(200).json({ success: true });
+	}
+
+	/**
+	 * Swap a one-shot bridge code (issued during the OAuth callback for
+	 * custom-scheme redirects) for the long-lived session id. Used by
+	 * the native client.
+	 */
+	@Public()
+	@Post('exchange')
+	@ApiOperation({ summary: 'Exchange a one-shot bridge code for a session id' })
+	async exchange(@Body() body: { code: string }) {
+		if (!body?.code) throw new HttpException('Missing code', 400);
+		const sessionId = this.authService.consumeBridgeToken(body.code);
+		if (!sessionId) throw new HttpException('Invalid or expired bridge code', 400);
+		return { session: sessionId };
 	}
 
 	@Public()
 	@Get('me')
 	@ApiOperation({ summary: 'Get session identity (DID + instance). Profiles resolved client-side.' })
 	async me(@Req() req: Request) {
-		const sessionId = req.cookies?.[SESSION_COOKIE];
+		const sessionId = readSessionId(req);
 		if (!sessionId) throw new HttpException('Not authenticated', 401);
 
 		const session = await this.authService.getSession(sessionId);

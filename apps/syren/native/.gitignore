@@ -7,3 +7,10 @@ build
 src-tauri/target
 src-tauri/Cargo.lock
 src-tauri/gen
+# AndroidManifest.xml is hand-edited (custom-scheme intent filter
+# for the OAuth deep link) — `tauri android init` would otherwise
+# regenerate gen/ with the default manifest and lose our changes.
+!src-tauri/gen/android/app/src/main/AndroidManifest.xml
+# MainActivity.kt is also hand-edited (WindowInsets listener for the
+# safe-area CSS variables we inject into the WebView).
+!src-tauri/gen/android/app/src/main/java/is/syr/syren/MainActivity.kt

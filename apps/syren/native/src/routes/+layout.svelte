@@ -1,10 +1,35 @@
 <script lang="ts">
 	import '../app.css';
+	import { invoke } from '@tauri-apps/api/core';
 	import { Toaster } from '@syren/ui/sonner';
 	import { ModeWatcher } from 'mode-watcher';
 	import * as Tooltip from '@syren/ui/tooltip';
+	import { setApiTransport, type ApiTransport } from '@syren/app-core/host';
+	import { getStoredHostSync } from '$lib/host-store';
 
 	let { children } = $props();
+
+	// Route every API call from the shared `app-core/api.ts` through
+	// Rust. The Tauri command `proxy_request` forwards to
+	// `syren-client::Client::request_raw`, which uses reqwest with the
+	// persistent cookie jar and the session id stored in
+	// `tauri-plugin-store`. JS never sees the auth token; there is no
+	// second fetch path; the API host is read from the same Tauri
+	// store the user picked on the /setup screen.
+	async function proxy(
+		path: string,
+		options: { method?: string; body?: unknown }
+	): Promise<unknown> {
+		const apiHost = getStoredHostSync();
+		if (!apiHost) throw new Error('API host not configured — visit /setup');
+		return invoke('proxy_request', {
+			apiHost,
+			path,
+			method: options.method ?? 'GET',
+			body: options.body ?? null
+		});
+	}
+	setApiTransport(proxy as ApiTransport);
 </script>
 
 <ModeWatcher />

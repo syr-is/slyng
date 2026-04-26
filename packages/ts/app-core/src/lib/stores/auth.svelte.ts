@@ -3,7 +3,7 @@
  * client-side from the user's instance via `profiles.svelte.ts`.
  */
 
-import { apiUrl } from '../host';
+import { getApiTransport, apiUrl } from '../host';
 
 export interface AuthIdentity {
 	did: string;
@@ -29,19 +29,21 @@ export async function checkAuth(): Promise<AuthIdentity | null> {
 
 	loading = true;
 	try {
-		const res = await fetch(apiUrl('/auth/me'), { credentials: 'include' });
-		if (res.ok) {
-			const data = (await res.json()) as Partial<AuthIdentity>;
-			if (data?.did && data?.syr_instance_url) {
-				identity = {
-					did: data.did,
-					syr_instance_url: data.syr_instance_url,
-					delegate_public_key: data.delegate_public_key
-				};
-			}
+		// Route through whatever transport is registered — Rust on
+		// native, fetch on web. Same response shape either way.
+		const transport = getApiTransport();
+		const data = transport
+			? await transport<Partial<AuthIdentity>>('/auth/me', { method: 'GET' })
+			: await (await fetch(apiUrl('/auth/me'), { credentials: 'include' })).json();
+		if (data?.did && data?.syr_instance_url) {
+			identity = {
+				did: data.did,
+				syr_instance_url: data.syr_instance_url,
+				delegate_public_key: data.delegate_public_key
+			};
 		}
 	} catch {
-		// API unreachable
+		// API unreachable / 401
 	}
 	checked = true;
 	loading = false;
