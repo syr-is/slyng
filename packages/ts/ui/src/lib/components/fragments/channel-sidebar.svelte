@@ -117,7 +117,7 @@
 		{#if perms.canViewAuditLog}
 			<DropdownMenu.Root>
 				<DropdownMenu.Trigger
-					class="absolute right-1 hidden h-6 w-6 items-center justify-center rounded text-sidebar-foreground/50 hover:bg-sidebar-accent hover:text-sidebar-foreground group-hover:flex data-[state=open]:flex"
+					class="absolute right-1 hidden h-6 w-6 items-center justify-center rounded text-sidebar-foreground/50 hover:bg-sidebar-accent hover:text-sidebar-foreground group-hover:flex tap:flex data-[state=open]:flex"
 					title="Channel options"
 				>
 					<MoreVertical class="h-4 w-4" />

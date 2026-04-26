@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { onDestroy } from 'svelte';
 	import { Hash, Users, Pin, ScrollText, Eye, EyeOff } from '@lucide/svelte';
 	import { goto } from '$app/navigation';
 	import { toast } from 'svelte-sonner';
@@ -8,6 +9,9 @@
 	import PinsPanel from '@syren/ui/fragments/pins-panel.svelte';
 	import VoiceRoomView from '@syren/ui/fragments/voice-room-view.svelte';
 	import { Permissions } from '@syren/types';
+	import { setPageMembers } from '$lib/page-sidebar.svelte';
+	import { setPane } from '@syren/ui/fragments/swipe-layout';
+	import { IsMobile } from '@syren/ui/sidebar';
 	import { api } from '@syren/app-core/api';
 	import { subscribeChannels } from '@syren/app-core/stores/ws.svelte';
 	import { setCurrentChannel, getMessages, addMessage } from '@syren/app-core/stores/messages.svelte';
@@ -60,6 +64,29 @@
 
 	const messageStore = getMessages();
 	const typingStore = getTyping();
+	const isMobile = new IsMobile();
+
+	// Members panel: always register on mobile so the swipe / button can
+	// always reveal it; on desktop the existing `showMembers` toggle
+	// continues to hide / show the right column.
+	$effect(() => {
+		if (isMobile.current || showMembers) {
+			setPageMembers(membersDrawer);
+		} else {
+			setPageMembers(undefined);
+		}
+	});
+	onDestroy(() => setPageMembers(undefined));
+
+	function toggleMembers() {
+		if (isMobile.current) {
+			// On mobile the panel is always registered — the button just
+			// opens the SwipeLayout drawer.
+			setPane('right');
+		} else {
+			showMembers = !showMembers;
+		}
+	}
 
 	let loadedChannelId: string | null = null;
 
@@ -408,7 +435,7 @@
 					</button>
 				{/if}
 				<button
-					onclick={() => (showMembers = !showMembers)}
+					onclick={toggleMembers}
 					class="rounded p-1 text-muted-foreground hover:text-foreground"
 					title="Toggle member list"
 				>
@@ -479,14 +506,17 @@
 	</div>
 	{/if}
 
-	{#if showMembers}
-		<MemberList
-			{serverId}
-			serverOwnerId={serverState.activeServerOwnerId}
-			canManageRoles={perms.canManageRoles}
-		/>
-	{/if}
+	<!-- Members panel is rendered in SwipeLayout's right pane (drawer on
+	     mobile, always-visible column on desktop) via setPageMembers above. -->
 </div>
+
+{#snippet membersDrawer()}
+	<MemberList
+		{serverId}
+		serverOwnerId={serverState.activeServerOwnerId}
+		canManageRoles={perms.canManageRoles}
+	/>
+{/snippet}
 
 <PinsPanel
 	open={showPins}

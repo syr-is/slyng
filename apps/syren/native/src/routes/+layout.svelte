@@ -5,6 +5,7 @@
 	import { ModeWatcher } from 'mode-watcher';
 	import * as Tooltip from '@syren/ui/tooltip';
 	import { setApiTransport, type ApiTransport } from '@syren/app-core/host';
+	import { setWsTokenProvider } from '@syren/app-core/stores/ws.svelte';
 	import { getStoredHostSync } from '$lib/host-store';
 
 	let { children } = $props();
@@ -30,6 +31,21 @@
 		});
 	}
 	setApiTransport(proxy as ApiTransport);
+
+	// WS auth: native can't ride the syren_session cookie because the WS
+	// origin (app.slyng.gg) isn't the WebView origin (tauri.localhost), so
+	// the gateway's auto-identify path doesn't fire. Hand the persisted
+	// session id to ws.svelte.ts; it sends an explicit IDENTIFY after open.
+	setWsTokenProvider(async () => {
+		const apiHost = getStoredHostSync();
+		if (!apiHost) return null;
+		try {
+			return (await invoke('session_token', { apiHost })) as string | null;
+		} catch (err) {
+			if (import.meta.env.DEV) console.warn('[+layout root] session_token invoke failed', err);
+			return null;
+		}
+	});
 </script>
 
 <ModeWatcher />
@@ -42,7 +58,7 @@
 	       resolve it correctly.
 	     - On plain desktop everything is 0 → no-op. -->
 	<div
-		class="flex min-h-dvh flex-col pt-[var(--syren-sai-top,env(safe-area-inset-top,0px))] pr-[var(--syren-sai-right,env(safe-area-inset-right,0px))] pb-[var(--syren-sai-bottom,env(safe-area-inset-bottom,0px))] pl-[var(--syren-sai-left,env(safe-area-inset-left,0px))]"
+		class="flex h-dvh flex-col pt-[var(--syren-sai-top,env(safe-area-inset-top,0px))] pr-[var(--syren-sai-right,env(safe-area-inset-right,0px))] pb-[var(--syren-sai-bottom,env(safe-area-inset-bottom,0px))] pl-[var(--syren-sai-left,env(safe-area-inset-left,0px))]"
 	>
 		{@render children?.()}
 	</div>

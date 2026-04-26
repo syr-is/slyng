@@ -46,11 +46,13 @@ export function setPresence(userId: string, data: PresenceData) {
 
 /** Push a status change for the current user up to the server. */
 export function updateMyPresence(data: Partial<PresenceData>) {
+	if (import.meta.env.DEV) console.log('[presence] updateMyPresence →', data.status);
 	send({ op: WsOp.PRESENCE_UPDATE, d: data });
 }
 
 onWsEvent(WsOp.PRESENCE_UPDATE_BROADCAST, (raw) => {
 	const d = raw as { user_id: string; status: PresenceStatus; custom_status?: string; custom_emoji?: string };
+	if (import.meta.env.DEV) console.log('[presence] broadcast user=', d.user_id, 'status=', d.status);
 	setPresence(d.user_id, {
 		status: d.status,
 		custom_status: d.custom_status,
@@ -60,7 +62,8 @@ onWsEvent(WsOp.PRESENCE_UPDATE_BROADCAST, (raw) => {
 
 // READY snapshot — populates presences for users already online when we connect
 onWsEvent(WsOp.READY, (raw) => {
-	const d = raw as { presences?: { user_id: string; status: PresenceStatus; custom_status?: string; custom_emoji?: string }[] };
+	const d = raw as { presences?: { user_id: string; status: PresenceStatus; custom_status?: string; custom_emoji?: string }[]; error?: string };
+	if (import.meta.env.DEV) console.log('[presence] READY presences=', d?.presences?.length ?? 0, 'error=', d?.error);
 	if (!d?.presences) return;
 	for (const p of d.presences) {
 		setPresence(p.user_id, {

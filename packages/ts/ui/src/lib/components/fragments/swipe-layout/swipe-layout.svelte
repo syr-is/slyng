@@ -1,9 +1,7 @@
 <script lang="ts">
 	import { type Snippet } from 'svelte';
-	import { useSwipe, type SwipeCustomEvent } from 'svelte-gestures';
 	import { IsMobile } from '../../ui/sidebar/is-mobile.svelte.js';
-
-	type Pane = 'left' | 'main' | 'right';
+	import { getPaneState, setPane } from './swipe-pane.svelte.js';
 
 	interface Props {
 		/** Far-left rail (e.g. ServerList). 72px on mobile. */
@@ -20,7 +18,8 @@
 
 	let { rail, sidebar, main, members, desktopMinPx = 768 }: Props = $props();
 
-	let pane = $state<Pane>('main');
+	const paneState = getPaneState();
+	const pane = $derived(paneState.value);
 
 	// Use the same `IsMobile` primitive the sidebar / syner relies on —
 	// straight `(max-width: <breakpoint - 1>px)` matchMedia, no pointer
@@ -28,27 +27,95 @@
 	const isMobile = new IsMobile(desktopMinPx);
 	const isDesktop = $derived(!isMobile.current);
 
-	function onSwipe(event: SwipeCustomEvent) {
+	// Swipe detection. Rolled by hand with raw touch events because the
+	// pointer-event flow svelte-gestures uses gets cancelled mid-swipe by
+	// the WebView's scroll heuristic on mobile (lostpointercapture fires
+	// the moment any vertical motion is detected, even slight, and the
+	// gesture is dropped). Touch events bubble reliably and let us decide
+	// on direction at touchend without arguing with the browser.
+	const LEFT_DRAWER_PX = 312; // rail (72) + sidebar (240)
+	const RIGHT_DRAWER_PX = 240; // members panel width on mobile
+	const MIN_SWIPE_PX = 50;
+	const MAX_SWIPE_MS = 500;
+	const HORIZONTAL_DOMINANCE = 1.4; // |dx| must be ≥ this × |dy|
+
+	let touchStartX = 0;
+	let touchStartY = 0;
+	let touchStartTime = 0;
+	let touchTracking = false;
+
+	function onTouchStart(e: TouchEvent) {
 		if (isDesktop) return;
-		const dir = event.detail.direction;
-		if (dir === 'right') {
-			if (pane === 'right') pane = 'main';
-			else if (pane === 'main') pane = 'left';
-		} else if (dir === 'left') {
-			if (pane === 'left') pane = 'main';
-			else if (pane === 'main' && members) pane = 'right';
+		// Abort tracking the moment a second finger lands — otherwise a
+		// pinch / two-finger swipe could end with `changedTouches[0]`
+		// belonging to the wrong finger and incorrectly fire a swipe.
+		if (e.touches.length !== 1) {
+			touchTracking = false;
+			return;
+		}
+		touchStartX = e.touches[0].clientX;
+		touchStartY = e.touches[0].clientY;
+		touchStartTime = Date.now();
+		touchTracking = true;
+	}
+
+	function onTouchEnd(e: TouchEvent) {
+		if (!touchTracking) return;
+		touchTracking = false;
+		if (Date.now() - touchStartTime > MAX_SWIPE_MS) return;
+		const t = e.changedTouches[0];
+		const dx = t.clientX - touchStartX;
+		const dy = t.clientY - touchStartY;
+		const absX = Math.abs(dx);
+		const absY = Math.abs(dy);
+		if (absX < MIN_SWIPE_PX) return;
+		if (absX < absY * HORIZONTAL_DOMINANCE) return;
+
+		if (import.meta.env.DEV) console.log('[swipe-layout] swipe', dx > 0 ? 'right' : 'left', 'pane=', pane);
+		if (dx > 0) {
+			// swipe right
+			if (pane === 'right') setPane('main');
+			else if (pane === 'main') setPane('left');
+		} else {
+			// swipe left
+			if (pane === 'left') setPane('main');
+			else if (pane === 'main' && members) setPane('right');
 		}
 	}
 
-	const swipeAttachment = useSwipe(onSwipe, () => ({
-		timeframe: 400,
-		minSwipeDistance: 60,
-		touchAction: 'pan-y'
-	}));
+	function onTouchCancel() {
+		touchTracking = false;
+	}
 
 	function closeDrawer() {
-		if (pane !== 'main') pane = 'main';
+		if (pane !== 'main') setPane('main');
 	}
+
+	// If a page unregisters its members snippet (e.g. user navigates from
+	// a channel to settings), pane could still be `'right'` from the
+	// previous page — the drawer it would open no longer exists, but the
+	// dim close-overlay would keep rendering. Snap back to `main` whenever
+	// `members` transitions from truthy to falsy while we're parked on it.
+	$effect(() => {
+		if (!members && paneState.value === 'right') setPane('main');
+	});
+
+	// Layout maths for the inner-track translateX:
+	// children laid out [drawer (312px) | main (100vw) | right (240px)]
+	// pane === 'left'  → translate 0       (drawer at viewport-left, main + dim overlay covers the rest)
+	// pane === 'main'  → translate -312px  (main fills viewport)
+	// pane === 'right' → translate -(312 + 240)px so right drawer ends at viewport-right edge,
+	//                    main pane offset (100vw - 240) is still visible behind it for backdrop
+	const trackTransform = $derived(
+		pane === 'left'
+			? '0px'
+			: pane === 'right' && members
+				? `calc(-${LEFT_DRAWER_PX}px - ${RIGHT_DRAWER_PX}px)`
+				: `-${LEFT_DRAWER_PX}px`
+	);
+	const trackWidth = $derived(
+		`calc(${LEFT_DRAWER_PX}px + 100vw${members ? ` + ${RIGHT_DRAWER_PX}px` : ''})`
+	);
 </script>
 
 {#if isDesktop}
@@ -60,22 +127,24 @@
 	</div>
 {:else}
 	<div
-		{...swipeAttachment}
 		class="relative h-full w-full overflow-hidden bg-background"
+		style="touch-action: pan-y"
+		ontouchstart={onTouchStart}
+		ontouchend={onTouchEnd}
+		ontouchcancel={onTouchCancel}
 	>
 		<div
 			class="flex h-full transition-transform duration-200 ease-out will-change-transform"
-			class:translate-x-0={pane === 'left'}
-			class:-translate-x-[312px]={pane === 'main'}
-			class:-translate-x-[calc(312px+100vw)]={pane === 'right' && !!members}
-			style="width: calc(312px + 100vw{members ? ' + 100vw' : ''});"
+			style="width: {trackWidth}; transform: translateX({trackTransform});"
 		>
 			<!-- Left drawer: rail (72px) + sidebar (240px) -->
 			<div class="flex h-full w-[312px] shrink-0">
 				{#if rail}<div class="h-full w-[72px] shrink-0">{@render rail()}</div>{/if}
 				{#if sidebar}<div class="h-full w-[240px] shrink-0">{@render sidebar()}</div>{/if}
 			</div>
-			<!-- Main pane: full viewport -->
+			<!-- Main pane: full viewport. When a drawer is open, the
+			     dim overlay covers the visible portion as a tap-to-close
+			     affordance (Discord/Telegram pattern). -->
 			<div class="relative h-full w-screen shrink-0">
 				{@render main()}
 				{#if pane !== 'main'}
@@ -87,9 +156,10 @@
 					></button>
 				{/if}
 			</div>
-			<!-- Right drawer: full viewport -->
+			<!-- Right drawer: 240px wide; main pane stays partially visible
+			     to its left and serves as the tap-to-close backdrop. -->
 			{#if members}
-				<div class="h-full w-screen shrink-0">{@render members()}</div>
+				<div class="h-full w-[240px] shrink-0">{@render members()}</div>
 			{/if}
 		</div>
 	</div>

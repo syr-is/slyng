@@ -15,6 +15,23 @@ async fn client<R: Runtime>(
 	state.ensure(app, api_host).await
 }
 
+/// Expose the persisted session id to JS so the WebSocket layer can
+/// send a syr `IDENTIFY` message after connect — the WS lives at
+/// `app.slyng.gg` while the Tauri WebView origin is `tauri.localhost`,
+/// so cookies don't cross and the server's cookie auto-identify path
+/// (chat.gateway.ts:67-78) can never fire on native. The token already
+/// rides the JS↔Rust trust boundary via every `proxy_request`, so this
+/// just surfaces the same value once for the WS handshake.
+#[tauri::command]
+pub async fn session_token<R: Runtime>(
+	app: AppHandle<R>,
+	state: State<'_, ClientHandle>,
+	api_host: String,
+) -> Result<Option<String>, String> {
+	let c = client(&app, &state, &api_host).await?;
+	Ok(c.store().get().await)
+}
+
 /// Generic proxy — every API call from the native shell flows through
 /// here. JS-side `app-core/api.ts` is configured with a transport that
 /// invokes `proxy_request` for every request; the underlying HTTP
@@ -30,10 +47,17 @@ pub async fn proxy_request<R: Runtime>(
 	method: Option<String>,
 	body: Option<Value>,
 ) -> Result<Value, String> {
+	let m = method.as_deref().unwrap_or("GET").to_string();
+	#[cfg(debug_assertions)]
+	eprintln!("[proxy] -> {m} {path}");
 	let c = client(&app, &state, &api_host).await?;
-	c.request_raw(method.as_deref().unwrap_or("GET"), &path, body)
-		.await
-		.map_err(|e| e.to_string())
+	let result = c.request_raw(&m, &path, body).await;
+	#[cfg(debug_assertions)]
+	match &result {
+		Ok(_) => eprintln!("[proxy] <- {m} {path} OK"),
+		Err(e) => eprintln!("[proxy] <- {m} {path} ERR = {e}"),
+	}
+	result.map_err(|e| e.to_string())
 }
 
 #[tauri::command]

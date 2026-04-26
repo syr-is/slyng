@@ -194,7 +194,7 @@
 								<Avatar.Fallback class="text-2xl">{expName.slice(0, 2).toUpperCase()}</Avatar.Fallback>
 							</Avatar.Root>
 						{/if}
-						<button type="button" onclick={() => handleExpand(expandedTile.id)} class="absolute right-2 top-2 rounded bg-black/50 p-1 text-white opacity-0 transition-opacity group-hover:opacity-100" title="Fullscreen">
+						<button type="button" onclick={() => handleExpand(expandedTile.id)} class="absolute right-2 top-2 rounded bg-black/50 p-1 text-white opacity-0 transition-opacity group-hover:opacity-100 tap:opacity-100" title="Fullscreen">
 							<Maximize2 class="h-4 w-4" />
 						</button>
 						<div class="absolute inset-x-0 bottom-0 flex items-center gap-2 bg-gradient-to-t from-black/70 to-transparent px-3 py-2">
@@ -238,7 +238,7 @@
 	>
 		{#if tile.kind !== 'avatar' && tile.stream}
 			<video autoplay playsinline muted={tile.isSelf} class="h-full w-full object-contain" use:attachStream={tile.stream}></video>
-			<button type="button" onclick={() => handleExpand(tile.id)} class="absolute right-1.5 top-1.5 rounded bg-black/50 p-1 text-white opacity-0 transition-opacity group-hover:opacity-100" title="Expand">
+			<button type="button" onclick={() => handleExpand(tile.id)} class="absolute right-1.5 top-1.5 rounded bg-black/50 p-1 text-white opacity-0 transition-opacity group-hover:opacity-100 tap:opacity-100" title="Expand">
 				<Maximize2 class="h-3.5 w-3.5" />
 			</button>
 			<div class="absolute inset-x-0 bottom-0 flex items-center justify-between bg-gradient-to-t from-black/70 to-transparent px-2 py-1.5 text-[11px] text-white">

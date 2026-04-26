@@ -49,6 +49,7 @@ pub fn run() {
 			auth::start_login,
 			auth::logout,
 			commands::proxy_request,
+			commands::session_token,
 			commands::me,
 			commands::servers_list,
 			commands::server_get,

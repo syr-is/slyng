@@ -28,6 +28,9 @@
 	import { resolveStories } from '@syren/app-core/stores/stories.svelte';
 	import { proxied } from '@syren/app-core/utils/proxy';
 	import StoryViewer from './story-viewer.svelte';
+	import SafeLink from './safe-link.svelte';
+	import { getActiveProfileCard, setActiveProfileCard } from './active-profile-card.svelte.js';
+	import { getPaneState } from './swipe-layout/swipe-pane.svelte.js';
 	import { getMembers, type MemberData } from '@syren/app-core/stores/members.svelte';
 	import { getRoles, type RoleData } from '@syren/app-core/stores/roles.svelte';
 	import { getServerState } from '@syren/app-core/stores/servers.svelte';
@@ -130,9 +133,44 @@
 	// hood and ignores controlled `open` on pointer-leave). Popover fully
 	// respects controlled state and dismisses on click-outside — exactly
 	// what we need. Hover-card UX is re-created with manual timers.
-	let hoverOpen = $state(false);
+	//
+	// `hoverOpen` is derived from a shared rune so only ONE card is open at
+	// a time across the whole app — opening this one stamps the rune with
+	// THIS instance's id, which immediately makes every other card's
+	// `hoverOpen` derivation false and closes them.
+	//
+	// Keyed by a unique per-instance id (not `did`!) because a single user
+	// usually has many messages on screen, and keying on `did` would open
+	// the card on every message from that sender at once.
+	const cardId = `pcard-${crypto.randomUUID()}`;
+	const active = getActiveProfileCard();
+	const hoverOpen = $derived(active.value === cardId);
 	let menuOpen = $state(false);
 	const cardOpen = $derived(hoverOpen || menuOpen || viewerOpen);
+
+	function openCard() {
+		setActiveProfileCard(cardId);
+	}
+	function closeCard() {
+		if (active.value === cardId) setActiveProfileCard(null);
+	}
+
+	// Popover is portaled to document.body, so when the SwipeLayout pane
+	// changes (e.g. user opens a card in the members drawer, then swipes
+	// back to the chat), the trigger slides off-screen with the track but
+	// the portaled popover stays put — stranded over the wrong content.
+	// Detect pane transitions and close any card we own.
+	const paneState = getPaneState();
+	let lastPane: string | null = null;
+	$effect(() => {
+		const current = paneState.value;
+		if (lastPane !== null && current !== lastPane && active.value === cardId) {
+			closeCard();
+			menuOpen = false;
+			cancelTimer();
+		}
+		lastPane = current;
+	});
 
 	let hoverTimer: ReturnType<typeof setTimeout> | null = null;
 	const OPEN_DELAY = 300;
@@ -140,13 +178,13 @@
 
 	function scheduleOpen() {
 		cancelTimer();
-		hoverTimer = setTimeout(() => { hoverOpen = true; }, OPEN_DELAY);
+		hoverTimer = setTimeout(() => { openCard(); }, OPEN_DELAY);
 	}
 
 	function scheduleClose() {
 		if (menuOpen || viewerOpen) return;
 		cancelTimer();
-		hoverTimer = setTimeout(() => { hoverOpen = false; }, CLOSE_DELAY);
+		hoverTimer = setTimeout(() => { closeCard(); }, CLOSE_DELAY);
 	}
 
 	function cancelTimer() {
@@ -157,7 +195,7 @@
 		if (!next) {
 			// Click-outside dismiss — always close, even if menu was open.
 			cancelTimer();
-			hoverOpen = false;
+			closeCard();
 			menuOpen = false;
 		}
 	}
@@ -272,9 +310,9 @@
 
 <Popover.Root open={cardOpen} onOpenChange={handlePopoverOpenChange}>
 	<Popover.Trigger
-		onclick={(e: MouseEvent) => { e.preventDefault(); hoverOpen = true; }}
-		onpointerenter={scheduleOpen}
-		onpointerleave={scheduleClose}
+		onclick={(e: MouseEvent) => { e.preventDefault(); openCard(); }}
+		onpointerenter={(e: PointerEvent) => { if (e.pointerType === 'mouse') scheduleOpen(); }}
+		onpointerleave={(e: PointerEvent) => { if (e.pointerType === 'mouse') scheduleClose(); }}
 		class={triggerClass}
 	>
 		{@render children()}
@@ -283,9 +321,11 @@
 	<Popover.Content
 		side="right"
 		sideOffset={8}
-		onpointerenter={cancelTimer}
-		onpointerleave={scheduleClose}
-		class="z-50 w-80 origin-(--bits-popover-content-transform-origin) rounded-md p-0 bg-popover text-popover-foreground border border-border shadow-lg outline-none animate-in fade-in-0 zoom-in-95 data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2 data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95"
+		avoidCollisions={true}
+		collisionPadding={12}
+		onpointerenter={(e: PointerEvent) => { if (e.pointerType === 'mouse') cancelTimer(); }}
+		onpointerleave={(e: PointerEvent) => { if (e.pointerType === 'mouse') scheduleClose(); }}
+		class="z-50 w-80 max-w-[calc(100vw-1.5rem)] origin-(--bits-popover-content-transform-origin) rounded-md p-0 bg-popover text-popover-foreground border border-border shadow-lg outline-none animate-in fade-in-0 zoom-in-95 data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2 data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95"
 	>
 		<!-- Banner -->
 		<div
@@ -393,29 +433,16 @@
 				</div>
 			{/if}
 
-			{#if profile.web_profile_url || !isSelf}
+			{#if profile.web_profile_url}
 				<div class="flex flex-wrap items-center gap-x-3 gap-y-1">
-					{#if !isSelf}
-						<button
-							type="button"
-							onclick={() => { hoverOpen = false; goto(`/channels/@me/posts/${encodeURIComponent(did)}${resolvedInstance ? `?instance=${encodeURIComponent(resolvedInstance)}` : ''}`); }}
-							class="inline-flex items-center gap-1 text-xs text-primary hover:underline"
-						>
-							<Newspaper class="h-3 w-3" />
-							View posts
-						</button>
-					{/if}
-					{#if profile.web_profile_url}
-						<a
-							href={profile.web_profile_url}
-							target="_blank"
-							rel="noopener"
-							class="inline-flex items-center gap-1 text-xs text-primary hover:underline"
-						>
-							View full profile
-							<ExternalLink class="h-3 w-3" />
-						</a>
-					{/if}
+					<SafeLink
+						href={profile.web_profile_url}
+						class="inline-flex items-center gap-1 text-xs text-primary hover:underline"
+					>
+						<Newspaper class="h-3 w-3" />
+						Open profile
+						<ExternalLink class="h-3 w-3" />
+					</SafeLink>
 				</div>
 			{/if}
 

@@ -25,16 +25,21 @@ export function getAuth() {
 }
 
 export async function checkAuth(): Promise<AuthIdentity | null> {
-	if (checked) return identity;
+	if (import.meta.env.DEV) console.log('[checkAuth] entry checked=', checked, 'authed=', !!identity?.did);
+	if (checked) {
+		return identity;
+	}
 
 	loading = true;
 	try {
 		// Route through whatever transport is registered — Rust on
 		// native, fetch on web. Same response shape either way.
 		const transport = getApiTransport();
+		if (import.meta.env.DEV) console.log('[checkAuth] transport=', typeof transport);
 		const data = transport
 			? await transport<Partial<AuthIdentity>>('/auth/me', { method: 'GET' })
 			: await (await fetch(apiUrl('/auth/me'), { credentials: 'include' })).json();
+		if (import.meta.env.DEV) console.log('[checkAuth] /auth/me ok=', !!(data?.did && data?.syr_instance_url));
 		if (data?.did && data?.syr_instance_url) {
 			identity = {
 				did: data.did,
@@ -42,11 +47,13 @@ export async function checkAuth(): Promise<AuthIdentity | null> {
 				delegate_public_key: data.delegate_public_key
 			};
 		}
-	} catch {
+	} catch (err) {
 		// API unreachable / 401
+		if (import.meta.env.DEV) console.log('[checkAuth] caught', err);
 	}
 	checked = true;
 	loading = false;
+	if (import.meta.env.DEV) console.log('[checkAuth] exit authed=', !!identity?.did);
 	return identity;
 }
 

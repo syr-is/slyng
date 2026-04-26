@@ -26,10 +26,35 @@ impl Client {
 	/// then stored in the `SessionStore` so subsequent calls carry it
 	/// in the `Authorization: Bearer` header.
 	pub async fn login_complete(&self, code: impl Into<String>) -> Result<Identity> {
-		let body = ExchangeRequest { code: code.into() };
-		let resp: ExchangeResponse = self.transport.post("/auth/exchange", &body).await?;
+		let code: String = code.into();
+		#[cfg(debug_assertions)]
+		eprintln!("[client/login_complete] start (code_len={})", code.len());
+		let body = ExchangeRequest { code };
+		let resp: ExchangeResponse = match self.transport.post("/auth/exchange", &body).await {
+			Ok(r) => {
+				#[cfg(debug_assertions)]
+				eprintln!("[client/login_complete] /auth/exchange OK");
+				r
+			}
+			Err(e) => {
+				#[cfg(debug_assertions)]
+				eprintln!("[client/login_complete] /auth/exchange ERR = {e}");
+				return Err(e);
+			}
+		};
 		self.transport.store.set(&resp.session).await;
-		self.me().await
+		match self.me().await {
+			Ok(id) => {
+				#[cfg(debug_assertions)]
+				eprintln!("[client/login_complete] /auth/me OK");
+				Ok(id)
+			}
+			Err(e) => {
+				#[cfg(debug_assertions)]
+				eprintln!("[client/login_complete] /auth/me ERR = {e}");
+				Err(e)
+			}
+		}
 	}
 
 	/// GET /auth/me — current identity for the active session.

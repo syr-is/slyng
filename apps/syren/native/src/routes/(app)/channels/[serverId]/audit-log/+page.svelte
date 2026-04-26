@@ -30,9 +30,54 @@
 			goto(`/channels/${encodeURIComponent(serverId)}`, { replaceState: true });
 		}
 	});
+
+	// Swipe-right to go back to the channel. Stop propagation so the
+	// outer SwipeLayout doesn't also react (otherwise its swipe-right
+	// handler would open the rail/sidebar drawer at the same time).
+	const MIN_SWIPE_PX = 60;
+	const MAX_SWIPE_MS = 500;
+	const HORIZONTAL_DOMINANCE = 1.4;
+	let touchStartX = 0;
+	let touchStartY = 0;
+	let touchStartTime = 0;
+	let touchTracking = false;
+	function onTouchStart(e: TouchEvent) {
+		// Abort tracking the moment a 2nd finger lands so a pinch or
+		// two-finger swipe can't accidentally fire a back-nav.
+		if (e.touches.length !== 1) {
+			touchTracking = false;
+			return;
+		}
+		touchStartX = e.touches[0].clientX;
+		touchStartY = e.touches[0].clientY;
+		touchStartTime = Date.now();
+		touchTracking = true;
+	}
+	function onTouchEnd(e: TouchEvent) {
+		if (!touchTracking) return;
+		touchTracking = false;
+		if (Date.now() - touchStartTime > MAX_SWIPE_MS) return;
+		const t = e.changedTouches[0];
+		const dx = t.clientX - touchStartX;
+		const dy = t.clientY - touchStartY;
+		if (dx < MIN_SWIPE_PX) return;
+		if (dx < Math.abs(dy) * HORIZONTAL_DOMINANCE) return;
+		e.stopPropagation();
+		goto(`/channels/${encodeURIComponent(serverId)}`);
+	}
+	function onTouchCancel() {
+		touchTracking = false;
+	}
 </script>
 
-<div class="flex min-h-0 min-w-0 flex-1 flex-col">
+<div
+	role="region"
+	aria-label="Audit log"
+	class="flex min-h-0 min-w-0 flex-1 flex-col"
+	ontouchstart={onTouchStart}
+	ontouchend={onTouchEnd}
+	ontouchcancel={onTouchCancel}
+>
 	<div class="flex h-12 shrink-0 items-center gap-2 border-b border-border px-3">
 		<Button
 			variant="ghost"

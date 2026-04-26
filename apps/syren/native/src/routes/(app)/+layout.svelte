@@ -26,11 +26,19 @@
 	import '@syren/app-core/stores/posts.svelte';
 	import { loadTrustedDomains } from '@syren/app-core/stores/trusted-domains.svelte';
 	import { loadRelations, clearRelations } from '@syren/app-core/stores/relations.svelte';
+	import { getPageSidebar, getPageMembers } from '$lib/page-sidebar.svelte';
 
 	let { children } = $props();
 	let showCreateServer = $state(false);
 
 	const auth = getAuth();
+	// Per-page sidebar (DM list, channel sidebar, etc.). Child layouts
+	// register their sidebar via setPageSidebar() so it lands in the
+	// SwipeLayout drawer instead of being painted inline next to the
+	// main panel — that way mobile gets a clean main view by default
+	// and swipe-right reveals rail + page sidebar together.
+	const pageSidebar = $derived(getPageSidebar().value);
+	const pageMembers = $derived(getPageMembers().value);
 
 	// Keep the idle watcher's baseline in sync with whatever the server says
 	// our real status is (restored-from-DB on reconnect, another-tab change,
@@ -42,11 +50,15 @@
 	});
 
 	const bootstrap = (async () => {
+		if (import.meta.env.DEV) console.log('[(app) layout] bootstrap start');
 		const user = await checkAuth();
+		if (import.meta.env.DEV) console.log('[(app) layout] checkAuth returned authed=', !!user?.did);
 		if (!user) {
+			if (import.meta.env.DEV) console.log('[(app) layout] no user; redirecting to /login');
 			window.location.href = '/login';
 			return false;
 		}
+		if (import.meta.env.DEV) console.log('[(app) layout] user authenticated; continuing bootstrap');
 
 		// Connect WebSocket — server auto-identifies from httpOnly cookie
 		connectWs();
@@ -93,7 +105,7 @@
 {:then ready}
 	{#if ready}
 		<div class="min-h-0 flex-1 overflow-hidden bg-background">
-			<SwipeLayout>
+			<SwipeLayout sidebar={pageSidebar} members={pageMembers}>
 				{#snippet rail()}
 					<ServerList onCreateServer={() => (showCreateServer = true)} />
 				{/snippet}

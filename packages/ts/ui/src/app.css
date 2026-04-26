@@ -5,6 +5,11 @@
 @source "../dist";
 
 @custom-variant dark (&:is(.dark *));
+/* Touch-only variant: applies whenever the device has no hover capability.
+ * Use it to make hover-revealed affordances (action bars, role-manager
+ * buttons, fullscreen toggles, etc.) always visible on phones / tablets,
+ * while leaving the desktop hover behavior intact. */
+@custom-variant tap (@media (hover: none));
 
 :root {
 	--radius: 0.625rem;

@@ -1,11 +1,12 @@
 <script lang="ts">
-	import { onDestroy } from 'svelte';
+	import { onDestroy, onMount } from 'svelte';
 	import { toggleMode } from 'mode-watcher';
 	import { toast } from 'svelte-sonner';
 	import { goto } from '$app/navigation';
 	import { WsOp } from '@syren/types';
 	import { apiUrl } from '@syren/app-core/host';
 	import { onWsEvent } from '@syren/app-core/stores/ws.svelte';
+	import { setPageSidebar } from '$lib/page-sidebar.svelte';
 	import ChannelSidebar from '@syren/ui/fragments/channel-sidebar.svelte';
 	import InviteDialog from '@syren/ui/fragments/invite-dialog.svelte';
 	import ModerationSheet from '@syren/ui/fragments/moderation-sheet.svelte';
@@ -218,6 +219,15 @@
 			unwatchProfiles(watchedDids);
 			watchedDids = [];
 		}
+		setPageSidebar(undefined);
+	});
+
+	// Hand the channel sidebar off to (app)/+layout's SwipeLayout drawer
+	// so on mobile the user sees only the chat by default; swipe right
+	// reveals rail + channel list together. Inline rendering caused the
+	// sidebar to crowd the chat on narrow screens.
+	onMount(() => {
+		setPageSidebar(channelDrawer);
 	});
 
 	// Refetch the channel list when permission overrides change — channels may
@@ -268,18 +278,20 @@
 	}
 </script>
 
-<ChannelSidebar
-	{serverName}
-	bannerUrl={serverBannerUrl}
-	userDid={auth.identity?.did ?? ''}
-	userInstanceUrl={auth.identity?.syr_instance_url}
-	onInvite={() => (showInvite = true)}
-	onSettings={() => goto(`/channels/${encodeURIComponent(serverId)}/settings`)}
-	handleSignOut={handleSignOut}
-	toggleTheme={toggleMode}
-/>
+{#snippet channelDrawer()}
+	<ChannelSidebar
+		{serverName}
+		bannerUrl={serverBannerUrl}
+		userDid={auth.identity?.did ?? ''}
+		userInstanceUrl={auth.identity?.syr_instance_url}
+		onInvite={() => (showInvite = true)}
+		onSettings={() => goto(`/channels/${encodeURIComponent(serverId)}/settings`)}
+		handleSignOut={handleSignOut}
+		toggleTheme={toggleMode}
+	/>
+{/snippet}
 
-<div class="flex min-h-0 min-w-0 flex-1 flex-col">
+<div class="flex h-full min-h-0 min-w-0 flex-1 flex-col">
 	{@render children?.()}
 </div>
 
