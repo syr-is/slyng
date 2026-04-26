@@ -169,18 +169,20 @@ export class AuthController {
 
 			let target = isAllowedRedirect(postLoginRedirect) ? postLoginRedirect : '/channels/@me';
 
-			// For non-HTTP redirect targets (the native app's deep link
-			// or loopback) the session cookie is useless — cookies are
-			// scoped to web origins. Issue a one-shot bridge token
-			// instead, attach it as `?code=…`, and let the native client
-			// swap it for the real session id via /auth/exchange.
-			if (isCustomSchemeRedirect(target) || target.startsWith('http://localhost:')) {
-				const bridge = this.authService.issueBridgeToken(sessionId);
-				const sep = target.includes('?') ? '&' : '?';
-				target = `${target}${sep}code=${encodeURIComponent(bridge)}`;
-			}
+			// Always issue a one-shot bridge token alongside the cookie.
+			// Native (custom scheme + desktop loopback) needs it because
+			// the cookie can't cross the origin boundary; the web app
+			// uses it to bootstrap a `Bearer`-auth session token in
+			// localStorage instead of relying on the cookie. The cookie
+			// is still set for backwards compatibility / belt-and-braces.
+			const bridge = this.authService.issueBridgeToken(sessionId);
+			const sep = target.includes('?') ? '&' : '?';
+			target = `${target}${sep}code=${encodeURIComponent(bridge)}`;
 
-			// Same-origin path → normal 302 (legacy web flow).
+			// Same-origin path → normal 302 (web flow). The page picks
+			// the bridge code out of the URL on first load, exchanges
+			// it via /auth/exchange, stores the session id in
+			// localStorage, and scrubs the URL.
 			if (target.startsWith('/')) {
 				return res.redirect(target);
 			}
