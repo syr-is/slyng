@@ -29,6 +29,9 @@
 		"test": "vitest run",
 		"test:watch": "vitest"
 	},
+	"dependencies": {
+		"@syren/types": "workspace:*"
+	},
 	"devDependencies": {
 		"@types/node": "^20",
 		"typescript": "^5.9.2",
