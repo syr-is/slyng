@@ -392,10 +392,43 @@
 		{ key: 'channel', label: 'Channel', class: 'whitespace-nowrap' },
 		{ key: 'created_at', label: 'When', class: 'whitespace-nowrap' }
 	];
+
+	// Swipe-right to dismiss. Sheet renders into a portal so SwipeLayout's
+	// own gesture never sees these events; we don't need stopPropagation.
+	const MIN_SWIPE_PX = 60;
+	const MAX_SWIPE_MS = 500;
+	const HORIZONTAL_DOMINANCE = 1.4;
+	let touchStartX = 0;
+	let touchStartY = 0;
+	let touchStartTime = 0;
+	let touchTracking = false;
+	function onTouchStart(e: TouchEvent) {
+		if (e.touches.length !== 1) return;
+		touchStartX = e.touches[0].clientX;
+		touchStartY = e.touches[0].clientY;
+		touchStartTime = Date.now();
+		touchTracking = true;
+	}
+	function onTouchEnd(e: TouchEvent) {
+		if (!touchTracking) return;
+		touchTracking = false;
+		if (Date.now() - touchStartTime > MAX_SWIPE_MS) return;
+		const t = e.changedTouches[0];
+		const dx = t.clientX - touchStartX;
+		const dy = t.clientY - touchStartY;
+		if (dx < MIN_SWIPE_PX) return;
+		if (dx < Math.abs(dy) * HORIZONTAL_DOMINANCE) return;
+		onClose();
+	}
 </script>
 
 <Sheet.Root open={true} onOpenChange={(v) => { if (!v) onClose(); }}>
-	<Sheet.Content side="right" class="flex w-full flex-col gap-0 p-0 sm:max-w-xl">
+	<Sheet.Content
+		side="right"
+		class="flex w-full flex-col gap-0 p-0 pt-[var(--syren-sai-top,env(safe-area-inset-top,0px))] pb-[var(--syren-sai-bottom,env(safe-area-inset-bottom,0px))] sm:max-w-xl"
+		ontouchstart={onTouchStart}
+		ontouchend={onTouchEnd}
+	>
 		<Sheet.Header class="border-b border-border p-4">
 			<Sheet.Title class="flex items-center gap-3">
 				<Avatar.Root class="h-10 w-10">

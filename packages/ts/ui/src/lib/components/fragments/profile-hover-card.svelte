@@ -28,6 +28,7 @@
 	import { resolveStories } from '@syren/app-core/stores/stories.svelte';
 	import { proxied } from '@syren/app-core/utils/proxy';
 	import StoryViewer from './story-viewer.svelte';
+	import SafeLink from './safe-link.svelte';
 	import { getMembers, type MemberData } from '@syren/app-core/stores/members.svelte';
 	import { getRoles, type RoleData } from '@syren/app-core/stores/roles.svelte';
 	import { getServerState } from '@syren/app-core/stores/servers.svelte';
@@ -283,9 +284,11 @@
 	<Popover.Content
 		side="right"
 		sideOffset={8}
+		avoidCollisions={true}
+		collisionPadding={12}
 		onpointerenter={(e: PointerEvent) => { if (e.pointerType === 'mouse') cancelTimer(); }}
 		onpointerleave={(e: PointerEvent) => { if (e.pointerType === 'mouse') scheduleClose(); }}
-		class="z-50 w-80 origin-(--bits-popover-content-transform-origin) rounded-md p-0 bg-popover text-popover-foreground border border-border shadow-lg outline-none animate-in fade-in-0 zoom-in-95 data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2 data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95"
+		class="z-50 w-80 max-w-[calc(100vw-1.5rem)] origin-(--bits-popover-content-transform-origin) rounded-md p-0 bg-popover text-popover-foreground border border-border shadow-lg outline-none animate-in fade-in-0 zoom-in-95 data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2 data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95"
 	>
 		<!-- Banner -->
 		<div
@@ -398,7 +401,15 @@
 					{#if !isSelf}
 						<button
 							type="button"
-							onclick={() => { hoverOpen = false; goto(`/channels/@me/posts/${encodeURIComponent(did)}${resolvedInstance ? `?instance=${encodeURIComponent(resolvedInstance)}` : ''}`); }}
+							onclick={(e: MouseEvent) => {
+								// stopPropagation so any popover-level click handler
+								// in bits-ui doesn't swallow the navigation; close
+								// the card *after* goto fires so the route change
+								// is the one tearing it down.
+								e.stopPropagation();
+								goto(`/channels/@me/posts/${encodeURIComponent(did)}${resolvedInstance ? `?instance=${encodeURIComponent(resolvedInstance)}` : ''}`);
+								hoverOpen = false;
+							}}
 							class="inline-flex items-center gap-1 text-xs text-primary hover:underline"
 						>
 							<Newspaper class="h-3 w-3" />
@@ -406,15 +417,13 @@
 						</button>
 					{/if}
 					{#if profile.web_profile_url}
-						<a
+						<SafeLink
 							href={profile.web_profile_url}
-							target="_blank"
-							rel="noopener"
 							class="inline-flex items-center gap-1 text-xs text-primary hover:underline"
 						>
 							View full profile
 							<ExternalLink class="h-3 w-3" />
-						</a>
+						</SafeLink>
 					{/if}
 				</div>
 			{/if}
