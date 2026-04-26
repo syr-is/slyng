@@ -8,6 +8,7 @@
 	import { getRelations } from '@syren/app-core/stores/relations.svelte';
 	import { resolveProfile, displayName, federatedHandle } from '@syren/app-core/stores/profiles.svelte';
 	import { proxied } from '@syren/app-core/utils/proxy';
+	import { formatAgo } from '@syren/app-core/utils/date';
 
 	const relations = getRelations();
 	// Incoming + outgoing request lists. `relations.ignored` hides ignored-user
@@ -33,6 +34,7 @@
 	async function decline(did: string) {
 		try {
 			await api.relations.decline(did);
+			toast.success('Request declined');
 		} catch (err) {
 			toast.error(err instanceof Error ? err.message : 'Failed');
 		}
@@ -109,17 +111,6 @@
 		sending = false;
 	}
 
-	function formatAgo(iso: string): string {
-		const then = new Date(iso).getTime();
-		const delta = Date.now() - then;
-		const m = Math.floor(delta / 60000);
-		if (m < 1) return 'just now';
-		if (m < 60) return `${m}m ago`;
-		const h = Math.floor(m / 60);
-		if (h < 24) return `${h}h ago`;
-		const d = Math.floor(h / 24);
-		return `${d}d ago`;
-	}
 </script>
 
 <div class="flex h-12 shrink-0 items-center border-b border-border px-4">

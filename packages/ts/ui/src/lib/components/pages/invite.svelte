@@ -53,13 +53,19 @@
 	}
 </script>
 
-<div
-	class="relative flex min-h-screen items-center justify-center bg-background p-4"
-	style={preview?.server.invite_background_url
-		? `background-image: url('${proxied(preview.server.invite_background_url)}'); background-size: cover; background-position: center;`
-		: ''}
->
+<div class="relative flex min-h-screen items-center justify-center bg-background p-4">
 	{#if preview?.server.invite_background_url}
+		<!-- Backdrop image is rendered as an <img> rather than an inline
+		     `style="background-image: url('…')"` so untrusted federated URLs
+		     containing `'`, `)`, or `;` can't escape the CSS string and
+		     inject arbitrary declarations. The proxy already handles SSRF;
+		     this closes the CSS-injection surface. -->
+		<img
+			src={proxied(preview.server.invite_background_url)}
+			alt=""
+			aria-hidden="true"
+			class="pointer-events-none absolute inset-0 h-full w-full object-cover"
+		/>
 		<div class="absolute inset-0 bg-background/70 backdrop-blur-sm"></div>
 	{/if}
 

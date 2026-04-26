@@ -27,7 +27,12 @@
 
 	$effect(() => {
 		if (!perms.canViewAuditLog) {
-			goto(`/channels/${encodeURIComponent(serverId)}`, { replaceState: true });
+			// Guard against route params being missing — `/channels/` is not
+			// a canonical destination. Fall back to /channels/@me when there's
+			// no serverId to redirect into.
+			goto(serverId ? `/channels/${encodeURIComponent(serverId)}` : '/channels/@me', {
+				replaceState: true
+			});
 		}
 	});
 

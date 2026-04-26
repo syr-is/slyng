@@ -14,6 +14,11 @@
 
 	const relations = getRelations();
 	const did = $derived(decodeURIComponent(page.params.did ?? ''));
+	// If the route params are missing for any reason, bail out to /channels/@me
+	// rather than rendering a degenerate state with empty DID lookups firing.
+	$effect(() => {
+		if (!did) goto('/channels/@me', { replaceState: true });
+	});
 	const instanceUrl = $derived(
 		(page.url.searchParams.get('instance') ?? relations.instanceFor(did)) || undefined
 	);

@@ -36,8 +36,8 @@
 	async function refreshDms() {
 		try {
 			dmChannels = (await api.users.dmChannels()) as any[];
-		} catch {
-			/* best-effort */
+		} catch (err) {
+			toast.error(err instanceof Error ? err.message : 'Failed to load DMs');
 		}
 	}
 
@@ -83,9 +83,6 @@
 	}
 
 	const incomingCount = $derived(relations.incoming.size);
-	const ignoredCount = $derived(
-		dmChannels.filter((c) => c.is_ignored).length + relations.incoming.size // requests from ignored users surface here too
-	);
 
 	const onFriends = $derived(page.url.pathname.startsWith('/channels/@me/friends'));
 	const onRequests = $derived(page.url.pathname.startsWith('/channels/@me/requests'));

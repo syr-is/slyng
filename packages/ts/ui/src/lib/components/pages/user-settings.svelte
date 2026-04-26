@@ -101,10 +101,26 @@
 
 	const unsubDevices = onDeviceChange(() => { void refreshDevices(); });
 
+	// AudioContexts and the speaker-test timeout that the Test Speakers
+	// button creates are tracked here so onDestroy can clean them up if
+	// the user navigates away mid-test. Browsers cap live AudioContexts
+	// (~6 in Chrome) and rapid Test clicks during navigation could hit
+	// that ceiling without this.
+	let activeSpeakerCtx: AudioContext | null = null;
+	let speakerTimeout: ReturnType<typeof setTimeout> | null = null;
+
 	onDestroy(() => {
 		unsubDevices();
 		stopMicTest();
 		stopCamPreview();
+		if (speakerTimeout) {
+			clearTimeout(speakerTimeout);
+			speakerTimeout = null;
+		}
+		if (activeSpeakerCtx) {
+			activeSpeakerCtx.close().catch(() => {});
+			activeSpeakerCtx = null;
+		}
 	});
 
 	$effect(() => {
@@ -173,15 +189,25 @@
 		if (settings.speakerDeviceId) {
 			try { await setAudioOutput(audio, settings.speakerDeviceId); } catch { /* ignore */ }
 		}
-		// Short 440 Hz sine, generated inline so no asset dependency
+		// Short 440 Hz sine, generated inline so no asset dependency.
+		// Stash ctx + timeout in module-level refs so onDestroy can
+		// reclaim them if the user leaves the page within 500 ms.
+		if (activeSpeakerCtx) activeSpeakerCtx.close().catch(() => {});
+		if (speakerTimeout) clearTimeout(speakerTimeout);
 		const ctx = new AudioContext();
+		activeSpeakerCtx = ctx;
 		const osc = ctx.createOscillator();
 		const gain = ctx.createGain();
 		osc.frequency.value = 440;
 		gain.gain.value = 0.1;
 		osc.connect(gain).connect(ctx.destination);
 		osc.start();
-		setTimeout(() => { osc.stop(); ctx.close().catch(() => {}); }, 500);
+		speakerTimeout = setTimeout(() => {
+			osc.stop();
+			ctx.close().catch(() => {});
+			if (activeSpeakerCtx === ctx) activeSpeakerCtx = null;
+			speakerTimeout = null;
+		}, 500);
 	}
 
 	async function requestNotificationPermission() {
@@ -200,8 +226,12 @@
 		// Strip protocol/path if user pasted a URL
 		let cleaned = host;
 		try { cleaned = new URL(host.startsWith('http') ? host : `https://${host}`).host; } catch { /* keep raw */ }
-		await addTrustedDomain(cleaned);
-		newDomain = '';
+		try {
+			await addTrustedDomain(cleaned);
+			newDomain = '';
+		} catch (err) {
+			toast.error(err instanceof Error ? err.message : 'Failed to add trusted domain');
+		}
 	}
 
 	const tabs: { id: Tab; label: string; icon: typeof User }[] = [

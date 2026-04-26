@@ -14,6 +14,7 @@
 	import { getAuth } from '@syren/app-core/stores/auth.svelte';
 	import { getRelations } from '@syren/app-core/stores/relations.svelte';
 	import { proxied } from '@syren/app-core/utils/proxy';
+	import { formatDateLabel } from '@syren/app-core/utils/date';
 	import { page } from '$app/state';
 
 	const auth = getAuth();
@@ -137,16 +138,20 @@
 			loadingOlder = true;
 			const oldestMsg = messageStore.list[0];
 			if (oldestMsg) {
+				// Snapshot the channel id so a fast DM-switch mid-fetch
+				// can't commit older messages onto the new channel.
+				const reqChannelId = channelId;
 				try {
-					const older = (await api.channels.messages(channelId, {
+					const older = (await api.channels.messages(reqChannelId, {
 						before: oldestMsg.created_at,
 						limit: 50
 					})) as any[];
+					if (loadedChannelId !== reqChannelId) return;
 					if (older.length < 50) hasMoreMessages = false;
 					if (older.length > 0) {
 						const prevHeight = messagesContainer.scrollHeight;
 						const current = messageStore.list;
-						setCurrentChannel(channelId, [...older, ...current]);
+						setCurrentChannel(reqChannelId, [...older, ...current]);
 						requestAnimationFrame(() => {
 							if (messagesContainer) {
 								messagesContainer.scrollTop = messagesContainer.scrollHeight - prevHeight;
@@ -154,7 +159,7 @@
 						});
 					}
 				} catch {
-					toast.error('Failed to load older messages');
+					if (loadedChannelId === reqChannelId) toast.error('Failed to load older messages');
 				}
 			}
 			loadingOlder = false;
@@ -188,16 +193,6 @@
 		}
 	}
 
-	function formatDateLabel(date: Date): string {
-		const now = new Date();
-		const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-		const target = new Date(date.getFullYear(), date.getMonth(), date.getDate());
-		const diff = today.getTime() - target.getTime();
-		const days = diff / (1000 * 60 * 60 * 24);
-		if (days === 0) return 'Today';
-		if (days === 1) return 'Yesterday';
-		return date.toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' });
-	}
 
 	function handleReply(messageId: string) {
 		if (replyTo.some((r) => r.id === messageId)) return;

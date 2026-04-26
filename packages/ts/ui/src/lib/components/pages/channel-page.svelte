@@ -9,8 +9,7 @@
 	import PinsPanel from '@syren/ui/fragments/pins-panel.svelte';
 	import VoiceRoomView from '@syren/ui/fragments/voice-room-view.svelte';
 	import { Permissions } from '@syren/types';
-	import { setPageMembers } from '@syren/ui/fragments/swipe-layout';
-	import { setPane } from '@syren/ui/fragments/swipe-layout';
+	import { setPageMembers, setPane } from '@syren/ui/fragments/swipe-layout';
 	import { IsMobile } from '@syren/ui/sidebar';
 	import { api } from '@syren/app-core/api';
 	import { subscribeChannels } from '@syren/app-core/stores/ws.svelte';
@@ -22,6 +21,7 @@
 	import { getPerms } from '@syren/app-core/stores/perms.svelte';
 	import { page } from '$app/state';
 	import { getAuth } from '@syren/app-core/stores/auth.svelte';
+	import { formatDateLabel } from '@syren/app-core/utils/date';
 
 	const auth = getAuth();
 	const channelId = $derived(page.params.channelId ?? '');
@@ -257,18 +257,23 @@
 			loadingOlder = true;
 			const oldestMsg = messageStore.list[0];
 			if (oldestMsg) {
+				// Snapshot channelId so a fast channel-switch mid-fetch can't
+				// commit the previous channel's older page onto the new one's
+				// timeline. Mirrors the `loadedChannelId` guard in `loadChannel`.
+				const reqChannelId = channelId;
 				try {
-					const older = (await api.channels.messages(channelId, {
+					const older = (await api.channels.messages(reqChannelId, {
 						before: oldestMsg.created_at,
 						limit: 50,
 						include_deleted: perms.canViewRemovedMessages
 					})) as any[];
+					if (loadedChannelId !== reqChannelId) return;
 					if (older.length < 50) hasMoreMessages = false;
 					if (older.length > 0) {
 						const prevHeight = messagesContainer.scrollHeight;
 						// Prepend older messages
 						const current = messageStore.list;
-						setCurrentChannel(channelId, [...older, ...current]);
+						setCurrentChannel(reqChannelId, [...older, ...current]);
 						// Maintain scroll position
 						requestAnimationFrame(() => {
 							if (messagesContainer) {
@@ -277,7 +282,7 @@
 						});
 					}
 				} catch {
-					toast.error('Failed to load older messages');
+					if (loadedChannelId === reqChannelId) toast.error('Failed to load older messages');
 				}
 			}
 			loadingOlder = false;
@@ -309,16 +314,6 @@
 		}
 	}
 
-	function formatDateLabel(date: Date): string {
-		const now = new Date();
-		const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-		const target = new Date(date.getFullYear(), date.getMonth(), date.getDate());
-		const diff = today.getTime() - target.getTime();
-		const days = diff / (1000 * 60 * 60 * 24);
-		if (days === 0) return 'Today';
-		if (days === 1) return 'Yesterday';
-		return date.toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' });
-	}
 
 	function handleReply(messageId: string) {
 		// Ignore duplicates; append up to MAX_REPLIES total
