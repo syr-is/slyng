@@ -1,6 +1,5 @@
 <script lang="ts">
 	import { type Snippet } from 'svelte';
-	import { Menu, Users, ChevronRight } from '@lucide/svelte';
 	import { useSwipe, type SwipeCustomEvent } from 'svelte-gestures';
 	import { IsMobile } from '../../ui/sidebar/is-mobile.svelte.js';
 
@@ -51,14 +50,6 @@
 	function closeDrawer() {
 		if (pane !== 'main') pane = 'main';
 	}
-
-	function openDrawer() {
-		if (pane === 'main') pane = 'left';
-	}
-
-	function openMembers() {
-		if (pane === 'main') pane = 'right';
-	}
 </script>
 
 {#if isDesktop}
@@ -82,7 +73,11 @@
 				{#if rail}<div class="h-full w-[72px] shrink-0">{@render rail()}</div>{/if}
 				{#if sidebar}<div class="h-full w-[240px] shrink-0">{@render sidebar()}</div>{/if}
 			</div>
-			<!-- Main pane: full viewport -->
+			<!-- Main pane: full viewport. Drawer dismissal is by swipe
+			     (right → left to close left drawer; left → right to close
+			     right drawer); the dim overlay on top of the main pane
+			     when a drawer is open is also tap-to-close so users on
+			     flaky-gesture phones still have a way out. -->
 			<div class="relative h-full w-screen shrink-0">
 				{@render main()}
 				{#if pane !== 'main'}
@@ -93,52 +88,10 @@
 						onclick={closeDrawer}
 					></button>
 				{/if}
-				<!-- Always-visible hamburger fallback so drawer access doesn't
-				     depend on edge-swipe gesture exclusion working perfectly
-				     (Android `systemGestureExclusionRects` has been spotty in
-				     practice). Sits in the top-left corner; pages whose own
-				     headers hug the left edge can hide their first icon if
-				     they choose. -->
-				{#if pane === 'main' && (rail || sidebar)}
-					<button
-						type="button"
-						aria-label="Open menu"
-						class="absolute left-2 top-2 z-30 flex h-8 w-8 items-center justify-center rounded-md bg-background/85 text-foreground shadow-md ring-1 ring-border backdrop-blur-sm hover:bg-background"
-						onclick={openDrawer}
-					>
-						<Menu class="h-4 w-4" />
-					</button>
-				{/if}
-				{#if pane === 'main' && members}
-					<button
-						type="button"
-						aria-label="Open members"
-						class="absolute right-2 top-2 z-30 flex h-8 w-8 items-center justify-center rounded-md bg-background/85 text-foreground shadow-md ring-1 ring-border backdrop-blur-sm hover:bg-background"
-						onclick={openMembers}
-					>
-						<Users class="h-4 w-4" />
-					</button>
-				{/if}
 			</div>
-			<!-- Right drawer: full viewport. Tap-outside dismissal (the
-			     `pane !== 'main'` overlay rendered on the main pane) is
-			     off-screen when pane === 'right' (main is at -100vw), so
-			     surface a close button on the right pane itself. Sits on
-			     top of MemberList's content; only visible when open. -->
+			<!-- Right drawer: full viewport. Closed by swipe-right. -->
 			{#if members}
-				<div class="relative h-full w-screen shrink-0">
-					{@render members()}
-					{#if pane === 'right'}
-						<button
-							type="button"
-							aria-label="Close members"
-							class="absolute left-2 top-2 z-30 flex h-8 w-8 items-center justify-center rounded-md bg-background/85 text-foreground shadow-md ring-1 ring-border backdrop-blur-sm hover:bg-background"
-							onclick={() => (pane = 'main')}
-						>
-							<ChevronRight class="h-4 w-4" />
-						</button>
-					{/if}
-				</div>
+				<div class="h-full w-screen shrink-0">{@render members()}</div>
 			{/if}
 		</div>
 	</div>
