@@ -1,9 +1,11 @@
 package `is`.syr.syren
 
 import android.graphics.Rect
+import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.view.View
 import android.webkit.WebView
 import androidx.activity.enableEdgeToEdge
 import androidx.core.view.ViewCompat
@@ -47,26 +49,33 @@ class MainActivity : TauriActivity() {
         applyInsetsRetried(webView)
       }
 
-      // Reserve a thin strip on each horizontal edge as an app-controlled
-      // gesture region. Without this, swipe-from-edge on gesture-nav phones
-      // is consumed by the OS as "back", and SwipeLayout's drawer never
-      // sees the touch — the app appears to "exit" instead of opening
-      // the rail. The 24dp width matches Android's own default gesture
-      // inset and keeps the rest of the screen scrollable.
-      val edgePx = (24 * density).toInt()
-      val w = webView.width
-      val h = webView.height
-      if (w > 0 && h > 0) {
-        webView.systemGestureExclusionRects = listOf(
-          Rect(0, 0, edgePx, h),
-          Rect(w - edgePx, 0, w, h)
-        )
-      }
-
       windowInsets
     }
 
+    // `systemGestureExclusionRects` has to be reapplied any time the
+    // WebView's width/height changes — Android wipes the rects on layout
+    // invalidation, and on first WindowInsets fire the WebView usually
+    // hasn't been laid out yet (width/height are 0). Listen for layout
+    // changes directly so we always have a fresh exclusion zone before
+    // the user's first swipe.
+    webView.addOnLayoutChangeListener { v, left, top, right, bottom, _, _, _, _ ->
+      applyGestureExclusion(v, right - left, bottom - top)
+    }
+
     webView.post { ViewCompat.requestApplyInsets(webView) }
+  }
+
+  private fun applyGestureExclusion(view: View, width: Int, height: Int) {
+    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) return
+    if (width <= 0 || height <= 0) return
+    val density = resources.displayMetrics.density
+    // 24dp matches Android's own default gesture inset. Wider would
+    // chew into legitimate content; narrower lets system back through.
+    val edgePx = (24 * density).toInt()
+    view.systemGestureExclusionRects = listOf(
+      Rect(0, 0, edgePx, height),
+      Rect(width - edgePx, 0, width, height)
+    )
   }
 
   // The window-insets listener fires the moment the WebView is laid out,

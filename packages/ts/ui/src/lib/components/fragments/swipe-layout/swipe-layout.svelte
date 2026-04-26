@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { type Snippet } from 'svelte';
+	import { Menu } from '@lucide/svelte';
 	import { useSwipe, type SwipeCustomEvent } from 'svelte-gestures';
 	import { IsMobile } from '../../ui/sidebar/is-mobile.svelte.js';
 
@@ -29,6 +30,7 @@
 	const isDesktop = $derived(!isMobile.current);
 
 	function onSwipe(event: SwipeCustomEvent) {
+		console.log('[swipe-layout] onSwipe direction =', event.detail.direction, 'isDesktop =', isDesktop, 'pane =', pane);
 		if (isDesktop) return;
 		const dir = event.detail.direction;
 		if (dir === 'right') {
@@ -48,6 +50,10 @@
 
 	function closeDrawer() {
 		if (pane !== 'main') pane = 'main';
+	}
+
+	function openDrawer() {
+		if (pane === 'main') pane = 'left';
 	}
 </script>
 
@@ -85,6 +91,22 @@
 						class="absolute inset-0 z-50 bg-background/40"
 						onclick={closeDrawer}
 					></button>
+				{/if}
+				<!-- Always-visible hamburger fallback so drawer access doesn't
+				     depend on edge-swipe gesture exclusion working perfectly
+				     (Android `systemGestureExclusionRects` has been spotty in
+				     practice). Sits in the top-left corner; pages whose own
+				     headers hug the left edge can hide their first icon if
+				     they choose. -->
+				{#if pane === 'main' && (rail || sidebar)}
+					<button
+						type="button"
+						aria-label="Open menu"
+						class="absolute left-2 top-2 z-30 flex h-8 w-8 items-center justify-center rounded-md bg-background/85 text-foreground shadow-md ring-1 ring-border backdrop-blur-sm hover:bg-background"
+						onclick={openDrawer}
+					>
+						<Menu class="h-4 w-4" />
+					</button>
 				{/if}
 			</div>
 			<!-- Right drawer: full viewport -->
