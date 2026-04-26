@@ -273,8 +273,8 @@
 <Popover.Root open={cardOpen} onOpenChange={handlePopoverOpenChange}>
 	<Popover.Trigger
 		onclick={(e: MouseEvent) => { e.preventDefault(); hoverOpen = true; }}
-		onpointerenter={scheduleOpen}
-		onpointerleave={scheduleClose}
+		onpointerenter={(e: PointerEvent) => { if (e.pointerType === 'mouse') scheduleOpen(); }}
+		onpointerleave={(e: PointerEvent) => { if (e.pointerType === 'mouse') scheduleClose(); }}
 		class={triggerClass}
 	>
 		{@render children()}
@@ -283,8 +283,8 @@
 	<Popover.Content
 		side="right"
 		sideOffset={8}
-		onpointerenter={cancelTimer}
-		onpointerleave={scheduleClose}
+		onpointerenter={(e: PointerEvent) => { if (e.pointerType === 'mouse') cancelTimer(); }}
+		onpointerleave={(e: PointerEvent) => { if (e.pointerType === 'mouse') scheduleClose(); }}
 		class="z-50 w-80 origin-(--bits-popover-content-transform-origin) rounded-md p-0 bg-popover text-popover-foreground border border-border shadow-lg outline-none animate-in fade-in-0 zoom-in-95 data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2 data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95"
 	>
 		<!-- Banner -->

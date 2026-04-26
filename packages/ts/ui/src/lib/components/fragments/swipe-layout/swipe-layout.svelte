@@ -75,10 +75,7 @@
 	>
 		<div
 			class="flex h-full transition-transform duration-200 ease-out will-change-transform"
-			class:translate-x-0={pane === 'left'}
-			class:-translate-x-[312px]={pane === 'main'}
-			class:-translate-x-[calc(312px+100vw)]={pane === 'right' && !!members}
-			style="width: calc(312px + 100vw{members ? ' + 100vw' : ''});"
+			style="width: calc(312px + 100vw{members ? ' + 100vw' : ''}); transform: translateX({pane === 'left' ? '0px' : pane === 'right' && members ? 'calc(-312px - 100vw)' : '-312px'});"
 		>
 			<!-- Left drawer: rail (72px) + sidebar (240px) -->
 			<div class="flex h-full w-[312px] shrink-0">
