@@ -1,4 +1,4 @@
-use crate::error::Result;
+use crate::error::{Error, Result};
 use crate::session::{MemoryStore, SessionStore};
 use crate::transport::Transport;
 use std::sync::Arc;
@@ -31,5 +31,26 @@ impl Client {
 
 	pub fn store(&self) -> Arc<dyn SessionStore> {
 		self.transport.store.clone()
+	}
+
+	/// Generic untyped HTTP entry point — used by the Tauri proxy
+	/// command so the JS-side `api.ts` can route every request
+	/// through Rust without a per-method binding.
+	pub async fn request_raw(
+		&self,
+		method: &str,
+		path: &str,
+		body: Option<serde_json::Value>,
+	) -> Result<serde_json::Value> {
+		let m = method.to_ascii_uppercase();
+		let body = body.unwrap_or(serde_json::Value::Null);
+		match m.as_str() {
+			"GET" => self.transport.get(path).await,
+			"DELETE" => self.transport.delete(path).await,
+			"POST" => self.transport.post(path, &body).await,
+			"PATCH" => self.transport.patch(path, &body).await,
+			"PUT" => self.transport.put(path, &body).await,
+			_ => Err(Error::Network(format!("unsupported method: {m}"))),
+		}
 	}
 }

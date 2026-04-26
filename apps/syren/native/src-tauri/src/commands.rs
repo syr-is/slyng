@@ -15,6 +15,27 @@ async fn client<R: Runtime>(
 	state.ensure(app, api_host).await
 }
 
+/// Generic proxy — every API call from the native shell flows through
+/// here. JS-side `app-core/api.ts` is configured with a transport that
+/// invokes `proxy_request` for every request; the underlying HTTP
+/// happens entirely in Rust (`syren-client::Client::request_raw` →
+/// reqwest with persistent cookies + the session id from the Tauri
+/// store). No bearer / cookie ever crosses the JS boundary.
+#[tauri::command]
+pub async fn proxy_request<R: Runtime>(
+	app: AppHandle<R>,
+	state: State<'_, ClientHandle>,
+	api_host: String,
+	path: String,
+	method: Option<String>,
+	body: Option<Value>,
+) -> Result<Value, String> {
+	let c = client(&app, &state, &api_host).await?;
+	c.request_raw(method.as_deref().unwrap_or("GET"), &path, body)
+		.await
+		.map_err(|e| e.to_string())
+}
+
 #[tauri::command]
 pub async fn me<R: Runtime>(
 	app: AppHandle<R>,

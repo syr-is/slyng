@@ -8,7 +8,6 @@
  */
 
 let _baseUrl = '';
-let _bearer: string | null = null;
 
 export function setHost(url: string): void {
 	_baseUrl = (url ?? '').replace(/\/$/, '');
@@ -19,18 +18,29 @@ export function getHost(): string {
 }
 
 /**
- * Native (Tauri) sets this once on boot from `tauri-plugin-store`,
- * and again whenever the Rust side completes an OAuth round-trip.
- * The web app leaves it null and continues to rely on cookies.
+ * Pluggable HTTP transport. The web app leaves this unset, so api.ts
+ * falls through to its default `fetch` implementation (cookies,
+ * same-origin). The Tauri native shell installs an implementation
+ * that forwards every request through a single Rust command, so all
+ * HTTP flows through `syren-client`'s reqwest with persistent cookies
+ * and the session id stored in `tauri-plugin-store` — no auth state
+ * ever leaks into JS.
  *
- * `null` clears the bearer (e.g. on sign-out).
+ * Called once from the platform's boot path. `null` clears it.
  */
-export function setBearerToken(token: string | null): void {
-	_bearer = token && token.length > 0 ? token : null;
+export type ApiTransport = <T = unknown>(
+	path: string,
+	options: { method?: string; body?: unknown }
+) => Promise<T>;
+
+let _transport: ApiTransport | null = null;
+
+export function setApiTransport(t: ApiTransport | null): void {
+	_transport = t;
 }
 
-export function getBearerToken(): string | null {
-	return _bearer;
+export function getApiTransport(): ApiTransport | null {
+	return _transport;
 }
 
 /** Build an absolute API URL for `path` (which must start with `/`). */

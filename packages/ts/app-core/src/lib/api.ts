@@ -6,7 +6,7 @@
  * Tauri native app (absolute URL pointing at user-configured host).
  */
 
-import { apiUrl, getBearerToken } from './host';
+import { apiUrl, getApiTransport } from './host';
 
 function toQuery(params: Record<string, unknown>): string {
 	const usp = new URLSearchParams();
@@ -18,17 +18,32 @@ function toQuery(params: Record<string, unknown>): string {
 	return q ? `?${q}` : '';
 }
 
+/**
+ * Single chokepoint for every API call. Default behaviour is `fetch`
+ * with cookies (the web flow). When a transport has been registered
+ * via `setApiTransport()` (the Tauri native shell does this at boot),
+ * every call routes through that instead — Tauri → Rust →
+ * `syren-client` → reqwest with the persistent cookie jar. Same JS
+ * surface, different underlying wire; no auth state in JS at all.
+ */
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
-	const headers: Record<string, string> = {
-		'Content-Type': 'application/json',
-		...((options.headers as Record<string, string>) ?? {})
-	};
-	const bearer = getBearerToken();
-	if (bearer) headers['Authorization'] = `Bearer ${bearer}`;
+	const transport = getApiTransport();
+	if (transport) {
+		const body = options.body
+			? typeof options.body === 'string'
+				? JSON.parse(options.body)
+				: (options.body as unknown)
+			: undefined;
+		return transport<T>(path, { method: options.method ?? 'GET', body });
+	}
+
 	const response = await fetch(apiUrl(path), {
 		credentials: 'include',
 		...options,
-		headers
+		headers: {
+			'Content-Type': 'application/json',
+			...options.headers
+		}
 	});
 	if (!response.ok) {
 		const error = await response.json().catch(() => ({ message: response.statusText }));
@@ -40,6 +55,25 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
 // ── Servers ──
 
 export const api = {
+	auth: {
+		me: () =>
+			request<{
+				did: string;
+				syr_instance_url: string;
+				delegate_public_key?: string;
+			}>('/auth/me'),
+		login: (instance_url: string, redirect?: string) =>
+			request<{ consent_url: string }>('/auth/login', {
+				method: 'POST',
+				body: JSON.stringify({ instance_url, redirect })
+			}),
+		logout: () => request<{ success: boolean }>('/auth/logout', { method: 'POST' }),
+		exchange: (code: string) =>
+			request<{ session: string }>('/auth/exchange', {
+				method: 'POST',
+				body: JSON.stringify({ code })
+			})
+	},
 	servers: {
 		list: () => request<unknown[]>('/servers/@me'),
 		create: (data: {
