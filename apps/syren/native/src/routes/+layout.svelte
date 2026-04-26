@@ -29,6 +29,7 @@
 			body: options.body ?? null
 		});
 	}
+	console.log('[+layout root] setApiTransport called; proxy fn type =', typeof proxy);
 	setApiTransport(proxy as ApiTransport);
 </script>
 

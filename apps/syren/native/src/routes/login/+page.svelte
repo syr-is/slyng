@@ -31,14 +31,23 @@
 	// bridge code for a session. We listen here and route into the
 	// app the moment that lands.
 	let unlisten: (() => void) | undefined;
+	let unlistenError: (() => void) | undefined;
 	(async () => {
 		unlisten = await listen<unknown>('auth-changed', (event) => {
+			console.log('[login] auth-changed payload =', event.payload);
 			if (event.payload) {
+				console.log('[login] navigating to /channels/@me');
 				goto('/channels/@me', { replaceState: true });
 			}
 		});
+		unlistenError = await listen<string>('auth-error', (event) => {
+			console.log('[login] auth-error payload =', event.payload);
+		});
 	})();
-	onDestroy(() => unlisten?.());
+	onDestroy(() => {
+		unlisten?.();
+		unlistenError?.();
+	});
 
 	async function handleSyrLogin(e: SubmitEvent) {
 		e.preventDefault();

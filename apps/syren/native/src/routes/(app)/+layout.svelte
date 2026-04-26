@@ -42,11 +42,15 @@
 	});
 
 	const bootstrap = (async () => {
+		console.log('[(app) layout] bootstrap start');
 		const user = await checkAuth();
+		console.log('[(app) layout] checkAuth returned =', user);
 		if (!user) {
+			console.log('[(app) layout] no user; redirecting to /login');
 			window.location.href = '/login';
 			return false;
 		}
+		console.log('[(app) layout] user authenticated; continuing bootstrap');
 
 		// Connect WebSocket — server auto-identifies from httpOnly cookie
 		connectWs();

@@ -30,10 +30,15 @@ pub async fn proxy_request<R: Runtime>(
 	method: Option<String>,
 	body: Option<Value>,
 ) -> Result<Value, String> {
+	let m = method.as_deref().unwrap_or("GET").to_string();
+	eprintln!("[proxy] -> {m} {path} (host={api_host})");
 	let c = client(&app, &state, &api_host).await?;
-	c.request_raw(method.as_deref().unwrap_or("GET"), &path, body)
-		.await
-		.map_err(|e| e.to_string())
+	let result = c.request_raw(&m, &path, body).await;
+	match &result {
+		Ok(_) => eprintln!("[proxy] <- {m} {path} OK"),
+		Err(e) => eprintln!("[proxy] <- {m} {path} ERR = {e}"),
+	}
+	result.map_err(|e| e.to_string())
 }
 
 #[tauri::command]

@@ -37,12 +37,15 @@ impl Transport {
 	}
 
 	async fn send_with_auth(&self, mut req: RequestBuilder) -> Result<Response> {
-		if let Some(session) = self.store.get().await {
+		let session = self.store.get().await;
+		eprintln!("[transport] bearer present = {}", session.is_some());
+		if let Some(session) = session {
 			req = req.header("Authorization", format!("Bearer {session}"));
 		}
 		// `credentials: include`-equivalent via reqwest cookies feature
 		// (native) and via web-sys default (WASM).
 		let resp = req.send().await?;
+		eprintln!("[transport] response status = {}", resp.status());
 		Ok(resp)
 	}
 

@@ -63,28 +63,38 @@ impl ClientHandle {
 /// for a real session via syren-client, and emit the result. Same
 /// logic for desktop (loopback) and mobile (deep-link) paths.
 pub fn handle_callback_url<R: Runtime>(app: &AppHandle<R>, url_str: &str) {
-	let code = url::Url::parse(url_str)
-		.ok()
-		.and_then(|u| {
-			u.query_pairs()
-				.find(|(k, _)| k == "code")
-				.map(|(_, v)| v.into_owned())
-		});
+	eprintln!("[auth/callback] url_str = {url_str}");
+	let parsed = url::Url::parse(url_str).ok();
+	let code = parsed.as_ref().and_then(|u| {
+		u.query_pairs()
+			.find(|(k, _)| k == "code")
+			.map(|(_, v)| v.into_owned())
+	});
+	eprintln!(
+		"[auth/callback] code present = {} (len={})",
+		code.is_some(),
+		code.as_deref().map(|s| s.len()).unwrap_or(0)
+	);
 	let app = app.clone();
 	tauri::async_runtime::spawn(async move {
 		let Some(code) = code else {
+			eprintln!("[auth/callback] no code; emitting auth-error");
 			let _ = app.emit("auth-error", "missing bridge code on callback");
 			return;
 		};
-		let Some(client) = app.state::<ClientHandle>().current().await else {
+		let client = app.state::<ClientHandle>().current().await;
+		eprintln!("[auth/callback] active client present = {}", client.is_some());
+		let Some(client) = client else {
 			let _ = app.emit("auth-error", "no active client");
 			return;
 		};
 		match client.login_complete(code).await {
 			Ok(identity) => {
+				eprintln!("[auth/callback] login_complete OK did={}", identity.did);
 				let _ = app.emit("auth-changed", &identity);
 			}
 			Err(e) => {
+				eprintln!("[auth/callback] login_complete ERR = {e}");
 				let _ = app.emit("auth-error", &e.to_string());
 			}
 		}

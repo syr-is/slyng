@@ -20,17 +20,21 @@ impl<R: Runtime> TauriStoreSession<R> {
 	}
 
 	fn store_get(&self) -> Option<String> {
-		let store = self.app.store(STORE_FILE).ok()?;
-		match store.get(KEY) {
+		let v = self.app.store(STORE_FILE).ok().and_then(|s| match s.get(KEY) {
 			Some(Value::String(s)) => Some(s),
 			_ => None,
-		}
+		});
+		eprintln!("[store] get -> present={}", v.is_some());
+		v
 	}
 
 	fn store_set(&self, value: &str) {
 		if let Ok(store) = self.app.store(STORE_FILE) {
 			store.set(KEY, Value::String(value.to_string()));
-			let _ = store.save();
+			let saved = store.save();
+			eprintln!("[store] set len={} save_ok={}", value.len(), saved.is_ok());
+		} else {
+			eprintln!("[store] set FAILED to open store");
 		}
 	}
 
@@ -38,6 +42,7 @@ impl<R: Runtime> TauriStoreSession<R> {
 		if let Ok(store) = self.app.store(STORE_FILE) {
 			store.delete(KEY);
 			let _ = store.save();
+			eprintln!("[store] clear done");
 		}
 	}
 }

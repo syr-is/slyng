@@ -26,10 +26,40 @@ impl Client {
 	/// then stored in the `SessionStore` so subsequent calls carry it
 	/// in the `Authorization: Bearer` header.
 	pub async fn login_complete(&self, code: impl Into<String>) -> Result<Identity> {
-		let body = ExchangeRequest { code: code.into() };
-		let resp: ExchangeResponse = self.transport.post("/auth/exchange", &body).await?;
+		let code: String = code.into();
+		eprintln!("[client/login_complete] start; code_len={}", code.len());
+		let body = ExchangeRequest { code };
+		let exchange: Result<ExchangeResponse> = self.transport.post("/auth/exchange", &body).await;
+		let resp = match exchange {
+			Ok(r) => {
+				eprintln!(
+					"[client/login_complete] /auth/exchange OK; session_len={}",
+					r.session.len()
+				);
+				r
+			}
+			Err(e) => {
+				eprintln!("[client/login_complete] /auth/exchange ERR = {e}");
+				return Err(e);
+			}
+		};
 		self.transport.store.set(&resp.session).await;
-		self.me().await
+		let readback = self.transport.store.get().await;
+		eprintln!(
+			"[client/login_complete] store readback present={} matches={}",
+			readback.is_some(),
+			readback.as_deref() == Some(resp.session.as_str())
+		);
+		match self.me().await {
+			Ok(id) => {
+				eprintln!("[client/login_complete] /auth/me OK did={}", id.did);
+				Ok(id)
+			}
+			Err(e) => {
+				eprintln!("[client/login_complete] /auth/me ERR = {e}");
+				Err(e)
+			}
+		}
 	}
 
 	/// GET /auth/me — current identity for the active session.
