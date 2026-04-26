@@ -3,7 +3,7 @@
  * client-side from the user's instance via `profiles.svelte.ts`.
  */
 
-import { apiUrl } from '../host';
+import { apiUrl, getBearerToken } from '../host';
 
 export interface AuthIdentity {
 	did: string;
@@ -29,7 +29,10 @@ export async function checkAuth(): Promise<AuthIdentity | null> {
 
 	loading = true;
 	try {
-		const res = await fetch(apiUrl('/auth/me'), { credentials: 'include' });
+		const headers: Record<string, string> = {};
+		const bearer = getBearerToken();
+		if (bearer) headers['Authorization'] = `Bearer ${bearer}`;
+		const res = await fetch(apiUrl('/auth/me'), { credentials: 'include', headers });
 		if (res.ok) {
 			const data = (await res.json()) as Partial<AuthIdentity>;
 			if (data?.did && data?.syr_instance_url) {

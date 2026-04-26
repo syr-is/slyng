@@ -90,8 +90,26 @@ pub async fn complete_login<R: Runtime>(
 		.login_complete(code)
 		.await
 		.map_err(|e| e.to_string())?;
-	app.emit("auth-changed", &identity).ok();
+	let token = client.store().get().await;
+	app.emit(
+		"auth-changed",
+		&serde_json::json!({ "identity": identity, "token": token }),
+	)
+	.ok();
 	Ok(identity)
+}
+
+/// Returns the persisted bearer token if the user is signed in, so the
+/// JS side can populate `app-core/host.ts::setBearerToken` on boot
+/// before the first `/auth/me` fires.
+#[tauri::command]
+pub async fn get_session_token<R: Runtime>(
+	app: AppHandle<R>,
+	state: State<'_, ClientHandle>,
+	api_host: String,
+) -> Result<Option<String>, String> {
+	let client = state.ensure(&app, &api_host).await?;
+	Ok(client.store().get().await)
 }
 
 #[tauri::command]

@@ -60,6 +60,7 @@ pub fn run() {
 			auth::start_login,
 			auth::complete_login,
 			auth::logout,
+			auth::get_session_token,
 			commands::me,
 			commands::servers_list,
 			commands::server_get,
@@ -91,7 +92,11 @@ async fn call_complete_login<R: tauri::Runtime>(
 		.await
 		.ok_or_else(|| "no active client".to_string())?;
 	let identity = client.login_complete(code).await.map_err(|e| e.to_string())?;
-	let _ = app.emit("auth-changed", &identity);
+	let token = client.store().get().await;
+	let _ = app.emit(
+		"auth-changed",
+		&serde_json::json!({ "identity": identity, "token": token }),
+	);
 	Ok(identity)
 }
 

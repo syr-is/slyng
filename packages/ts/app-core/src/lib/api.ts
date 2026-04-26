@@ -6,7 +6,7 @@
  * Tauri native app (absolute URL pointing at user-configured host).
  */
 
-import { apiUrl } from './host';
+import { apiUrl, getBearerToken } from './host';
 
 function toQuery(params: Record<string, unknown>): string {
 	const usp = new URLSearchParams();
@@ -19,13 +19,16 @@ function toQuery(params: Record<string, unknown>): string {
 }
 
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
+	const headers: Record<string, string> = {
+		'Content-Type': 'application/json',
+		...((options.headers as Record<string, string>) ?? {})
+	};
+	const bearer = getBearerToken();
+	if (bearer) headers['Authorization'] = `Bearer ${bearer}`;
 	const response = await fetch(apiUrl(path), {
 		credentials: 'include',
 		...options,
-		headers: {
-			'Content-Type': 'application/json',
-			...options.headers
-		}
+		headers
 	});
 	if (!response.ok) {
 		const error = await response.json().catch(() => ({ message: response.statusText }));

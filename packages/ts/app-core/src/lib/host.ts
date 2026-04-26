@@ -8,6 +8,7 @@
  */
 
 let _baseUrl = '';
+let _bearer: string | null = null;
 
 export function setHost(url: string): void {
 	_baseUrl = (url ?? '').replace(/\/$/, '');
@@ -15,6 +16,21 @@ export function setHost(url: string): void {
 
 export function getHost(): string {
 	return _baseUrl;
+}
+
+/**
+ * Native (Tauri) sets this once on boot from `tauri-plugin-store`,
+ * and again whenever the Rust side completes an OAuth round-trip.
+ * The web app leaves it null and continues to rely on cookies.
+ *
+ * `null` clears the bearer (e.g. on sign-out).
+ */
+export function setBearerToken(token: string | null): void {
+	_bearer = token && token.length > 0 ? token : null;
+}
+
+export function getBearerToken(): string | null {
+	return _bearer;
 }
 
 /** Build an absolute API URL for `path` (which must start with `/`). */

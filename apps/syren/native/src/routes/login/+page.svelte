@@ -1,10 +1,13 @@
 <script lang="ts">
+	import { onDestroy } from 'svelte';
 	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
+	import { listen } from '@tauri-apps/api/event';
 	import { Button } from '@syren/ui/button';
 	import { Input } from '@syren/ui/input';
 	import { Label } from '@syren/ui/label';
-	import { apiUrl } from '@syren/app-core/host';
+	import { getStoredHostSync } from '$lib/host-store';
+	import { getNativeClient } from '$lib/client';
 	import { normalizeHost, isValidHost } from '$lib/normalize-host';
 	import { Loader2 } from '@lucide/svelte';
 
@@ -12,18 +15,30 @@
 	let loading = $state(false);
 	let errorMsg = $state<string | null>(null);
 
-	// Surface error code from a previous OAuth callback round-trip.
 	const urlError = page.url.searchParams.get('error');
 	if (urlError) {
 		const map: Record<string, string> = {
-			invalid_state:
-				"Login session expired or got mixed up. This is usually a cookie issue — try once more, and if it keeps happening on this device, contact your admin.",
+			invalid_state: 'Login session expired. Try again.',
 			session_expired: 'Login session expired. Try again.',
 			missing_code: 'Sign-in was cancelled.',
 			missing_delegation_id: 'Your syr instance returned an incomplete response. Try again.'
 		};
 		errorMsg = map[urlError] ?? decodeURIComponent(urlError);
 	}
+
+	// The Rust side fires `auth-changed` once it consumes the
+	// `syren://auth/callback?code=...` deep link and exchanges the
+	// bridge code for a session. We listen here and route into the
+	// app the moment that lands.
+	let unlisten: (() => void) | undefined;
+	(async () => {
+		unlisten = await listen<unknown>('auth-changed', (event) => {
+			if (event.payload) {
+				goto('/channels/@me', { replaceState: true });
+			}
+		});
+	})();
+	onDestroy(() => unlisten?.());
 
 	async function handleSyrLogin(e: SubmitEvent) {
 		e.preventDefault();
@@ -34,27 +49,23 @@
 			return;
 		}
 		instanceUrl = normalized;
+
+		const apiHost = getStoredHostSync();
+		if (!apiHost) {
+			errorMsg = 'API host not configured.';
+			return;
+		}
 		loading = true;
 		errorMsg = null;
 		try {
-			const res = await fetch(apiUrl('/auth/login'), {
-				method: 'POST',
-				credentials: 'include',
-				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({
-					instance_url: normalized,
-					// Round-trip back to whatever native origin the current
-					// platform uses — `tauri://localhost` on macOS/iOS,
-					// `http://tauri.localhost` on Android/Windows/Linux.
-					redirect: `${location.origin}/channels/@me`
-				})
-			});
-			const data = await res.json();
-			if (!res.ok) {
-				errorMsg = data.message || 'Failed to connect';
-				return;
-			}
-			window.location.href = data.consent_url;
+			// Rust opens the consent URL in the system browser. After the
+			// user completes consent, syr.is redirects to our API
+			// callback, which bounces to `syren://auth/callback?code=...`.
+			// The OS routes that into Tauri; the deep-link handler fires
+			// `complete_login` → `syren-client::login_complete`, which
+			// fetches `/auth/me` and emits `auth-changed`. The listener
+			// above handles the navigation into the app.
+			await getNativeClient(apiHost).startLogin(normalized);
 		} catch (err) {
 			errorMsg = err instanceof Error ? err.message : 'Connection failed';
 		} finally {
