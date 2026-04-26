@@ -78,7 +78,7 @@
 	const onlineCount = $derived(memberStore.list.filter((m) => getPresence(m.user_id) !== 'offline').length);
 </script>
 
-<div class="flex h-full w-60 flex-col overflow-y-auto border-l border-border bg-sidebar">
+<div class="flex h-full w-full flex-col overflow-y-auto border-l border-border bg-sidebar md:w-60">
 	<!-- Online, grouped by highest role -->
 	{#each onlineGroups as group (group.role?.id ?? '__online__')}
 		<div class="px-4 pt-4 text-[11px] font-semibold uppercase tracking-wide text-sidebar-foreground/50">

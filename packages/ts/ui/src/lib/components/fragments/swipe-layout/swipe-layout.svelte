@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { type Snippet } from 'svelte';
-	import { Menu, Users } from '@lucide/svelte';
+	import { Menu, Users, ChevronRight } from '@lucide/svelte';
 	import { useSwipe, type SwipeCustomEvent } from 'svelte-gestures';
 	import { IsMobile } from '../../ui/sidebar/is-mobile.svelte.js';
 
@@ -120,9 +120,25 @@
 					</button>
 				{/if}
 			</div>
-			<!-- Right drawer: full viewport -->
+			<!-- Right drawer: full viewport. Tap-outside dismissal (the
+			     `pane !== 'main'` overlay rendered on the main pane) is
+			     off-screen when pane === 'right' (main is at -100vw), so
+			     surface a close button on the right pane itself. Sits on
+			     top of MemberList's content; only visible when open. -->
 			{#if members}
-				<div class="h-full w-screen shrink-0">{@render members()}</div>
+				<div class="relative h-full w-screen shrink-0">
+					{@render members()}
+					{#if pane === 'right'}
+						<button
+							type="button"
+							aria-label="Close members"
+							class="absolute left-2 top-2 z-30 flex h-8 w-8 items-center justify-center rounded-md bg-background/85 text-foreground shadow-md ring-1 ring-border backdrop-blur-sm hover:bg-background"
+							onclick={() => (pane = 'main')}
+						>
+							<ChevronRight class="h-4 w-4" />
+						</button>
+					{/if}
+				</div>
 			{/if}
 		</div>
 	</div>
