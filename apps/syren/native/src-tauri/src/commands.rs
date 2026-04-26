@@ -121,9 +121,10 @@ pub async fn channel_messages<R: Runtime>(
 	id: String,
 	before: Option<String>,
 	limit: Option<u32>,
+	include_deleted: Option<bool>,
 ) -> Result<Vec<Value>, String> {
 	let c = client(&app, &state, &api_host).await?;
-	c.channel_messages(&id, before.as_deref(), limit)
+	c.channel_messages(&id, before.as_deref(), limit, include_deleted)
 		.await
 		.map_err(|e| e.to_string())
 }

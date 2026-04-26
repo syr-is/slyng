@@ -1,6 +1,6 @@
 use crate::client::Client;
 use crate::error::Result;
-use crate::types::Json;
+use crate::types::{Json, Page};
 
 fn enc(v: &str) -> String {
 	super::servers::urlencode(v)
@@ -75,5 +75,35 @@ impl Client {
 		self.transport
 			.delete(&format!("/users/@me/ignorelist/{}", enc(user_id)))
 			.await
+	}
+
+	pub async fn list_friends(&self, params: &Json) -> Result<Page<Json>> {
+		let q = serde_urlencoded::to_string(params).unwrap_or_default();
+		let path = if q.is_empty() {
+			"/users/@me/friends".to_string()
+		} else {
+			format!("/users/@me/friends?{q}")
+		};
+		self.transport.get(&path).await
+	}
+
+	pub async fn list_blocked(&self, params: &Json) -> Result<Page<Json>> {
+		let q = serde_urlencoded::to_string(params).unwrap_or_default();
+		let path = if q.is_empty() {
+			"/users/@me/blocklist".to_string()
+		} else {
+			format!("/users/@me/blocklist?{q}")
+		};
+		self.transport.get(&path).await
+	}
+
+	pub async fn list_ignored(&self, params: &Json) -> Result<Page<Json>> {
+		let q = serde_urlencoded::to_string(params).unwrap_or_default();
+		let path = if q.is_empty() {
+			"/users/@me/ignorelist".to_string()
+		} else {
+			format!("/users/@me/ignorelist?{q}")
+		};
+		self.transport.get(&path).await
 	}
 }

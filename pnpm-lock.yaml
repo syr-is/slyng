@@ -172,6 +172,9 @@ importers:
       '@syren/app-core':
         specifier: workspace:*
         version: link:../../../packages/ts/app-core
+      '@syren/client':
+        specifier: workspace:*
+        version: link:../../../packages/ts/client
       '@syren/types':
         specifier: workspace:*
         version: link:../../../packages/ts/types
@@ -414,6 +417,9 @@ importers:
 
   packages/ts/app-core:
     dependencies:
+      '@syren/client':
+        specifier: workspace:*
+        version: link:../client
       '@syren/types':
         specifier: workspace:*
         version: link:../types

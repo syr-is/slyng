@@ -8,6 +8,7 @@
 	import { Label } from '@syren/ui/label';
 	import { getStoredHostSync } from '$lib/host-store';
 	import { getNativeClient } from '$lib/client';
+	import { api } from '@syren/app-core/api';
 	import { normalizeHost, isValidHost } from '@syren/app-core/normalize-host';
 	import { Loader2 } from '@lucide/svelte';
 
@@ -51,10 +52,8 @@
 
 	async function checkAndRedirect(reason: string) {
 		if (redirected) return;
-		const apiHost = getStoredHostSync();
-		if (!apiHost) return;
 		try {
-			await getNativeClient(apiHost).me();
+			await api.auth.me();
 			if (import.meta.env.DEV) console.log(`[login] self-correct: /auth/me succeeded (${reason})`);
 			redirected = true;
 			if (polling) clearInterval(polling);

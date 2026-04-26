@@ -1,5 +1,6 @@
 import { browser } from '$app/environment';
-import { setHost, setApiTransport, type ApiTransport } from '@syren/app-core/host';
+import { setHost } from '@syren/app-core/host';
+import { setApi } from '@syren/app-core/api';
 import { setWsTokenProvider } from '@syren/app-core/stores/ws.svelte';
 import { initSyrenClient, type SyrenClient } from '@syren/client';
 
@@ -14,32 +15,16 @@ const SESSION_KEY = 'syren_session';
 let client: SyrenClient | null = null;
 
 /**
- * Initialise the WASM client + register it as the API / WS transport
- * once. The first `load()` call instantiates the wasm module
- * (~hundreds of kB; fetched once and cached) and wires
- * `setApiTransport` so every `@syren/app-core/api` request flows
- * through the same Rust transport native already uses — bearer auth
- * from `localStorage[syren_session]`, error parsing, retries.
+ * Initialise the WASM client + register it as the singleton api on
+ * first `load()`. Both apps share `@syren/app-core/api`'s lazy
+ * facade — once `setApi(client)` runs, every `api.foo.bar()` call
+ * routes through the same Rust transport that defines the URL,
+ * body shape, and bearer-auth handling. No per-app fetch wrapper.
  */
 async function ensureClient(): Promise<SyrenClient> {
 	if (client) return client;
 	const c = await initSyrenClient(window.location.origin, { sessionKey: SESSION_KEY });
-	const transport: ApiTransport = async (path, options) => {
-		const method = options.method ?? 'GET';
-		const result = await c.requestRaw(method, path, options.body as never);
-		// `client.requestRaw` doesn't go through the typed `Client::logout`
-		// path, so the LocalStorageStore wouldn't otherwise get cleared
-		// after a logout. Wipe it here so the next page load is unauth.
-		if (
-			method.toUpperCase() === 'POST' &&
-			path === '/auth/logout' &&
-			typeof localStorage !== 'undefined'
-		) {
-			localStorage.removeItem(SESSION_KEY);
-		}
-		return result as never;
-	};
-	setApiTransport(transport);
+	setApi(c);
 	setWsTokenProvider(async () =>
 		typeof localStorage !== 'undefined' ? localStorage.getItem(SESSION_KEY) : null
 	);
@@ -49,11 +34,11 @@ async function ensureClient(): Promise<SyrenClient> {
 
 /**
  * If the page URL carries a `code=…` param, we just landed here from
- * the OAuth callback. Trade the bridge for a session id via
- * `client.loginComplete`, which exchanges + stamps
+ * the OAuth callback. `client.auth.exchange(code)` posts to
+ * /auth/exchange and persists the returned session id under
  * `localStorage[syren_session]` through the Rust client's
- * `LocalStorageStore`. Then scrub the param from the URL so the
- * single-use code doesn't sit in history / referrer headers.
+ * `LocalStorageStore`. Then scrub the param so the single-use code
+ * doesn't sit in history / referrer headers.
  */
 export const load = async ({ url }) => {
 	if (!browser) return {};
@@ -61,10 +46,10 @@ export const load = async ({ url }) => {
 	const code = url.searchParams.get('code');
 	if (code) {
 		try {
-			await c.loginComplete(code);
+			await c.auth.exchange(code);
 		} catch {
-			// Bridge code expired or already consumed — fall through; the
-			// (app) bootstrap will redirect to /login if there's no session.
+			// Bridge code expired or already consumed — fall through;
+			// the (app) bootstrap will redirect to /login if no session.
 		}
 		const cleaned = new URL(url.toString());
 		cleaned.searchParams.delete('code');

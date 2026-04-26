@@ -1,21 +1,16 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { goto } from '$app/navigation';
-	import { getStoredHostSync } from '$lib/host-store';
-	import { getNativeClient } from '$lib/client';
+	import { api } from '@syren/app-core/api';
 
 	let checking = $state(true);
 
 	onMount(async () => {
-		const host = getStoredHostSync();
-		if (!host) {
-			goto('/setup', { replaceState: true });
-			return;
-		}
 		try {
-			// Goes through Rust `me` command, which uses syren-client's
-			// reqwest with the bearer token from tauri-plugin-store.
-			await getNativeClient(host).me();
+			// Wired in `+layout.ts::ensureClient` — calls /auth/me through
+			// the WASM client with the bearer token stored under
+			// `localStorage[syren_session]`.
+			await api.auth.me();
 			goto('/channels/@me', { replaceState: true });
 			return;
 		} catch {

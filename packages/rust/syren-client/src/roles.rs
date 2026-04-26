@@ -68,4 +68,45 @@ impl Client {
 			.get(&format!("/servers/{}/members/@me/permissions", enc(server_id)))
 			.await
 	}
+
+	pub async fn role_swap(&self, role_id: &str, other_role_id: &str) -> Result<Json> {
+		self.transport
+			.post(
+				&format!("/roles/{}/swap/{}", enc(role_id), enc(other_role_id)),
+				&serde_json::json!({}),
+			)
+			.await
+	}
+
+	pub async fn role_permission_tree(&self, server_id: &str, user_id: &str) -> Result<Json> {
+		self.transport
+			.get(&format!(
+				"/servers/{}/members/{}/permission-tree",
+				enc(server_id),
+				enc(user_id)
+			))
+			.await
+	}
+
+	pub async fn role_member_permissions(&self, server_id: &str, user_id: &str) -> Result<Json> {
+		self.transport
+			.get(&format!(
+				"/servers/{}/members/{}/permissions",
+				enc(server_id),
+				enc(user_id)
+			))
+			.await
+	}
+
+	pub async fn role_restore(&self, role_id: &str) -> Result<Json> {
+		self.transport
+			.post(&format!("/roles/{}/restore", enc(role_id)), &serde_json::json!({}))
+			.await
+	}
+
+	pub async fn role_hard_delete(&self, role_id: &str) -> Result<Json> {
+		self.transport
+			.delete(&format!("/roles/{}/hard", enc(role_id)))
+			.await
+	}
 }

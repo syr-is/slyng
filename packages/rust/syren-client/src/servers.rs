@@ -156,4 +156,91 @@ impl Client {
 			)
 			.await
 	}
+
+	pub async fn list_bans(&self, server_id: &str, params: &Json) -> Result<Page<Json>> {
+		let q = serde_urlencoded::to_string(params).unwrap_or_default();
+		let path = if q.is_empty() {
+			format!("/servers/{}/bans", enc(server_id))
+		} else {
+			format!("/servers/{}/bans?{q}", enc(server_id))
+		};
+		self.transport.get(&path).await
+	}
+
+	pub async fn member_messages(&self, server_id: &str, user_id: &str, params: &Json) -> Result<Page<Json>> {
+		let q = serde_urlencoded::to_string(params).unwrap_or_default();
+		let path = if q.is_empty() {
+			format!("/servers/{}/members/{}/messages", enc(server_id), enc(user_id))
+		} else {
+			format!("/servers/{}/members/{}/messages?{q}", enc(server_id), enc(user_id))
+		};
+		self.transport.get(&path).await
+	}
+
+	pub async fn member_message_stats(&self, server_id: &str, user_id: &str) -> Result<Json> {
+		self.transport
+			.get(&format!(
+				"/servers/{}/members/{}/message-stats",
+				enc(server_id),
+				enc(user_id)
+			))
+			.await
+	}
+
+	pub async fn purge_member_messages(&self, server_id: &str, user_id: &str, body: &Json) -> Result<Json> {
+		self.transport
+			.post(
+				&format!("/servers/{}/members/{}/purge", enc(server_id), enc(user_id)),
+				body,
+			)
+			.await
+	}
+
+	pub async fn member_ban_history(&self, server_id: &str, user_id: &str) -> Result<Vec<Json>> {
+		self.transport
+			.get(&format!(
+				"/servers/{}/members/{}/ban-history",
+				enc(server_id),
+				enc(user_id)
+			))
+			.await
+	}
+
+	pub async fn member_audit_log(&self, server_id: &str, user_id: &str, params: &Json) -> Result<Page<Json>> {
+		let q = serde_urlencoded::to_string(params).unwrap_or_default();
+		let path = if q.is_empty() {
+			format!("/servers/{}/members/{}/audit-log", enc(server_id), enc(user_id))
+		} else {
+			format!("/servers/{}/members/{}/audit-log?{q}", enc(server_id), enc(user_id))
+		};
+		self.transport.get(&path).await
+	}
+
+	pub async fn update_invite(&self, server_id: &str, code: &str, data: &Json) -> Result<Json> {
+		self.transport
+			.patch(&format!("/servers/{}/invites/{}", enc(server_id), enc(code)), data)
+			.await
+	}
+
+	pub async fn trash_channels(&self, server_id: &str) -> Result<Vec<Json>> {
+		self.transport
+			.get(&format!("/servers/{}/trash/channels", enc(server_id)))
+			.await
+	}
+
+	pub async fn trash_roles(&self, server_id: &str) -> Result<Vec<Json>> {
+		self.transport
+			.get(&format!("/servers/{}/trash/roles", enc(server_id)))
+			.await
+	}
+
+	pub async fn trash_messages(&self, server_id: &str, params: &Json) -> Result<Page<Json>> {
+		let q = serde_urlencoded::to_string(params).unwrap_or_default();
+		let path = if q.is_empty() {
+			format!("/servers/{}/trash/messages", enc(server_id))
+		} else {
+			format!("/servers/{}/trash/messages?{q}", enc(server_id))
+		};
+		self.transport.get(&path).await
+	}
 }

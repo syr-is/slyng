@@ -42,4 +42,13 @@ impl Client {
 			)
 			.await
 	}
+
+	pub async fn category_swap(&self, a: &str, b: &str) -> Result<Json> {
+		self.transport
+			.post(
+				&format!("/categories/{}/swap/{}", enc(a), enc(b)),
+				&serde_json::json!({}),
+			)
+			.await
+	}
 }

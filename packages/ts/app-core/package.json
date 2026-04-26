@@ -64,6 +64,7 @@
 		"svelte": "^5.0.0"
 	},
 	"dependencies": {
+		"@syren/client": "workspace:*",
 		"@syren/types": "workspace:*",
 		"livekit-client": "^2.18.3"
 	},
