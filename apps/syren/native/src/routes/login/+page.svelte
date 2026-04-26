@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { onDestroy } from 'svelte';
+	import { onDestroy, onMount } from 'svelte';
 	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
 	import { listen } from '@tauri-apps/api/event';
@@ -44,9 +44,56 @@
 			console.log('[login] auth-error payload =', event.payload);
 		});
 	})();
+
+	// Belt and braces: the `auth-changed` event isn't buffered, so if
+	// the WebView was paused while the user was in the system browser,
+	// or if the deep-link callback fired before our `listen()` finished
+	// resolving, we'd miss it and stay stuck on /login despite the
+	// session being persisted to the Tauri store. Re-poll `/auth/me`
+	// any time the app comes back into the foreground (visibility +
+	// focus events), and a short interval right after the user kicks
+	// off OAuth — the moment we see a valid session, route into the app.
+	let polling: ReturnType<typeof setInterval> | undefined;
+	let redirected = false;
+
+	async function checkAndRedirect(reason: string) {
+		if (redirected) return;
+		const apiHost = getStoredHostSync();
+		if (!apiHost) return;
+		try {
+			await getNativeClient(apiHost).me();
+			console.log(`[login] self-correct: /auth/me succeeded (${reason}); redirecting`);
+			redirected = true;
+			if (polling) clearInterval(polling);
+			goto('/channels/@me', { replaceState: true });
+		} catch {
+			// Still unauthenticated — stay on /login.
+		}
+	}
+
+	function onVisibility() {
+		if (document.visibilityState === 'visible') {
+			void checkAndRedirect('visibilitychange');
+		}
+	}
+	function onFocus() {
+		void checkAndRedirect('focus');
+	}
+
+	onMount(() => {
+		// Initial check covers the case where the page mounted *after*
+		// auth-changed already fired (deep-link delivered fast).
+		void checkAndRedirect('mount');
+		document.addEventListener('visibilitychange', onVisibility);
+		window.addEventListener('focus', onFocus);
+	});
+
 	onDestroy(() => {
 		unlisten?.();
 		unlistenError?.();
+		document.removeEventListener('visibilitychange', onVisibility);
+		window.removeEventListener('focus', onFocus);
+		if (polling) clearInterval(polling);
 	});
 
 	async function handleSyrLogin(e: SubmitEvent) {
@@ -75,6 +122,19 @@
 			// fetches `/auth/me` and emits `auth-changed`. The listener
 			// above handles the navigation into the app.
 			await getNativeClient(apiHost).startLogin(normalized);
+			// Poll `/auth/me` while the user is in the system browser.
+			// If `auth-changed` is missed (event not buffered, fired
+			// before our listener attached, etc.) the next poll catches
+			// the persisted session and routes us into the app anyway.
+			// Stops automatically once a redirect fires or after 2 min.
+			if (polling) clearInterval(polling);
+			polling = setInterval(() => void checkAndRedirect('poll'), 1500);
+			setTimeout(() => {
+				if (polling) {
+					clearInterval(polling);
+					polling = undefined;
+				}
+			}, 120_000);
 		} catch (err) {
 			errorMsg = err instanceof Error ? err.message : 'Connection failed';
 		} finally {
