@@ -8,7 +8,7 @@
 	import { Label } from '@syren/ui/label';
 	import { getStoredHostSync } from '$lib/host-store';
 	import { getNativeClient } from '$lib/client';
-	import { normalizeHost, isValidHost } from '$lib/normalize-host';
+	import { normalizeHost, isValidHost } from '@syren/app-core/normalize-host';
 	import { Loader2 } from '@lucide/svelte';
 
 	let instanceUrl = $state('');

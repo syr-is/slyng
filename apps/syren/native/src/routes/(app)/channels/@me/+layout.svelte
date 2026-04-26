@@ -16,7 +16,7 @@
 	import { page } from '$app/state';
 	import { onWsEvent } from '@syren/app-core/stores/ws.svelte';
 	import { WsOp } from '@syren/types';
-	import { setPageSidebar } from '$lib/page-sidebar.svelte';
+	import { setPageSidebar } from '@syren/ui/fragments/swipe-layout';
 
 	interface DMChannel {
 		id: string;

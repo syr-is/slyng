@@ -6,7 +6,7 @@
 	import { WsOp } from '@syren/types';
 	import { apiUrl } from '@syren/app-core/host';
 	import { onWsEvent } from '@syren/app-core/stores/ws.svelte';
-	import { setPageSidebar } from '$lib/page-sidebar.svelte';
+	import { setPageSidebar } from '@syren/ui/fragments/swipe-layout';
 	import ChannelSidebar from '@syren/ui/fragments/channel-sidebar.svelte';
 	import InviteDialog from '@syren/ui/fragments/invite-dialog.svelte';
 	import ModerationSheet from '@syren/ui/fragments/moderation-sheet.svelte';

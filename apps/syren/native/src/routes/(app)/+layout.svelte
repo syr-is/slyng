@@ -26,7 +26,7 @@
 	import '@syren/app-core/stores/posts.svelte';
 	import { loadTrustedDomains } from '@syren/app-core/stores/trusted-domains.svelte';
 	import { loadRelations, clearRelations } from '@syren/app-core/stores/relations.svelte';
-	import { getPageSidebar, getPageMembers } from '$lib/page-sidebar.svelte';
+	import { getPageSidebar, getPageMembers } from '@syren/ui/fragments/swipe-layout';
 
 	let { children } = $props();
 	let showCreateServer = $state(false);

@@ -9,7 +9,7 @@
 	import PinsPanel from '@syren/ui/fragments/pins-panel.svelte';
 	import VoiceRoomView from '@syren/ui/fragments/voice-room-view.svelte';
 	import { Permissions } from '@syren/types';
-	import { setPageMembers } from '$lib/page-sidebar.svelte';
+	import { setPageMembers } from '@syren/ui/fragments/swipe-layout';
 	import { setPane } from '@syren/ui/fragments/swipe-layout';
 	import { IsMobile } from '@syren/ui/sidebar';
 	import { api } from '@syren/app-core/api';
