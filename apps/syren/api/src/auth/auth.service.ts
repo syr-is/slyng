@@ -55,46 +55,57 @@ export class AuthService {
 
 	/**
 	 * Issue a self-contained OAuth state token.
-	 * Format: `<random>.<timestamp>.<hmac>` (each part base64url).
+	 * Format: `<base64url(payload)>.<hmac>` where payload is JSON
+	 * `{ r: random, t: timestamp, inst, redirect? }`.
 	 *
-	 * The cookie-less variant — survives Tauri webviews and other
-	 * environments where third-party Set-Cookie from fetch is dropped.
+	 * Carrying the dynamic data inside the state lets the callback URL
+	 * stay static (no query params), which is critical: many OAuth
+	 * servers (syr.is included) byte-compare the callback_url between
+	 * consent and token-exchange, and any URL-encoding wobble in
+	 * embedded query params triggers a "callback mismatch" error.
 	 */
-	issueOAuthState(): string {
-		const random = randomBytes(24).toString('base64url');
-		const ts = Date.now().toString();
-		const sig = this.signState(random, ts);
-		return `${random}.${ts}.${sig}`;
+	issueOAuthState(payload: { inst: string; redirect?: string }): string {
+		const body = {
+			r: randomBytes(18).toString('base64url'),
+			t: Date.now(),
+			inst: payload.inst,
+			...(payload.redirect ? { redirect: payload.redirect } : {})
+		};
+		const encoded = Buffer.from(JSON.stringify(body), 'utf8').toString('base64url');
+		const sig = createHmac('sha256', this.getStateSecret()).update(encoded).digest('base64url');
+		return `${encoded}.${sig}`;
 	}
 
 	/**
-	 * Validate a state token. Returns true on first validation; subsequent
-	 * presentations of the same token within the replay window return false
-	 * to prevent replay.
+	 * Validate and decode a state token. Returns the recovered payload
+	 * on first successful validation; subsequent presentations of the
+	 * same token within the replay window return null.
 	 */
-	verifyOAuthState(token: string): boolean {
-		if (!token) return false;
+	verifyOAuthState(token: string): { inst: string; redirect?: string } | null {
+		if (!token) return null;
 		const parts = token.split('.');
-		if (parts.length !== 3) return false;
-		const [random, ts, sig] = parts;
-		const expected = this.signState(random, ts);
+		if (parts.length !== 2) return null;
+		const [encoded, sig] = parts;
+		const expected = createHmac('sha256', this.getStateSecret())
+			.update(encoded)
+			.digest('base64url');
 		const a = Buffer.from(sig, 'base64url');
 		const b = Buffer.from(expected, 'base64url');
-		if (a.length !== b.length || !timingSafeEqual(a, b)) return false;
-		const issued = Number(ts);
-		if (!Number.isFinite(issued) || Date.now() - issued > STATE_TTL_MS) return false;
+		if (a.length !== b.length || !timingSafeEqual(a, b)) return null;
 
-		// Single-use enforcement.
+		let payload: { r: string; t: number; inst: string; redirect?: string };
+		try {
+			payload = JSON.parse(Buffer.from(encoded, 'base64url').toString('utf8'));
+		} catch {
+			return null;
+		}
+		if (!payload?.t || !payload?.inst || typeof payload.inst !== 'string') return null;
+		if (Date.now() - payload.t > STATE_TTL_MS) return null;
+
 		this.cleanSeenStates();
-		if (this.seenStates.has(token)) return false;
+		if (this.seenStates.has(token)) return null;
 		this.seenStates.set(token, Date.now());
-		return true;
-	}
-
-	private signState(random: string, ts: string): string {
-		return createHmac('sha256', this.getStateSecret())
-			.update(`${random}.${ts}`)
-			.digest('base64url');
+		return { inst: payload.inst, redirect: payload.redirect };
 	}
 
 	private cleanSeenStates(): void {

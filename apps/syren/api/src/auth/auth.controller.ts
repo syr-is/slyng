@@ -71,33 +71,18 @@ export class AuthController {
 		if (!manifest) throw new HttpException('Could not reach this instance', 400);
 		if (!manifest.platform) throw new HttpException('Instance does not support platform delegation', 400);
 
-		// Self-contained, HMAC-signed state token — no cookie required. This
-		// keeps the OAuth start working from environments where third-party
-		// Set-Cookie via fetch is dropped (Tauri webviews, ITP partitioning).
-		const state = this.authService.issueOAuthState();
+		// Self-contained, HMAC-signed state token. Carries the instance
+		// URL and the post-login redirect target inside the signed
+		// payload, so the callback URL itself stays static — no query
+		// params on it whatsoever. This is what keeps syr's token
+		// endpoint happy: it does a byte-level callback_url match
+		// between consent and token-exchange.
+		const state = this.authService.issueOAuthState({
+			inst: instanceUrl,
+			redirect: isAllowedRedirect(body.redirect) ? body.redirect : undefined
+		});
 
-		// We still set a syren_pending_instance cookie as a hint, but the
-		// callback can recover the instance URL from the signed-state payload
-		// embedded in the redirect target if the cookie is missing.
-		const cookieOpts = {
-			path: '/',
-			httpOnly: true,
-			secure: this.authService.isProduction(),
-			sameSite: 'none' as const,
-			maxAge: 600 * 1000
-		};
-		res.cookie('syren_pending_instance', instanceUrl, cookieOpts);
-		if (isAllowedRedirect(body.redirect)) {
-			res.cookie('syren_post_login_redirect', body.redirect, cookieOpts);
-		}
-
-		// Embed both the instance URL AND the validated post-login redirect
-		// into the callback URL itself. This rides through the syr round-trip
-		// as URL params, surviving cross-site cookie loss in webviews where
-		// the cookies above never make it back from third-party fetch context.
-		const cbParams = new URLSearchParams({ inst: instanceUrl });
-		if (isAllowedRedirect(body.redirect)) cbParams.set('redirect', body.redirect);
-		const callbackUrl = `${this.authService.getCallbackUrl()}?${cbParams.toString()}`;
+		const callbackUrl = this.authService.getCallbackUrl();
 
 		const consentUrl = await this.authService.getConsentUrl(instanceUrl, {
 			platform_origin: this.authService.getPlatformOrigin(),
@@ -132,18 +117,19 @@ export class AuthController {
 		if (!code) return res.redirect('/login?error=missing_code');
 
 		// HMAC-validated state — no dependency on the cookie jar.
-		if (!state || !this.authService.verifyOAuthState(state)) {
+		const verified = state ? this.authService.verifyOAuthState(state) : null;
+		if (!verified) {
 			this.logger.warn('OAuth state failed HMAC verification or replayed');
 			return res.redirect('/login?error=invalid_state');
 		}
 
-		// Recover the syr instance URL: prefer the cookie, fall back to the
-		// `inst` query param we wired through the callback URL on /login.
-		const syrInstanceUrl =
-			req.cookies?.syren_pending_instance ?? (req.query.inst as string | undefined);
-		if (!syrInstanceUrl) {
-			return res.redirect('/login?error=session_expired');
-		}
+		// Recover the syr instance URL and post-login redirect from the
+		// signed state payload — they were sealed in there during /login,
+		// so no cookies / query-params on the callback URL are required.
+		const syrInstanceUrl = verified.inst;
+		const postLoginRedirect = isAllowedRedirect(verified.redirect)
+			? verified.redirect
+			: undefined;
 
 		if (!delegationId) {
 			return res.redirect('/login?error=missing_delegation_id');
@@ -152,22 +138,11 @@ export class AuthController {
 		try {
 			const platformOrigin = this.authService.getPlatformOrigin();
 
-			// Recover the post-login redirect from EITHER the URL query (added
-			// during /login as a cookie-independent backup) or the cookie
-			// (used by the original web flow). Validate either one.
-			const queryRedirect = req.query.redirect as string | undefined;
-			const cookieRedirect = req.cookies?.syren_post_login_redirect;
-			const postLoginRedirect = isAllowedRedirect(queryRedirect)
-				? queryRedirect
-				: isAllowedRedirect(cookieRedirect)
-					? cookieRedirect
-					: undefined;
-
-			// Match the exact redirect_uri sent during /login — the token
-			// endpoint at the syr instance verifies it byte-for-byte.
-			const cbParams = new URLSearchParams({ inst: syrInstanceUrl });
-			if (postLoginRedirect) cbParams.set('redirect', postLoginRedirect);
-			const callbackUrl = `${this.authService.getCallbackUrl()}?${cbParams.toString()}`;
+			// `callback_url` MUST be byte-identical to what we sent during
+			// the consent step — syr.is verifies it on the token endpoint.
+			// Keeping it static (no query params) eliminates URL-encoding
+			// drift between consent and exchange.
+			const callbackUrl = this.authService.getCallbackUrl();
 
 			const tokens = await this.authService.exchangePlatformCode(
 				syrInstanceUrl, code, delegationId, callbackUrl, platformOrigin
@@ -176,9 +151,6 @@ export class AuthController {
 			await this.authService.upsertUser(tokens, syrInstanceUrl);
 
 			const sessionId = await this.authService.createSession(tokens, syrInstanceUrl);
-
-			res.clearCookie('syren_pending_instance', { path: '/' });
-			if (cookieRedirect) res.clearCookie('syren_post_login_redirect', { path: '/' });
 			res.cookie(SESSION_COOKIE, sessionId, {
 				path: '/',
 				httpOnly: true,
