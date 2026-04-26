@@ -48,9 +48,11 @@ pub async fn proxy_request<R: Runtime>(
 	body: Option<Value>,
 ) -> Result<Value, String> {
 	let m = method.as_deref().unwrap_or("GET").to_string();
-	eprintln!("[proxy] -> {m} {path} (host={api_host})");
+	#[cfg(debug_assertions)]
+	eprintln!("[proxy] -> {m} {path}");
 	let c = client(&app, &state, &api_host).await?;
 	let result = c.request_raw(&m, &path, body).await;
+	#[cfg(debug_assertions)]
 	match &result {
 		Ok(_) => eprintln!("[proxy] <- {m} {path} OK"),
 		Err(e) => eprintln!("[proxy] <- {m} {path} ERR = {e}"),

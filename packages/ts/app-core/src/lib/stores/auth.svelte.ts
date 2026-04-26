@@ -25,9 +25,8 @@ export function getAuth() {
 }
 
 export async function checkAuth(): Promise<AuthIdentity | null> {
-	console.log('[checkAuth] entry; checked =', checked, 'identity =', identity);
+	if (import.meta.env.DEV) console.log('[checkAuth] entry checked=', checked, 'authed=', !!identity?.did);
 	if (checked) {
-		console.log('[checkAuth] returning cached identity =', identity);
 		return identity;
 	}
 
@@ -36,28 +35,25 @@ export async function checkAuth(): Promise<AuthIdentity | null> {
 		// Route through whatever transport is registered — Rust on
 		// native, fetch on web. Same response shape either way.
 		const transport = getApiTransport();
-		console.log('[checkAuth] transport =', typeof transport);
+		if (import.meta.env.DEV) console.log('[checkAuth] transport=', typeof transport);
 		const data = transport
 			? await transport<Partial<AuthIdentity>>('/auth/me', { method: 'GET' })
 			: await (await fetch(apiUrl('/auth/me'), { credentials: 'include' })).json();
-		console.log('[checkAuth] /auth/me data =', data);
+		if (import.meta.env.DEV) console.log('[checkAuth] /auth/me ok=', !!(data?.did && data?.syr_instance_url));
 		if (data?.did && data?.syr_instance_url) {
 			identity = {
 				did: data.did,
 				syr_instance_url: data.syr_instance_url,
 				delegate_public_key: data.delegate_public_key
 			};
-			console.log('[checkAuth] identity set');
-		} else {
-			console.log('[checkAuth] /auth/me payload missing did/syr_instance_url');
 		}
 	} catch (err) {
 		// API unreachable / 401
-		console.log('[checkAuth] caught =', err);
+		if (import.meta.env.DEV) console.log('[checkAuth] caught', err);
 	}
 	checked = true;
 	loading = false;
-	console.log('[checkAuth] exit; identity =', identity);
+	if (import.meta.env.DEV) console.log('[checkAuth] exit authed=', !!identity?.did);
 	return identity;
 }
 

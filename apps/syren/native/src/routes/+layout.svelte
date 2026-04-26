@@ -30,7 +30,6 @@
 			body: options.body ?? null
 		});
 	}
-	console.log('[+layout root] setApiTransport called; proxy fn type =', typeof proxy);
 	setApiTransport(proxy as ApiTransport);
 
 	// WS auth: native can't ride the syren_session cookie because the WS
@@ -43,7 +42,7 @@
 		try {
 			return (await invoke('session_token', { apiHost })) as string | null;
 		} catch (err) {
-			console.warn('[+layout root] session_token invoke failed', err);
+			if (import.meta.env.DEV) console.warn('[+layout root] session_token invoke failed', err);
 			return null;
 		}
 	});

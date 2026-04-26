@@ -29,21 +29,13 @@
 	// The Rust side fires `auth-changed` once it consumes the
 	// `syren://auth/callback?code=...` deep link and exchanges the
 	// bridge code for a session. We listen here and route into the
-	// app the moment that lands.
+	// app the moment that lands. Listener registration lives inside
+	// `onMount` so it's synchronised with the component lifecycle —
+	// otherwise an early-destroy could fire `unlisten?.()` while the
+	// `listen()` promise is still resolving and the unlisten fn is
+	// `undefined`.
 	let unlisten: (() => void) | undefined;
 	let unlistenError: (() => void) | undefined;
-	(async () => {
-		unlisten = await listen<unknown>('auth-changed', (event) => {
-			console.log('[login] auth-changed payload =', event.payload);
-			if (event.payload) {
-				console.log('[login] navigating to /channels/@me');
-				goto('/channels/@me', { replaceState: true });
-			}
-		});
-		unlistenError = await listen<string>('auth-error', (event) => {
-			console.log('[login] auth-error payload =', event.payload);
-		});
-	})();
 
 	// Belt and braces: the `auth-changed` event isn't buffered, so if
 	// the WebView was paused while the user was in the system browser,
@@ -54,6 +46,7 @@
 	// focus events), and a short interval right after the user kicks
 	// off OAuth — the moment we see a valid session, route into the app.
 	let polling: ReturnType<typeof setInterval> | undefined;
+	let pollingTimeout: ReturnType<typeof setTimeout> | undefined;
 	let redirected = false;
 
 	async function checkAndRedirect(reason: string) {
@@ -62,9 +55,10 @@
 		if (!apiHost) return;
 		try {
 			await getNativeClient(apiHost).me();
-			console.log(`[login] self-correct: /auth/me succeeded (${reason}); redirecting`);
+			if (import.meta.env.DEV) console.log(`[login] self-correct: /auth/me succeeded (${reason})`);
 			redirected = true;
 			if (polling) clearInterval(polling);
+			if (pollingTimeout) clearTimeout(pollingTimeout);
 			goto('/channels/@me', { replaceState: true });
 		} catch {
 			// Still unauthenticated — stay on /login.
@@ -81,6 +75,21 @@
 	}
 
 	onMount(() => {
+		// Listener registration is fire-and-forget; the listen() promises
+		// resolve to unlisten fns we capture once available. onDestroy
+		// guards on `unlisten?.()` so a destroy before resolution is safe.
+		void (async () => {
+			unlisten = await listen<unknown>('auth-changed', (event) => {
+				if (import.meta.env.DEV) console.log('[login] auth-changed authed=', !!event.payload);
+				if (event.payload) {
+					goto('/channels/@me', { replaceState: true });
+				}
+			});
+			unlistenError = await listen<string>('auth-error', (event) => {
+				if (import.meta.env.DEV) console.log('[login] auth-error', event.payload);
+			});
+		})();
+
 		// Initial check covers the case where the page mounted *after*
 		// auth-changed already fired (deep-link delivered fast).
 		void checkAndRedirect('mount');
@@ -94,6 +103,7 @@
 		document.removeEventListener('visibilitychange', onVisibility);
 		window.removeEventListener('focus', onFocus);
 		if (polling) clearInterval(polling);
+		if (pollingTimeout) clearTimeout(pollingTimeout);
 	});
 
 	async function handleSyrLogin(e: SubmitEvent) {
@@ -128,12 +138,14 @@
 			// the persisted session and routes us into the app anyway.
 			// Stops automatically once a redirect fires or after 2 min.
 			if (polling) clearInterval(polling);
+			if (pollingTimeout) clearTimeout(pollingTimeout);
 			polling = setInterval(() => void checkAndRedirect('poll'), 1500);
-			setTimeout(() => {
+			pollingTimeout = setTimeout(() => {
 				if (polling) {
 					clearInterval(polling);
 					polling = undefined;
 				}
+				pollingTimeout = undefined;
 			}, 120_000);
 		} catch (err) {
 			errorMsg = err instanceof Error ? err.message : 'Connection failed';

@@ -42,7 +42,12 @@
 	let touchStartTime = 0;
 	let touchTracking = false;
 	function onTouchStart(e: TouchEvent) {
-		if (e.touches.length !== 1) return;
+		// Abort tracking the moment a 2nd finger lands so a pinch or
+		// two-finger swipe can't accidentally fire a back-nav.
+		if (e.touches.length !== 1) {
+			touchTracking = false;
+			return;
+		}
 		touchStartX = e.touches[0].clientX;
 		touchStartY = e.touches[0].clientY;
 		touchStartTime = Date.now();
@@ -60,6 +65,9 @@
 		e.stopPropagation();
 		goto(`/channels/${encodeURIComponent(serverId)}`);
 	}
+	function onTouchCancel() {
+		touchTracking = false;
+	}
 </script>
 
 <div
@@ -68,6 +76,7 @@
 	class="flex min-h-0 min-w-0 flex-1 flex-col"
 	ontouchstart={onTouchStart}
 	ontouchend={onTouchEnd}
+	ontouchcancel={onTouchCancel}
 >
 	<div class="flex h-12 shrink-0 items-center gap-2 border-b border-border px-3">
 		<Button

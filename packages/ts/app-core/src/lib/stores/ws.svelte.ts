@@ -10,10 +10,17 @@ import { wsOrigin } from '../host';
  * cookies (different origin), so it registers a `tokenProvider` via
  * `setWsTokenProvider` — when set, we send an explicit `IDENTIFY` message
  * with the persisted session id immediately after the socket opens.
+ *
+ * IDENTIFY ordering: `ws.onopen` is `async` and we may have to await the
+ * token provider, so the socket can be in the `OPEN` state before IDENTIFY
+ * is dispatched. To prevent any concurrent `send(...)` call from leaking
+ * an unauthenticated frame ahead of IDENTIFY, we gate `send()` on a
+ * separate `identified` flag rather than the socket's `readyState`.
  */
 
 let socket: WebSocket | null = $state(null);
 let connected = $state(false);
+let identified = $state(false);
 let reconnectAttempts = 0;
 let heartbeatInterval: ReturnType<typeof setInterval> | null = null;
 
@@ -39,23 +46,25 @@ export function connectWs(_apiUrl?: string) {
 	if (socket?.readyState === WebSocket.OPEN || socket?.readyState === WebSocket.CONNECTING) return;
 
 	const wsUrl = wsOrigin() + '/ws';
-	console.log('[ws] connecting to', wsUrl, 'tokenProvider=', tokenProvider ? 'set' : 'unset');
+	if (import.meta.env.DEV) console.log('[ws] connecting tokenProvider=', tokenProvider ? 'set' : 'unset');
 	const ws = new WebSocket(wsUrl);
 	socket = ws;
 
 	ws.onopen = async () => {
 		connected = true;
 		reconnectAttempts = 0;
-		console.log('[ws] open readyState=', ws.readyState);
 
 		// Native: explicit IDENTIFY before anything else (no cookies cross
 		// the tauri.localhost ↔ app.slyng.gg origin boundary). Web: skip,
 		// gateway auto-identifies from the cookie on the upgrade request.
+		// Either way, `identified` flips to true *after* IDENTIFY has been
+		// written (or immediately on the cookie path) — `send()` queues
+		// every other outbound frame until then.
 		if (tokenProvider) {
 			try {
 				const token = await tokenProvider();
 				if (token) {
-					console.log('[ws] sending IDENTIFY (token_len=' + token.length + ')');
+					if (import.meta.env.DEV) console.log('[ws] IDENTIFY sent');
 					rawSend(ws, { op: WsOp.IDENTIFY, d: { token } });
 				} else {
 					console.warn('[ws] tokenProvider returned no token; connection will be unauthenticated');
@@ -63,13 +72,11 @@ export function connectWs(_apiUrl?: string) {
 			} catch (err) {
 				console.warn('[ws] tokenProvider threw', err);
 			}
-		} else {
-			console.log('[ws] no tokenProvider; relying on cookie auto-identify');
 		}
+		identified = true;
 
 		// Re-subscribe to all channels (in case of reconnect)
 		if (subscribedChannels.size > 0) {
-			console.log('[ws] resubscribing channels=', subscribedChannels.size);
 			rawSend(ws, { op: WsOp.SUBSCRIBE, d: { channel_ids: [...subscribedChannels] } });
 		}
 
@@ -87,7 +94,11 @@ export function connectWs(_apiUrl?: string) {
 		try {
 			const msg = JSON.parse(event.data as string);
 			const handlers = listeners.get(msg.op);
-			console.log(`[ws] recv op=${msg.op} handlers=${handlers?.size ?? 0}`, msg.d);
+			// Default log: op + handler count only (msg.d for `MESSAGE_CREATE`
+			// etc. carries plaintext content). Bodies are dev-only.
+			if (import.meta.env.DEV) {
+				console.log(`[ws] recv op=${msg.op} handlers=${handlers?.size ?? 0}`, msg.d);
+			}
 			if (handlers) {
 				for (const handler of handlers) {
 					handler(msg.d);
@@ -99,8 +110,9 @@ export function connectWs(_apiUrl?: string) {
 	};
 
 	ws.onclose = (event) => {
-		console.log('[ws] close code=', event.code, 'reason=', event.reason, 'wasClean=', event.wasClean);
+		if (import.meta.env.DEV) console.log('[ws] close code=', event.code, 'wasClean=', event.wasClean);
 		connected = false;
+		identified = false;
 		socket = null;
 		if (heartbeatInterval) {
 			clearInterval(heartbeatInterval);
@@ -109,12 +121,11 @@ export function connectWs(_apiUrl?: string) {
 
 		const delay = Math.min(1000 * 2 ** reconnectAttempts, 30000);
 		reconnectAttempts++;
-		console.log('[ws] reconnect scheduled in', delay, 'ms attempts=', reconnectAttempts);
 		setTimeout(() => connectWs(), delay);
 	};
 
 	ws.onerror = (event) => {
-		console.warn('[ws] error', event);
+		if (import.meta.env.DEV) console.warn('[ws] error', event);
 		ws.close();
 	};
 }
@@ -127,6 +138,7 @@ export function disconnectWs() {
 	socket?.close();
 	socket = null;
 	connected = false;
+	identified = false;
 	subscribedChannels.clear();
 	sendQueue.length = 0;
 }
@@ -139,7 +151,10 @@ function rawSend(ws: WebSocket, data: { op: number; d: unknown }) {
 }
 
 export function send(data: { op: number; d: unknown }) {
-	if (socket?.readyState === WebSocket.OPEN) {
+	// Gate on `identified` (not socket state) so concurrent send() calls
+	// during the `await tokenProvider()` window in onopen can't leak an
+	// unauthenticated frame ahead of IDENTIFY.
+	if (identified && socket?.readyState === WebSocket.OPEN) {
 		rawSend(socket, data);
 	} else {
 		sendQueue.push(data);

@@ -27,35 +27,30 @@ impl Client {
 	/// in the `Authorization: Bearer` header.
 	pub async fn login_complete(&self, code: impl Into<String>) -> Result<Identity> {
 		let code: String = code.into();
-		eprintln!("[client/login_complete] start; code_len={}", code.len());
+		#[cfg(debug_assertions)]
+		eprintln!("[client/login_complete] start (code_len={})", code.len());
 		let body = ExchangeRequest { code };
-		let exchange: Result<ExchangeResponse> = self.transport.post("/auth/exchange", &body).await;
-		let resp = match exchange {
+		let resp: ExchangeResponse = match self.transport.post("/auth/exchange", &body).await {
 			Ok(r) => {
-				eprintln!(
-					"[client/login_complete] /auth/exchange OK; session_len={}",
-					r.session.len()
-				);
+				#[cfg(debug_assertions)]
+				eprintln!("[client/login_complete] /auth/exchange OK");
 				r
 			}
 			Err(e) => {
+				#[cfg(debug_assertions)]
 				eprintln!("[client/login_complete] /auth/exchange ERR = {e}");
 				return Err(e);
 			}
 		};
 		self.transport.store.set(&resp.session).await;
-		let readback = self.transport.store.get().await;
-		eprintln!(
-			"[client/login_complete] store readback present={} matches={}",
-			readback.is_some(),
-			readback.as_deref() == Some(resp.session.as_str())
-		);
 		match self.me().await {
 			Ok(id) => {
-				eprintln!("[client/login_complete] /auth/me OK did={}", id.did);
+				#[cfg(debug_assertions)]
+				eprintln!("[client/login_complete] /auth/me OK");
 				Ok(id)
 			}
 			Err(e) => {
+				#[cfg(debug_assertions)]
 				eprintln!("[client/login_complete] /auth/me ERR = {e}");
 				Err(e)
 			}

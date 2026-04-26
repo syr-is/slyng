@@ -14,6 +14,7 @@
 	import ProfileHoverCard from './profile-hover-card.svelte';
 	import SafeMedia from './safe-media.svelte';
 	import { IsMobile } from '../ui/sidebar/is-mobile.svelte.js';
+	import { getActiveMessageRow, setActiveMessageRow } from './active-message-row.svelte.js';
 	import SafeLink from './safe-link.svelte';
 
 	const {
@@ -142,11 +143,26 @@
 		lightboxOpen = true;
 	}
 
-	let showActions = $state(false);
+	// `showActions` is OR'd from a desktop-only hover flag and a shared
+	// "active row" rune on touch — only one mobile row can have its bar
+	// open at any time. The mouseenter/mouseleave handlers below toggle
+	// `hovered`; the tap handler stamps the rune.
+	let hovered = $state(false);
+	const activeRow = getActiveMessageRow();
+	const showActions = $derived(hovered || activeRow.value === message.id);
 	let showEmojiPicker = $state(false);
 	let editing = $state(false);
 	let editContent = $state('');
 	let confirmDelete = $state(false);
+
+	// When the rune moves to a different row (or to null), make sure
+	// this row's transient sub-state goes back to neutral too.
+	$effect(() => {
+		if (activeRow.value !== message.id && !hovered) {
+			showEmojiPicker = false;
+			confirmDelete = false;
+		}
+	});
 
 	function startEdit() {
 		editContent = message.content;
@@ -183,10 +199,10 @@
 	let expandedIgnored = $state(false);
 
 	// On touch devices the action bar can't ride hover. Tap the message
-	// body to toggle the bar; tapping a child button (react / reply /
-	// edit / delete) keeps the bar open and runs the action. Hover still
-	// works on desktop because we gate mouseenter/mouseleave on
-	// !IsMobile.current.
+	// body to toggle this row in the shared `activeRow` rune; tapping a
+	// child button (react / reply / edit / delete) keeps the bar open
+	// and runs the action. Hover still works on desktop because we gate
+	// mouseenter/mouseleave on !IsMobile.current.
 	const isMobile = new IsMobile();
 	function handleRowClick(e: MouseEvent) {
 		if (!isMobile.current) return;
@@ -195,19 +211,15 @@
 		// action bar's own controls live inside this same row, and we
 		// don't want a Reply tap to also collapse the bar.
 		if (target.closest('button, a, input, textarea, [role="button"], [role="menuitem"]')) return;
-		showActions = !showActions;
-		if (!showActions) {
-			showEmojiPicker = false;
-			confirmDelete = false;
-		}
+		setActiveMessageRow(activeRow.value === message.id ? null : message.id);
 	}
 </script>
 
 <div
 	data-message-id={message.id}
 	class="group relative px-4 transition-[box-shadow] hover:bg-accent/30 {grouped ? 'py-0.5 mt-0.5' : 'py-1 mt-2'}"
-	onmouseenter={() => { if (!isMobile.current) showActions = true; }}
-	onmouseleave={() => { if (!isMobile.current) { showActions = false; showEmojiPicker = false; confirmDelete = false; } }}
+	onmouseenter={() => { if (!isMobile.current) hovered = true; }}
+	onmouseleave={() => { if (!isMobile.current) { hovered = false; showEmojiPicker = false; confirmDelete = false; } }}
 	onclick={handleRowClick}
 >
 	{#if replyIds.length > 0}

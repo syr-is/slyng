@@ -32,7 +32,7 @@ function armTimer() {
 function bump() {
 	armTimer();
 	if (autoIdle) {
-		console.log('[idle] activity bump → restoring to', userStatus);
+		if (import.meta.env.DEV) console.log('[idle] activity bump → restoring to', userStatus);
 		autoIdle = false;
 		updateMyPresence({ status: userStatus });
 	}
@@ -40,14 +40,14 @@ function bump() {
 
 function onIdle() {
 	if (userStatus !== 'online' || autoIdle) return;
-	console.log('[idle] auto-idle threshold; flipping → idle');
+	if (import.meta.env.DEV) console.log('[idle] auto-idle threshold; flipping → idle');
 	autoIdle = true;
 	updateMyPresence({ status: 'idle' });
 }
 
 /** User picked a status via the UI. Sticky — overrides any auto-idle state. */
 export function setExplicitStatus(status: PresenceStatus) {
-	console.log('[idle] setExplicitStatus →', status);
+	if (import.meta.env.DEV) console.log('[idle] setExplicitStatus →', status);
 	userStatus = status;
 	autoIdle = false;
 	armTimer();
@@ -61,7 +61,7 @@ export function setExplicitStatus(status: PresenceStatus) {
  */
 export function syncStatus(status: PresenceStatus) {
 	if (status === 'idle' && autoIdle) return; // our own echo
-	console.log('[idle] syncStatus from server =', status);
+	if (import.meta.env.DEV) console.log('[idle] syncStatus from server =', status);
 	userStatus = status;
 	if (status !== 'idle') autoIdle = false;
 }
@@ -69,7 +69,7 @@ export function syncStatus(status: PresenceStatus) {
 export function startIdleWatcher() {
 	if (started || typeof window === 'undefined') return;
 	started = true;
-	console.log('[idle] startIdleWatcher armed; baseline =', userStatus);
+	if (import.meta.env.DEV) console.log('[idle] startIdleWatcher armed; baseline =', userStatus);
 	for (const e of ACTIVITY_EVENTS) {
 		window.addEventListener(e, bump, { passive: true });
 	}

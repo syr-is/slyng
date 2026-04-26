@@ -24,6 +24,7 @@ impl<R: Runtime> TauriStoreSession<R> {
 			Some(Value::String(s)) => Some(s),
 			_ => None,
 		});
+		#[cfg(debug_assertions)]
 		eprintln!("[store] get -> present={}", v.is_some());
 		v
 	}
@@ -32,8 +33,11 @@ impl<R: Runtime> TauriStoreSession<R> {
 		if let Ok(store) = self.app.store(STORE_FILE) {
 			store.set(KEY, Value::String(value.to_string()));
 			let saved = store.save();
-			eprintln!("[store] set len={} save_ok={}", value.len(), saved.is_ok());
+			#[cfg(debug_assertions)]
+			eprintln!("[store] set save_ok={}", saved.is_ok());
+			let _ = saved;
 		} else {
+			#[cfg(debug_assertions)]
 			eprintln!("[store] set FAILED to open store");
 		}
 	}
@@ -42,6 +46,7 @@ impl<R: Runtime> TauriStoreSession<R> {
 		if let Ok(store) = self.app.store(STORE_FILE) {
 			store.delete(KEY);
 			let _ = store.save();
+			#[cfg(debug_assertions)]
 			eprintln!("[store] clear done");
 		}
 	}

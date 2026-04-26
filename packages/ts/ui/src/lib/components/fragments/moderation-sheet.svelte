@@ -403,7 +403,13 @@
 	let touchStartTime = 0;
 	let touchTracking = false;
 	function onTouchStart(e: TouchEvent) {
-		if (e.touches.length !== 1) return;
+		// Abort tracking the moment a 2nd finger lands — `changedTouches[0]`
+		// at touchend would otherwise be the wrong finger and could fire a
+		// stray dismiss after a pinch / two-finger gesture.
+		if (e.touches.length !== 1) {
+			touchTracking = false;
+			return;
+		}
 		touchStartX = e.touches[0].clientX;
 		touchStartY = e.touches[0].clientY;
 		touchStartTime = Date.now();
@@ -420,6 +426,9 @@
 		if (dx < Math.abs(dy) * HORIZONTAL_DOMINANCE) return;
 		onClose();
 	}
+	function onTouchCancel() {
+		touchTracking = false;
+	}
 </script>
 
 <Sheet.Root open={true} onOpenChange={(v) => { if (!v) onClose(); }}>
@@ -428,6 +437,7 @@
 		class="flex w-full flex-col gap-0 p-0 pt-[var(--syren-sai-top,env(safe-area-inset-top,0px))] pb-[var(--syren-sai-bottom,env(safe-area-inset-bottom,0px))] sm:max-w-xl"
 		ontouchstart={onTouchStart}
 		ontouchend={onTouchEnd}
+		ontouchcancel={onTouchCancel}
 	>
 		<Sheet.Header class="border-b border-border p-4">
 			<Sheet.Title class="flex items-center gap-3">

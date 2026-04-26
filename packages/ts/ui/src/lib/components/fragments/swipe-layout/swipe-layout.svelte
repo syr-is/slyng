@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { type Snippet } from 'svelte';
 	import { IsMobile } from '../../ui/sidebar/is-mobile.svelte.js';
-	import { getPaneState, setPane, type Pane } from './swipe-pane.svelte.js';
+	import { getPaneState, setPane } from './swipe-pane.svelte.js';
 
 	interface Props {
 		/** Far-left rail (e.g. ServerList). 72px on mobile. */
@@ -45,7 +45,14 @@
 	let touchTracking = false;
 
 	function onTouchStart(e: TouchEvent) {
-		if (isDesktop || e.touches.length !== 1) return;
+		if (isDesktop) return;
+		// Abort tracking the moment a second finger lands — otherwise a
+		// pinch / two-finger swipe could end with `changedTouches[0]`
+		// belonging to the wrong finger and incorrectly fire a swipe.
+		if (e.touches.length !== 1) {
+			touchTracking = false;
+			return;
+		}
 		touchStartX = e.touches[0].clientX;
 		touchStartY = e.touches[0].clientY;
 		touchStartTime = Date.now();
@@ -64,7 +71,7 @@
 		if (absX < MIN_SWIPE_PX) return;
 		if (absX < absY * HORIZONTAL_DOMINANCE) return;
 
-		console.log('[swipe-layout] swipe', dx > 0 ? 'right' : 'left', 'pane=', pane);
+		if (import.meta.env.DEV) console.log('[swipe-layout] swipe', dx > 0 ? 'right' : 'left', 'pane=', pane);
 		if (dx > 0) {
 			// swipe right
 			if (pane === 'right') setPane('main');
@@ -83,6 +90,15 @@
 	function closeDrawer() {
 		if (pane !== 'main') setPane('main');
 	}
+
+	// If a page unregisters its members snippet (e.g. user navigates from
+	// a channel to settings), pane could still be `'right'` from the
+	// previous page — the drawer it would open no longer exists, but the
+	// dim close-overlay would keep rendering. Snap back to `main` whenever
+	// `members` transitions from truthy to falsy while we're parked on it.
+	$effect(() => {
+		if (!members && paneState.value === 'right') setPane('main');
+	});
 
 	// Layout maths for the inner-track translateX:
 	// children laid out [drawer (312px) | main (100vw) | right (240px)]
