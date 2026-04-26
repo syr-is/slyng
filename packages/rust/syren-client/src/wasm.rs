@@ -37,6 +37,31 @@ impl Client {
 		Ok(Self { inner })
 	}
 
+	// ── Generic transport — used by the web app's @syren/app-core
+	// `setApiTransport` so every method on api.ts goes through the
+	// same Rust transport (cookie / bearer / retry / error parsing)
+	// that the typed methods below use, without each call site
+	// needing its own TS↔WASM binding. Mirrors the `proxy_request`
+	// Tauri command on native.
+	pub async fn request_raw(
+		&self,
+		method: String,
+		path: String,
+		body: JsValue,
+	) -> std::result::Result<JsValue, JsValue> {
+		let body_val: Option<serde_json::Value> = if body.is_undefined() || body.is_null() {
+			None
+		} else {
+			Some(from_jsv(body)?)
+		};
+		let v = self
+			.inner
+			.request_raw(&method, &path, body_val)
+			.await
+			.map_err(JsValue::from)?;
+		jsv(&v)
+	}
+
 	// ── Auth ──
 
 	pub async fn login_start(&self, instance_url: String, redirect: Option<String>) -> std::result::Result<JsValue, JsValue> {

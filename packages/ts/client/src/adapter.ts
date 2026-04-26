@@ -30,6 +30,8 @@ interface WasmExports {
 }
 
 interface WasmClient {
+	request_raw(method: string, path: string, body?: Json): Promise<Json>;
+
 	login_start(instance_url: string, redirect?: string): Promise<LoginResponse>;
 	login_complete(code: string): Promise<Identity>;
 	me(): Promise<Identity>;
@@ -67,12 +69,15 @@ async function loadWasm(): Promise<WasmExports> {
 			if (typeof globalThis.WebAssembly === 'undefined') {
 				throw new Error('WebAssembly is not supported in this environment');
 			}
-			// `@syren/client/wasm` is resolved at runtime via package.json
-			// conditional exports — TS can't narrow it without picking one
-			// branch, so we deliberately import dynamically and cast.
-			const dynamicImport: (s: string) => Promise<unknown> = (s) =>
-				(0, eval)(`import(${JSON.stringify(s)})`);
-			const mod = (await dynamicImport('@syren/client/wasm')) as WasmExports;
+			// `@syren/client/wasm` resolves to the browser bundle in a
+			// browser-targeted build (Vite, esbuild) and to the
+			// nodejs-target bundle under Node thanks to the
+			// `package.json` `exports` conditions. We use a plain
+			// dynamic import so the host bundler can statically
+			// discover the dependency and emit the matching `.wasm`
+			// asset alongside the JS — this is the difference between
+			// "works in dev / Node" and "works in a Vite build".
+			const mod = (await import('@syren/client/wasm')) as unknown as WasmExports;
 			if (typeof mod.default === 'function') {
 				await (mod.default as () => Promise<unknown>)();
 			}
@@ -102,6 +107,18 @@ export async function initSyrenClient(
 }
 
 export interface SyrenClient {
+	/**
+	 * Generic transport — sends an arbitrary HTTP request through the
+	 * underlying Rust client (bearer-auth, cookie jar, error parsing).
+	 * Used by `@syren/app-core/host::setApiTransport` so every method
+	 * on api.ts routes through here.
+	 *
+	 * @param method  HTTP verb. `'GET' | 'POST' | 'PATCH' | 'PUT' | 'DELETE'`.
+	 * @param path  API path *after* the `/api` prefix, e.g. `/auth/me`.
+	 * @param body  JSON-serialisable body for POST/PATCH/PUT, or `undefined`.
+	 */
+	requestRaw<T = Json>(method: string, path: string, body?: Json): Promise<T>;
+
 	loginStart(instanceUrl: string, redirect?: string): Promise<LoginResponse>;
 	loginComplete(code: string): Promise<Identity>;
 	me(): Promise<Identity>;
@@ -146,6 +163,9 @@ export interface SyrenClient {
 
 function wrap(c: WasmClient): SyrenClient {
 	return {
+		requestRaw: <T = Json>(method: string, path: string, body?: Json) =>
+			c.request_raw(method, path, body) as Promise<T>,
+
 		loginStart: (i, r) => c.login_start(i, r),
 		loginComplete: (code) => c.login_complete(code),
 		me: () => c.me(),
