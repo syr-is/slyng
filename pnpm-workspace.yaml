@@ -1,6 +1,7 @@
 packages:
   - "apps/**/*"
   - "packages/ts/*"
+# Rust packages live under packages/rust/ but are managed by Cargo, not pnpm.
 
 catalog:
   zod: 4.1.12

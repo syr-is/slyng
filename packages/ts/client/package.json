@@ -1,0 +1,37 @@
+{
+	"name": "@syren/client",
+	"version": "0.0.1",
+	"description": "TypeScript adapter for the syren-client WASM API client.",
+	"type": "module",
+	"main": "./dist/index.js",
+	"types": "./dist/index.d.ts",
+	"exports": {
+		".": {
+			"types": "./dist/index.d.ts",
+			"import": "./dist/index.js",
+			"default": "./dist/index.js"
+		},
+		"./wasm": {
+			"types": "./dist/wasm/web/syren_client.d.ts",
+			"node": "./dist/wasm/node/syren_client_esm.mjs",
+			"import": "./dist/wasm/web/syren_client.js",
+			"default": "./dist/wasm/web/syren_client.js"
+		}
+	},
+	"files": ["dist", "src", "scripts"],
+	"scripts": {
+		"build": "pnpm run build:wasm && tsc",
+		"build:wasm": "pnpm run build:wasm:web && pnpm run build:wasm:node && pnpm run build:wasm:node:esm",
+		"build:wasm:web": "cd ../../rust/syren-client && wasm-pack build --release --target web --out-dir ../../ts/client/dist/wasm/web --no-pack",
+		"build:wasm:node": "cd ../../rust/syren-client && wasm-pack build --release --target nodejs --out-dir ../../ts/client/dist/wasm/node --no-pack",
+		"build:wasm:node:esm": "node scripts/generate-node-esm-wrapper.mjs",
+		"check": "tsc --noEmit",
+		"test": "vitest run",
+		"test:watch": "vitest"
+	},
+	"devDependencies": {
+		"@types/node": "^20",
+		"typescript": "^5.9.2",
+		"vitest": "^4.0.18"
+	}
+}
