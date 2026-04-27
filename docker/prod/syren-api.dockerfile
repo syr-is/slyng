@@ -11,21 +11,29 @@ COPY package.json pnpm-lock.yaml pnpm-workspace.yaml .npmrc ./
 # ---- Dependencies Stage ----
 FROM base AS deps
 
+# The root package.json declares @syren/app-core, @syren/ui, and
+# @syren/types as workspace dependencies, so pnpm install validates
+# the whole workspace graph even with --filter. Every package.json
+# referenced transitively must be staged — including @syren/client
+# (transitively required by @syren/app-core) — or pnpm refuses to
+# proceed. The actual *source* for the front-end packages stays out
+# of this image; we only need their package.json files for
+# resolution.
 COPY apps/syren/api/package.json ./apps/syren/api/
 COPY packages/ts/types/package.json ./packages/ts/types/
+COPY packages/ts/ui/package.json ./packages/ts/ui/
+COPY packages/ts/app-core/package.json ./packages/ts/app-core/
+COPY packages/ts/client/package.json ./packages/ts/client/
 
 RUN echo "inject-workspace-packages=true" >> .npmrc
-# Scope the install to the API's own dependency closure — dragging in
-# the front-end packages would also drag in @syren/client (a WASM
-# crate whose source we don't want in the API image).
-RUN pnpm install --filter @syren/api...
+RUN pnpm install
 
 # ---- Builder Stage ----
 FROM deps AS builder
 
-# Only stage what the API actually needs. Pulling in the front-end
-# packages here would re-introduce @syren/client into the workspace
-# and re-trigger the WASM-package-not-found error during deploy.
+# Only stage what the API actually builds against. The front-end
+# packages and the WASM crate stay out of the image — their
+# package.json was enough for the deps install above.
 COPY apps/syren/api ./apps/syren/api
 COPY packages/ts/types ./packages/ts/types
 
