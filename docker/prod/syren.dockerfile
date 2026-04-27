@@ -8,34 +8,6 @@ WORKDIR /app
 
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml .npmrc ./
 
-# ---- WASM Builder Stage ----
-# Compile the syren-client Rust crate to wasm32. Kept in its own stage
-# so the Rust toolchain doesn't bloat the Node builder, and so the
-# WASM artefacts cache independently of JS dependency churn. Debian
-# base over Alpine because rustup ships with the official rust image
-# and wasm-pack drives rustup to install the wasm32 target.
-#
-# 1.86 minimum: transitive deps (e.g. `time` 0.3.47) declare
-# `edition = "2024"` in their Cargo.toml, which Cargo only parses
-# from 1.85 onward. Without this bump the build fails with
-# "feature `edition2024` is required" before any WASM compiles.
-FROM rust:1.86-bookworm AS wasm-builder
-
-# Pinned wasm-pack matches what `pnpm --filter @syren/client build`
-# would invoke locally; pin keeps Docker builds reproducible.
-RUN cargo install --locked wasm-pack@0.13.1
-RUN rustup target add wasm32-unknown-unknown
-
-WORKDIR /build
-
-# Only the Rust source is needed — wasm-pack reads Cargo.toml and the
-# crate's src/.
-COPY packages/rust ./packages/rust
-
-RUN cd packages/rust/syren-client \
-    && wasm-pack build --release --target web --out-dir /build/wasm-out/web --no-pack \
-    && wasm-pack build --release --target nodejs --out-dir /build/wasm-out/node --no-pack
-
 # ---- Dependencies Stage ----
 FROM base AS deps
 
@@ -45,11 +17,20 @@ COPY packages/ts/ui/package.json ./packages/ts/ui/
 COPY packages/ts/app-core/package.json ./packages/ts/app-core/
 COPY packages/ts/client/package.json ./packages/ts/client/
 
+# Enable injection only for Docker builds (required for pnpm deploy in v10).
 RUN echo "inject-workspace-packages=true" >> .npmrc
 RUN pnpm install
 
 # ---- Builder Stage ----
 FROM deps AS builder
+
+# wasm-pack from Alpine edge/community is a prebuilt binary that
+# pulls in a recent Rust toolchain transitively — much faster than
+# `cargo install` from source. Mirrors the pattern used in the syr
+# project's @syr-is/crypto build (docker/prod/syr.dockerfile).
+RUN echo "http://dl-cdn.alpinelinux.org/alpine/edge/community" >> /etc/apk/repositories \
+    && apk update \
+    && apk add --no-cache wasm-pack
 
 ARG PUBLIC_URL=https://slyng.gg
 ARG SYREN_API_URL=https://slyng.gg
@@ -60,25 +41,24 @@ ENV SYREN_API_URL=${SYREN_API_URL}
 COPY apps/syren ./apps/syren
 COPY packages ./packages
 
-# Slot the prebuilt WASM artefacts into @syren/client's expected dist
-# layout so the package's `tsc` step can run without re-invoking
-# wasm-pack (no Rust toolchain in this image).
-COPY --from=wasm-builder /build/wasm-out/web ./packages/ts/client/dist/wasm/web
-COPY --from=wasm-builder /build/wasm-out/node ./packages/ts/client/dist/wasm/node
-
-# Build workspace packages first (dist/ doesn't exist at install time with injection).
-# Order: types → client → app-core → ui (each depends on the previous).
+# Build workspace packages in dependency order. `pnpm --filter` runs
+# each package's own `build` script, which for @syren/client invokes
+# wasm-pack (web + node targets) before the tsc step. Each subsequent
+# package's tsc resolves its workspace deps via the symlinks pnpm
+# established at install time, picking up dist/ as it lands.
 RUN pnpm --filter @syren/types build
-# @syren/client's full build = wasm-pack + tsc + node ESM wrapper. Run
-# only the steps that don't need Rust: emit the Node ESM wrapper, then
-# tsc against src/. WASM dist/ was injected from wasm-builder above.
-RUN cd packages/ts/client \
-    && node scripts/generate-node-esm-wrapper.mjs \
-    && pnpm exec tsc
+RUN pnpm --filter @syren/client build
 RUN pnpm --filter @syren/app-core build
 RUN pnpm --filter @syren/ui build
 
-# Re-inject now that all dist/ folders exist
+# Drop wasm-pack and the edge repo before the next pnpm install — no
+# need to keep the Rust toolchain around for the Vite build.
+RUN apk del wasm-pack \
+    && sed -i '/alpine\/edge\/community/d' /etc/apk/repositories \
+    && rm -rf /var/cache/apk/*
+
+# Re-inject now that all dist/ folders exist so node_modules/@syren/*
+# carries the built output for the @syren/web build.
 RUN pnpm install
 
 RUN NODE_OPTIONS="--max-old-space-size=4096" pnpm --filter @syren/web build
