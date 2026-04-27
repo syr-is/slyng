@@ -17,8 +17,12 @@ COPY packages/ts/ui/package.json ./packages/ts/ui/
 COPY packages/ts/app-core/package.json ./packages/ts/app-core/
 COPY packages/ts/client/package.json ./packages/ts/client/
 
-# Enable injection only for Docker builds (required for pnpm deploy in v10).
-RUN echo "inject-workspace-packages=true" >> .npmrc
+# No `inject-workspace-packages` here — the web image emits a static
+# Vite build (adapter-static) and never invokes `pnpm deploy`, so we
+# don't need the hardlinked dist injection that breaks mid-build
+# resolution. Default symlinks are what we want: when each upstream
+# workspace package writes to its own dist/, downstream packages'
+# tsc/Vite see the freshly-built output via the live symlink.
 RUN pnpm install
 
 # ---- Builder Stage ----
@@ -51,15 +55,11 @@ RUN pnpm --filter @syren/client build
 RUN pnpm --filter @syren/app-core build
 RUN pnpm --filter @syren/ui build
 
-# Drop wasm-pack and the edge repo before the next pnpm install — no
-# need to keep the Rust toolchain around for the Vite build.
+# Drop wasm-pack and the edge repo — no need to keep the Rust
+# toolchain around for the Vite build.
 RUN apk del wasm-pack \
     && sed -i '/alpine\/edge\/community/d' /etc/apk/repositories \
     && rm -rf /var/cache/apk/*
-
-# Re-inject now that all dist/ folders exist so node_modules/@syren/*
-# carries the built output for the @syren/web build.
-RUN pnpm install
 
 RUN NODE_OPTIONS="--max-old-space-size=4096" pnpm --filter @syren/web build
 
