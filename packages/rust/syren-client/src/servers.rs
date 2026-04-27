@@ -84,14 +84,26 @@ impl Client {
 			.await
 	}
 
-	pub async fn member_kick(&self, server_id: &str, user_id: &str) -> Result<Json> {
-		self.transport
-			.delete(&format!(
-				"/servers/{}/members/{}",
-				enc(server_id),
-				enc(user_id)
-			))
-			.await
+	pub async fn member_kick(
+		&self,
+		server_id: &str,
+		user_id: &str,
+		delete_seconds: Option<u32>,
+	) -> Result<Json> {
+		// `delete_seconds` is the optional rolling-window message purge
+		// the server applies on kick (see member.controller.ts). It rides
+		// as a query string because the underlying HTTP verb is DELETE
+		// and the body is empty.
+		let base = format!(
+			"/servers/{}/members/{}",
+			enc(server_id),
+			enc(user_id)
+		);
+		let path = match delete_seconds {
+			Some(s) => format!("{base}?delete_seconds={s}"),
+			None => base,
+		};
+		self.transport.delete(&path).await
 	}
 
 	pub async fn member_ban(&self, server_id: &str, body: &Json) -> Result<Json> {

@@ -112,7 +112,11 @@ impl Client {
 	}
 
 	pub async fn server_members_page(&self, id: String, params: JsValue) -> std::result::Result<JsValue, JsValue> {
-		let p: Paginated = from_jsv(params)?;
+		let p: Paginated = if params.is_undefined() || params.is_null() {
+			Paginated::default()
+		} else {
+			from_jsv(params)?
+		};
 		let v = self.inner.server_members_page(&id, &p).await.map_err(JsValue::from)?;
 		jsv(&v)
 	}
@@ -128,8 +132,17 @@ impl Client {
 		jsv(&v)
 	}
 
-	pub async fn member_kick(&self, server_id: String, user_id: String) -> std::result::Result<JsValue, JsValue> {
-		let v = self.inner.member_kick(&server_id, &user_id).await.map_err(JsValue::from)?;
+	pub async fn member_kick(
+		&self,
+		server_id: String,
+		user_id: String,
+		delete_seconds: Option<u32>,
+	) -> std::result::Result<JsValue, JsValue> {
+		let v = self
+			.inner
+			.member_kick(&server_id, &user_id, delete_seconds)
+			.await
+			.map_err(JsValue::from)?;
 		jsv(&v)
 	}
 

@@ -77,7 +77,11 @@
 
 	async function openFriendDm(did: string) {
 		try {
-			const ch = await api.users.createDM(did);
+			// Pass the instance URL so the API can stub a federated user
+			// row on first contact — without it the backend short-circuits
+			// the upsert and downstream operations lose the federation
+			// linkage.
+			const ch = await api.users.createDM(did, relations.instanceFor(did));
 			goto(`/channels/@me/${ch.id}`);
 		} catch (err) {
 			toast.error(err instanceof Error ? err.message : 'Failed to open DM');

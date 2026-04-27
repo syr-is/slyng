@@ -336,44 +336,56 @@
 		if (msg) replyTo = [...replyTo, { id: msg.id, content: msg.content }];
 	}
 
+	// Mutation handlers snapshot the channel id before the await so a
+	// post-await failure toast surfaces in the channel that issued the
+	// request, not whatever channel the user has since switched into.
+	// The mutation itself is server-side keyed on the message id, so
+	// only the toast surface needs gating.
 	async function handleEdit(messageId: string, newContent: string) {
+		const reqChannelId = channelId;
 		try {
-			await api.channels.editMessage(channelId, messageId, newContent);
+			await api.channels.editMessage(reqChannelId, messageId, newContent);
 		} catch {
-			toast.error('Failed to edit message');
+			if (loadedChannelId === reqChannelId) toast.error('Failed to edit message');
 		}
 	}
 
 	async function handleDelete(messageId: string) {
+		const reqChannelId = channelId;
 		try {
-			await api.channels.deleteMessage(channelId, messageId);
+			await api.channels.deleteMessage(reqChannelId, messageId);
 		} catch {
-			toast.error('Failed to delete message');
+			if (loadedChannelId === reqChannelId) toast.error('Failed to delete message');
 		}
 	}
 
 	async function handleClearEmbeds(messageId: string) {
+		const reqChannelId = channelId;
 		try {
-			await api.channels.clearEmbeds(channelId, messageId);
+			await api.channels.clearEmbeds(reqChannelId, messageId);
 		} catch {
-			toast.error('Failed to remove embed');
+			if (loadedChannelId === reqChannelId) toast.error('Failed to remove embed');
 		}
 	}
 
 	async function handleReaction(messageId: string, emoji: string) {
+		const reqChannelId = channelId;
 		try {
-			await api.channels.addReaction(channelId, messageId, 'unicode', emoji);
+			await api.channels.addReaction(reqChannelId, messageId, 'unicode', emoji);
 		} catch {
-			toast.error('Failed to add reaction');
+			if (loadedChannelId === reqChannelId) toast.error('Failed to add reaction');
 		}
 	}
 
 	async function handleTogglePin(messageId: string, nextPinned: boolean) {
+		const reqChannelId = channelId;
 		try {
-			if (nextPinned) await api.channels.pin(channelId, messageId);
-			else await api.channels.unpin(channelId, messageId);
+			if (nextPinned) await api.channels.pin(reqChannelId, messageId);
+			else await api.channels.unpin(reqChannelId, messageId);
 		} catch (err) {
-			toast.error(err instanceof Error ? err.message : 'Failed to toggle pin');
+			if (loadedChannelId === reqChannelId) {
+				toast.error(err instanceof Error ? err.message : 'Failed to toggle pin');
+			}
 		}
 	}
 

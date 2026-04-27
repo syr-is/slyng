@@ -19,6 +19,10 @@ let wiredHost: string | null = null;
  */
 async function ensureClient(host: string): Promise<SyrenClient> {
 	if (client && wiredHost === host) return client;
+	// Release the prior WASM Client (different `wiredHost`) before
+	// replacing it — wasm-bindgen allocations don't get reclaimed when
+	// the JS reference goes out of scope.
+	const prev = client;
 	const c = await initSyrenClient(host, { sessionKey: SESSION_KEY });
 	setApi(c);
 	setWsTokenProvider(async () =>
@@ -26,6 +30,7 @@ async function ensureClient(host: string): Promise<SyrenClient> {
 	);
 	client = c;
 	wiredHost = host;
+	prev?.dispose();
 	return c;
 }
 

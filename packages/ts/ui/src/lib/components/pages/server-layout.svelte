@@ -241,6 +241,11 @@
 				if (!id) return;
 				try {
 					const channels = await api.servers.channels(id);
+					// Bail if the user switched servers while the fetch
+					// was in flight — otherwise we'd overwrite the new
+					// server's channel list with this one's, and leak
+					// the old server's topics into `subscribedTopics`.
+					if (id !== serverId) return;
 					setServerChannels(channels);
 					// Subscribe to any newly visible channels
 					const known = new Set(subscribedTopics);
