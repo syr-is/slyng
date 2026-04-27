@@ -28,7 +28,8 @@
 	<div class="mx-auto h-[2px] w-8 rounded-full bg-border"></div>
 
 	<!-- Server icons -->
-	{#each state.servers as server}
+	{#each state.servers as server (server.id)}
+		{@const name = server.name ?? ''}
 		<Tooltip.Root>
 			<Tooltip.Trigger>
 				{#snippet child({ props })}
@@ -43,18 +44,18 @@
 						{#if server.icon_url}
 							<img
 								src={proxied(server.icon_url)}
-								alt={server.name}
+								alt={name}
 								class="h-12 w-12 object-cover transition-all {isActive
 									? 'rounded-xl'
 									: 'rounded-2xl group-hover/srv:rounded-xl'}"
 							/>
 						{:else}
-							{server.name.slice(0, 2).toUpperCase()}
+							{name.slice(0, 2).toUpperCase() || '??'}
 						{/if}
 					</a>
 				{/snippet}
 			</Tooltip.Trigger>
-			<Tooltip.Content side="right">{server.name}</Tooltip.Content>
+			<Tooltip.Content side="right">{name || 'Server'}</Tooltip.Content>
 		</Tooltip.Root>
 	{/each}
 

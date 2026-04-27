@@ -90,10 +90,10 @@
 				<div class="flex flex-col items-center gap-2 {preview.server.banner_url ? '-mt-12' : ''}">
 					<Avatar.Root class="h-16 w-16 border-4 border-card shadow-md">
 						{#if preview.server.icon_url}
-							<Avatar.Image src={proxied(preview.server.icon_url)} alt={preview.server.name} />
+							<Avatar.Image src={proxied(preview.server.icon_url)} alt={preview.server.name ?? ''} />
 						{/if}
 						<Avatar.Fallback class="text-lg">
-							{preview.server.name.slice(0, 2).toUpperCase()}
+							{(preview.server.name ?? '').slice(0, 2).toUpperCase() || '??'}
 						</Avatar.Fallback>
 					</Avatar.Root>
 					<h2 class="text-xl font-semibold text-foreground">{preview.server.name}</h2>
