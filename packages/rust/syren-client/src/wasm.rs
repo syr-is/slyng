@@ -14,7 +14,18 @@ use std::sync::Arc;
 use wasm_bindgen::prelude::*;
 
 fn jsv<T: serde::Serialize>(v: &T) -> std::result::Result<JsValue, JsValue> {
-	serde_wasm_bindgen::to_value(v).map_err(|e| JsValue::from_str(&e.to_string()))
+	// `serde_wasm_bindgen::to_value` defaults to legacy serialization, which
+	// turns serde_json `Object`s into JS `Map`s — `obj.id` reads as
+	// `undefined` because Map access wants `.get('id')`. The TS adapter
+	// types every WASM return as a plain object (Server, Channel,
+	// ServerMember…), so without a JSON-compatible serializer every
+	// downstream `server.id`, `channel.name`, etc. comes back undefined
+	// at runtime. `Serializer::json_compatible()` produces plain JS
+	// objects + JS Arrays, matching what the API was returning prior to
+	// the WASM-client migration.
+	let serializer = serde_wasm_bindgen::Serializer::json_compatible();
+	v.serialize(&serializer)
+		.map_err(|e| JsValue::from_str(&e.to_string()))
 }
 
 fn from_jsv<T: serde::de::DeserializeOwned>(v: JsValue) -> std::result::Result<T, JsValue> {

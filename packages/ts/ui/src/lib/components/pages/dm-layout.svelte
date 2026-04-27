@@ -36,7 +36,11 @@
 	async function refreshDms() {
 		try {
 			dmChannels = await api.users.dmChannels();
+			if (typeof window !== 'undefined') {
+				console.log('[dm-layout] dmChannels count=', dmChannels.length, 'sample=', dmChannels[0]);
+			}
 		} catch (err) {
+			console.error('[dm-layout] dmChannels failed', err);
 			toast.error(err instanceof Error ? err.message : 'Failed to load DMs');
 		}
 	}

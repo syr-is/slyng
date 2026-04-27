@@ -27,11 +27,8 @@
 
 	<div class="mx-auto h-[2px] w-8 rounded-full bg-border"></div>
 
-	<!-- Server icons. Filter rows whose `id` didn't survive (un)marshalling
-	     somewhere upstream — encodeURIComponent(undefined) silently
-	     becomes the literal string "undefined", which would link to
-	     /channels/undefined and 403 every server-scoped fetch. -->
-	{#each state.servers.filter((s) => typeof s.id === 'string' && s.id && s.id !== 'undefined') as server (server.id)}
+	<!-- Server icons. -->
+	{#each state.servers as server (server.id)}
 		{@const name = server.name ?? ''}
 		<Tooltip.Root>
 			<Tooltip.Trigger>

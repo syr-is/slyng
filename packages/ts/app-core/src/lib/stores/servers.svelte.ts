@@ -69,17 +69,8 @@ export function getServerState() {
 	};
 }
 
-/** True iff the id looks like something we can navigate to and query. */
-function isValidServerId(id: unknown): id is string {
-	return typeof id === 'string' && !!id && id !== 'undefined' && id !== 'null';
-}
-
 /** Upsert/patch a server record in the list (used by WS + local updates). */
 export function upsertServer(server: Partial<ServerData> & { id: string }) {
-	if (!isValidServerId(server.id)) {
-		console.warn('[servers] dropping upsert with invalid id', server);
-		return;
-	}
 	const idx = servers.findIndex((s) => s.id === server.id);
 	if (idx < 0) {
 		servers = [...servers, server as ServerData];
@@ -95,11 +86,17 @@ export function removeServer(serverId: string) {
 }
 
 export function setServers(data: ServerData[]) {
-	// Drop any rows whose id round-tripped to something we can't link to.
-	// `String(undefined)` is "undefined" — that landed in the rail's href
-	// once and silently sent every server-scoped call to
-	// `/api/servers/undefined/...`.
-	servers = data.filter((s) => isValidServerId(s.id));
+	servers = data;
+	if (typeof window !== 'undefined') {
+		console.log(
+			'[servers] setServers count=',
+			data.length,
+			'sample-id=',
+			data[0]?.id,
+			'typeof-id=',
+			typeof data[0]?.id
+		);
+	}
 }
 
 export function setActiveServer(serverId: string | null) {
