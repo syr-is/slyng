@@ -11,9 +11,10 @@ use tsify_next::Tsify;
 #[derive(Clone, Debug, Serialize, Deserialize, ZodSchema)]
 #[cfg_attr(target_arch = "wasm32", derive(Tsify))]
 #[cfg_attr(target_arch = "wasm32", tsify(into_wasm_abi, from_wasm_abi))]
-#[serde(rename_all = "snake_case")]
 pub enum FriendshipStatus {
+	#[serde(rename = "pending")]
 	Pending,
+	#[serde(rename = "accepted")]
 	Accepted,
 }
 
@@ -55,10 +56,12 @@ pub struct UserIgnore {
 #[derive(Clone, Debug, Serialize, Deserialize, ZodSchema)]
 #[cfg_attr(target_arch = "wasm32", derive(Tsify))]
 #[cfg_attr(target_arch = "wasm32", tsify(into_wasm_abi, from_wasm_abi))]
-#[serde(rename_all = "snake_case")]
 pub enum AllowDms {
+	#[serde(rename = "open")]
 	Open,
+	#[serde(rename = "friends_only")]
 	FriendsOnly,
+	#[serde(rename = "closed")]
 	Closed,
 }
 
@@ -71,10 +74,12 @@ impl Default for AllowDms {
 #[derive(Clone, Debug, Serialize, Deserialize, ZodSchema)]
 #[cfg_attr(target_arch = "wasm32", derive(Tsify))]
 #[cfg_attr(target_arch = "wasm32", tsify(into_wasm_abi, from_wasm_abi))]
-#[serde(rename_all = "snake_case")]
 pub enum AllowFriendRequests {
+	#[serde(rename = "open")]
 	Open,
+	#[serde(rename = "mutual")]
 	Mutual,
+	#[serde(rename = "closed")]
 	Closed,
 }
 

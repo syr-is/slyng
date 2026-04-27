@@ -10,19 +10,22 @@ use tsify_next::Tsify;
 #[derive(Clone, Debug, Serialize, Deserialize, ZodSchema)]
 #[cfg_attr(target_arch = "wasm32", derive(Tsify))]
 #[cfg_attr(target_arch = "wasm32", tsify(into_wasm_abi, from_wasm_abi))]
-#[serde(rename_all = "snake_case")]
 pub enum PermissionScopeType {
+	#[serde(rename = "server")]
 	Server,
+	#[serde(rename = "category")]
 	Category,
+	#[serde(rename = "channel")]
 	Channel,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, ZodSchema)]
 #[cfg_attr(target_arch = "wasm32", derive(Tsify))]
 #[cfg_attr(target_arch = "wasm32", tsify(into_wasm_abi, from_wasm_abi))]
-#[serde(rename_all = "snake_case")]
 pub enum PermissionTargetType {
+	#[serde(rename = "role")]
 	Role,
+	#[serde(rename = "user")]
 	User,
 }
 

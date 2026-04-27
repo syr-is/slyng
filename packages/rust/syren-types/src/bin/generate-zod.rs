@@ -9,6 +9,18 @@
 //!
 //! `@syren/types`'s build script invokes this in CI so the .ts file
 //! tracks the Rust source whenever a struct gains/loses a field.
+//!
+//! Two post-processing passes run on top of zod_gen's raw output:
+//!
+//! - `.nullable()` → `.nullable().optional()`. Rust `Option<T>` paired
+//!   with `#[serde(skip_serializing_if = "Option::is_none", default)]`
+//!   is sent over the wire as a missing key, *not* an explicit null.
+//!   Zod's `.nullable()` alone rejects missing keys; chaining
+//!   `.optional()` makes the schema accept missing, undefined, and null.
+//! - `z.union([z.literal('a'), z.literal('b')])` → `z.enum(['a','b'])`
+//!   when every member is a bare string literal. Consumers depend on
+//!   `AuditActionSchema.options` (etc.) to enumerate values; that
+//!   property exists on `z.enum` and not on `z.union`.
 
 use std::env;
 use std::fs;
@@ -184,6 +196,8 @@ fn main() -> ExitCode {
 	g.add_schema::<WsDmPolicyUpdatePayload>("WsDmPolicyUpdatePayload");
 
 	let body = g.generate();
+	let body = postprocess(&body);
+
 	if let Err(err) = fs::write(&out_path, body) {
 		eprintln!("failed to write {out_path}: {err}");
 		return ExitCode::from(2);
@@ -191,4 +205,101 @@ fn main() -> ExitCode {
 
 	eprintln!("wrote {out_path}");
 	ExitCode::SUCCESS
+}
+
+fn postprocess(input: &str) -> String {
+	let mut s = input.replace(".nullable()", ".nullable().optional()");
+	s = unit_union_to_enum(&s);
+	s
+}
+
+/// Replace `z.union([z.literal('a'), z.literal('b'), ...])` with
+/// `z.enum(['a', 'b', ...])` whenever every member is a bare string
+/// literal. Leaves non-unit unions (anything with a non-literal member,
+/// like discriminated unions of objects) alone.
+fn unit_union_to_enum(input: &str) -> String {
+	const OPEN: &str = "z.union([";
+	const CLOSE: &str = "])";
+
+	let mut out = String::with_capacity(input.len());
+	let mut rest = input;
+
+	while let Some(start) = rest.find(OPEN) {
+		out.push_str(&rest[..start]);
+		let after_open = &rest[start + OPEN.len()..];
+
+		// Find the matching `])` at bracket depth 0.
+		let mut depth: i32 = 1;
+		let mut close_idx: Option<usize> = None;
+		for (i, b) in after_open.bytes().enumerate() {
+			match b {
+				b'[' => depth += 1,
+				b']' => {
+					depth -= 1;
+					if depth == 0 {
+						close_idx = Some(i);
+						break;
+					}
+				}
+				_ => {}
+			}
+		}
+		let Some(end) = close_idx else {
+			// Unbalanced — bail.
+			out.push_str(&rest[start..]);
+			return out;
+		};
+
+		// `])` only counts when the next char is `)`. zod_gen always
+		// emits `z.union([...])` so the next byte should be `)` — but
+		// guard for safety.
+		let after_inner = &after_open[end..];
+		if !after_inner.starts_with("])") {
+			out.push_str(&rest[start..start + OPEN.len() + end + 1]);
+			rest = &after_open[end + 1..];
+			continue;
+		}
+
+		let inner = &after_open[..end];
+		let parts: Vec<&str> = inner.split(", ").map(str::trim).collect();
+		let mut literals: Vec<&str> = Vec::with_capacity(parts.len());
+		let mut all_lit = !parts.is_empty();
+		for part in &parts {
+			let Some(rest_after_prefix) = part.strip_prefix("z.literal('") else {
+				all_lit = false;
+				break;
+			};
+			let Some(close_quote) = rest_after_prefix.find('\'') else {
+				all_lit = false;
+				break;
+			};
+			let after_quote = &rest_after_prefix[close_quote + 1..];
+			if after_quote != ")" {
+				all_lit = false;
+				break;
+			}
+			literals.push(&rest_after_prefix[..close_quote]);
+		}
+
+		if all_lit {
+			out.push_str("z.enum([");
+			for (i, lit) in literals.iter().enumerate() {
+				if i > 0 {
+					out.push_str(", ");
+				}
+				out.push('\'');
+				out.push_str(lit);
+				out.push('\'');
+			}
+			out.push_str("])");
+		} else {
+			// Keep the union verbatim.
+			out.push_str(&rest[start..start + OPEN.len() + end + CLOSE.len()]);
+		}
+
+		rest = &after_open[end + CLOSE.len()..];
+	}
+
+	out.push_str(rest);
+	out
 }

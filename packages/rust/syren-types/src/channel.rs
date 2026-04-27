@@ -9,11 +9,14 @@ use tsify_next::Tsify;
 #[derive(Clone, Debug, Serialize, Deserialize, ZodSchema)]
 #[cfg_attr(target_arch = "wasm32", derive(Tsify))]
 #[cfg_attr(target_arch = "wasm32", tsify(into_wasm_abi, from_wasm_abi))]
-#[serde(rename_all = "snake_case")]
 pub enum ChannelType {
+	#[serde(rename = "text")]
 	Text,
+	#[serde(rename = "voice")]
 	Voice,
+	#[serde(rename = "direct")]
 	Direct,
+	#[serde(rename = "group")]
 	Group,
 }
 
@@ -53,10 +56,12 @@ pub struct Channel {
 #[derive(Clone, Debug, Serialize, Deserialize, ZodSchema)]
 #[cfg_attr(target_arch = "wasm32", derive(Tsify))]
 #[cfg_attr(target_arch = "wasm32", tsify(into_wasm_abi, from_wasm_abi))]
-#[serde(rename_all = "snake_case")]
 pub enum ParticipantRole {
+	#[serde(rename = "owner")]
 	Owner,
+	#[serde(rename = "admin")]
 	Admin,
+	#[serde(rename = "member")]
 	Member,
 }
 

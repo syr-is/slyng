@@ -84,10 +84,12 @@ fn zero_bits_string() -> String {
 #[derive(Clone, Debug, Serialize, Deserialize, ZodSchema)]
 #[cfg_attr(target_arch = "wasm32", derive(Tsify))]
 #[cfg_attr(target_arch = "wasm32", tsify(into_wasm_abi, from_wasm_abi))]
-#[serde(rename_all = "snake_case")]
 pub enum InviteTargetKind {
+	#[serde(rename = "open")]
 	Open,
+	#[serde(rename = "instance")]
 	Instance,
+	#[serde(rename = "did")]
 	Did,
 }
 

@@ -72,7 +72,7 @@ export class OverrideService {
 				allow: data.allow,
 				deny: data.deny,
 				updated_at: now
-			});
+			} as any);
 		} else {
 			result = await this.overrides.create({
 				server_id: serverRef,

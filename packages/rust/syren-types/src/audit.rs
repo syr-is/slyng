@@ -11,44 +11,72 @@ use tsify_next::Tsify;
 #[derive(Clone, Debug, Serialize, Deserialize, ZodSchema)]
 #[cfg_attr(target_arch = "wasm32", derive(Tsify))]
 #[cfg_attr(target_arch = "wasm32", tsify(into_wasm_abi, from_wasm_abi))]
-#[serde(rename_all = "snake_case")]
 pub enum AuditAction {
+	#[serde(rename = "message_delete")]
 	MessageDelete,
+	#[serde(rename = "message_purge")]
 	MessagePurge,
+	#[serde(rename = "member_kick")]
 	MemberKick,
+	#[serde(rename = "member_ban")]
 	MemberBan,
+	#[serde(rename = "member_unban")]
 	MemberUnban,
+	#[serde(rename = "member_role_add")]
 	MemberRoleAdd,
+	#[serde(rename = "member_role_remove")]
 	MemberRoleRemove,
+	#[serde(rename = "role_create")]
 	RoleCreate,
+	#[serde(rename = "role_update")]
 	RoleUpdate,
+	#[serde(rename = "role_delete")]
 	RoleDelete,
+	#[serde(rename = "channel_create")]
 	ChannelCreate,
+	#[serde(rename = "channel_update")]
 	ChannelUpdate,
+	#[serde(rename = "channel_delete")]
 	ChannelDelete,
+	#[serde(rename = "channel_restore")]
 	ChannelRestore,
+	#[serde(rename = "channel_hard_delete")]
 	ChannelHardDelete,
+	#[serde(rename = "role_restore")]
 	RoleRestore,
+	#[serde(rename = "role_hard_delete")]
 	RoleHardDelete,
+	#[serde(rename = "message_restore")]
 	MessageRestore,
+	#[serde(rename = "message_hard_delete")]
 	MessageHardDelete,
+	#[serde(rename = "server_update")]
 	ServerUpdate,
+	#[serde(rename = "server_transfer_ownership")]
 	ServerTransferOwnership,
+	#[serde(rename = "invite_create")]
 	InviteCreate,
+	#[serde(rename = "invite_update")]
 	InviteUpdate,
+	#[serde(rename = "invite_delete")]
 	InviteDelete,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, ZodSchema)]
 #[cfg_attr(target_arch = "wasm32", derive(Tsify))]
 #[cfg_attr(target_arch = "wasm32", tsify(into_wasm_abi, from_wasm_abi))]
-#[serde(rename_all = "snake_case")]
 pub enum AuditTargetKind {
+	#[serde(rename = "message")]
 	Message,
+	#[serde(rename = "member")]
 	Member,
+	#[serde(rename = "role")]
 	Role,
+	#[serde(rename = "channel")]
 	Channel,
+	#[serde(rename = "server")]
 	Server,
+	#[serde(rename = "invite")]
 	Invite,
 }
 

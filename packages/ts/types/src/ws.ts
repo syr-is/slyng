@@ -1,15 +1,13 @@
-import { z } from 'zod';
-import { PresenceStatusSchema } from './presence.js';
-
 /**
- * WebSocket opcodes and event payload schemas.
- * All WS messages are JSON: { op: number, d: payload }
+ * WebSocket opcodes.
+ *
+ * The numeric values match `packages/rust/syren-types/src/ws.rs::WsOp`.
+ * The dictionary form is preserved here (uppercase keys) because the
+ * existing UI / app-core / api code addresses ops as `WsOp.MESSAGE_CREATE`
+ * etc. Wire format stays `{ op: number, d: payload }`; the typed payload
+ * shapes live in `./generated.ts`.
  */
-
-// ── Opcodes ──
-
 export const WsOp = {
-	// Client → Server
 	IDENTIFY: 1,
 	HEARTBEAT: 2,
 	SUBSCRIBE: 3,
@@ -18,7 +16,6 @@ export const WsOp = {
 	PRESENCE_UPDATE: 6,
 	VOICE_STATE_UPDATE: 7,
 
-	// Server → Client
 	READY: 10,
 	HEARTBEAT_ACK: 11,
 	MESSAGE_CREATE: 20,
@@ -42,87 +39,19 @@ export const WsOp = {
 	PIN_ADD: 42,
 	PIN_REMOVE: 43,
 	AUDIT_LOG_APPEND: 44,
+	PERMISSION_OVERRIDE_UPDATE: 45,
+	CATEGORY_CREATE: 46,
+	CATEGORY_UPDATE: 47,
+	CATEGORY_DELETE: 48,
 
-	// Profile watcher — federated hash polling
 	WATCH_PROFILES: 50,
 	UNWATCH_PROFILES: 51,
 	PROFILE_UPDATE: 52,
 
-	// Relations (friends, block, ignore) — personal, emitted via emitToUser
 	FRIEND_REQUEST_RECEIVE: 53,
 	FRIEND_REQUEST_UPDATE: 54,
 	BLOCK_UPDATE: 55,
 	IGNORE_UPDATE: 56,
 	DM_POLICY_UPDATE: 57,
-	DM_CHANNEL_CREATE: 58,
-
-	// Permission overrides + categories
-	PERMISSION_OVERRIDE_UPDATE: 45,
-	CATEGORY_CREATE: 46,
-	CATEGORY_UPDATE: 47,
-	CATEGORY_DELETE: 48
+	DM_CHANNEL_CREATE: 58
 } as const;
-
-// ── Client → Server payloads ──
-
-export const WsIdentifySchema = z.object({
-	token: z.string().describe('Session cookie value')
-});
-
-export const WsSubscribeSchema = z.object({
-	channel_ids: z.array(z.string())
-});
-
-export const WsTypingStartSchema = z.object({
-	channel_id: z.string()
-});
-
-export const WsPresenceUpdateSchema = z.object({
-	status: PresenceStatusSchema,
-	custom_status: z.string().max(128).optional()
-});
-
-export const WsVoiceStateUpdateSchema = z.object({
-	channel_id: z.string().optional().describe('null = disconnect'),
-	self_mute: z.boolean().default(false),
-	self_deaf: z.boolean().default(false)
-});
-
-// ── Server → Client payloads ──
-
-export const WsReadySchema = z.object({
-	user_id: z.string(),
-	servers: z.array(z.object({
-		id: z.string(),
-		name: z.string(),
-		icon_url: z.string().optional(),
-		channels: z.array(z.object({
-			id: z.string(),
-			name: z.string().optional(),
-			type: z.string(),
-			position: z.number().default(0)
-		}))
-	})),
-	dm_channels: z.array(z.object({
-		id: z.string(),
-		participants: z.array(z.string())
-	})),
-	presences: z.array(z.object({
-		user_id: z.string(),
-		status: PresenceStatusSchema
-	})),
-	unread: z.array(z.object({
-		channel_id: z.string(),
-		count: z.number(),
-		mention_count: z.number()
-	}))
-});
-
-// ── Generic WS message wrapper ──
-
-export const WsMessageSchema = z.object({
-	op: z.number(),
-	d: z.unknown()
-});
-
-export type WsMessage = z.infer<typeof WsMessageSchema>;

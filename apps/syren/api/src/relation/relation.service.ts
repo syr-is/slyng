@@ -11,9 +11,14 @@ import {
 	WsOp,
 	stringToRecordId,
 	type AllowDms,
-	type AllowFriendRequests,
-	type CanDmResult
+	type AllowFriendRequests
 } from '@syren/types';
+
+/** Result of the message-send gate. Inlined here because it's used by
+ *  exactly one method (`canDM`); not worth modelling on the Rust side. */
+export type CanDmResult =
+	| { allowed: true }
+	| { allowed: false; reason: 'blocked' | 'dm_closed' | 'dm_friends_only' };
 import {
 	FriendshipRepository,
 	UserBlockRepository,
@@ -232,7 +237,7 @@ export class RelationService {
 			requested_by: from,
 			created_at: now,
 			updated_at: now
-		});
+		} as any);
 
 		const senderInstance = await this.instanceFor(from);
 		const targetInstance = (target.syr_instance_url as string | undefined) ?? null;
@@ -267,7 +272,7 @@ export class RelationService {
 		const updated = await this.friendships.merge((pending as any).id, {
 			status: 'accepted',
 			updated_at: new Date()
-		});
+		} as any);
 		const [lo, hi] = this.orderPair(actor, requester);
 		const payload = { pair: { a: lo, b: hi }, status: 'accepted', by: actor };
 		this.gateway?.emitToUser(actor, { op: WsOp.FRIEND_REQUEST_UPDATE, d: payload });
@@ -331,7 +336,7 @@ export class RelationService {
 			blocked_id: target,
 			created_at: now,
 			updated_at: now
-		});
+		} as any);
 
 		const targetInstance = await this.instanceFor(target);
 		this.gateway?.emitToUser(actor, {
@@ -380,7 +385,7 @@ export class RelationService {
 			ignored_id: target,
 			created_at: now,
 			updated_at: now
-		});
+		} as any);
 		const targetInstance = await this.instanceFor(target);
 		this.gateway?.emitToUser(actor, {
 			op: WsOp.IGNORE_UPDATE,

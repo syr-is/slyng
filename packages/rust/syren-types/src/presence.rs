@@ -9,12 +9,16 @@ use tsify_next::Tsify;
 #[derive(Clone, Debug, Serialize, Deserialize, ZodSchema)]
 #[cfg_attr(target_arch = "wasm32", derive(Tsify))]
 #[cfg_attr(target_arch = "wasm32", tsify(into_wasm_abi, from_wasm_abi))]
-#[serde(rename_all = "snake_case")]
 pub enum PresenceStatus {
+	#[serde(rename = "online")]
 	Online,
+	#[serde(rename = "idle")]
 	Idle,
+	#[serde(rename = "dnd")]
 	Dnd,
+	#[serde(rename = "invisible")]
 	Invisible,
+	#[serde(rename = "offline")]
 	Offline,
 }
 
