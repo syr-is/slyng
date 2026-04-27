@@ -8,6 +8,7 @@
 	import { Label } from '@syren/ui/label';
 	import { getStoredHostSync } from '$lib/host-store';
 	import { getNativeClient } from '$lib/client';
+	import { syncSessionFromTauri } from '$lib/session-bridge';
 	import { api } from '@syren/app-core/api';
 	import { normalizeHost, isValidHost } from '@syren/app-core/normalize-host';
 	import { Loader2 } from '@lucide/svelte';
@@ -52,6 +53,12 @@
 
 	async function checkAndRedirect(reason: string) {
 		if (redirected) return;
+		// The Rust OAuth flow stores the session in the Tauri Store; the
+		// WASM api.auth.me() reads from localStorage. Mirror the former
+		// to the latter before each check so a successful Rust-side
+		// login is visible to the JS-side client.
+		const apiHost = getStoredHostSync();
+		if (apiHost) await syncSessionFromTauri(apiHost);
 		try {
 			await api.auth.me();
 			if (import.meta.env.DEV) console.log(`[login] self-correct: /auth/me succeeded (${reason})`);
@@ -78,11 +85,16 @@
 		// resolve to unlisten fns we capture once available. onDestroy
 		// guards on `unlisten?.()` so a destroy before resolution is safe.
 		void (async () => {
-			unlisten = await listen<unknown>('auth-changed', (event) => {
+			unlisten = await listen<unknown>('auth-changed', async (event) => {
 				if (import.meta.env.DEV) console.log('[login] auth-changed authed=', !!event.payload);
-				if (event.payload) {
-					goto('/channels/@me', { replaceState: true });
-				}
+				if (!event.payload) return;
+				// Mirror the freshly-persisted Tauri-store session into
+				// localStorage so the (app) layout's checkAuth() — which
+				// goes through the WASM client — actually finds a session
+				// instead of bouncing back to /login.
+				const apiHost = getStoredHostSync();
+				if (apiHost) await syncSessionFromTauri(apiHost);
+				goto('/channels/@me', { replaceState: true });
 			});
 			unlistenError = await listen<string>('auth-error', (event) => {
 				if (import.meta.env.DEV) console.log('[login] auth-error', event.payload);

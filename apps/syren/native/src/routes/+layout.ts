@@ -4,6 +4,7 @@ import { setApi } from '@syren/app-core/api';
 import { setWsTokenProvider } from '@syren/app-core/stores/ws.svelte';
 import { initSyrenClient, type SyrenClient } from '@syren/client';
 import { getStoredHost, getStoredHostSync } from '$lib/host-store';
+import { syncSessionFromTauri } from '$lib/session-bridge';
 
 export const ssr = false;
 export const prerender = false;
@@ -51,6 +52,13 @@ export const load = async ({ url }: { url: URL }) => {
 
 	if (host) {
 		setHost(host);
+		// Mirror any persisted session from the Tauri Store into
+		// localStorage *before* spinning up the WASM client — its
+		// LocalStorageStore is what api.auth.me() reads from. Without
+		// this, restarting the app after a previous successful login
+		// leaves the WASM client unauthenticated and bounces the user
+		// back to /login despite the session still being on disk.
+		await syncSessionFromTauri(host);
 		await ensureClient(host);
 	} else if (url.pathname !== '/setup') {
 		throw redirect(307, `/setup?return=${encodeURIComponent(url.pathname + url.search)}`);
