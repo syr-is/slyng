@@ -58,8 +58,17 @@ class MainActivity : TauriActivity() {
     // hasn't been laid out yet (width/height are 0). Listen for layout
     // changes directly so we always have a fresh exclusion zone before
     // the user's first swipe.
+    //
+    // We piggy-back on the same listener to re-fire the inset CSS vars:
+    // SvelteKit's first hydration on a cold-start (esp. post-deep-link
+    // activity recreate) can land *after* the WindowInsets retry list
+    // has exhausted, leaving the document with no `--syren-sai-*` set.
+    // Layout changes fire as soon as SvelteKit commits its first DOM
+    // update, so this catches the slow-hydration case for free. The JS
+    // is idempotent — re-running it just re-sets the same property.
     webView.addOnLayoutChangeListener { v, left, top, right, bottom, _, _, _, _ ->
       applyGestureExclusion(v, right - left, bottom - top)
+      insetsJs?.let { js -> v.let { webView.evaluateJavascript(js, null) } }
     }
 
     webView.post { ViewCompat.requestApplyInsets(webView) }
@@ -83,13 +92,20 @@ class MainActivity : TauriActivity() {
   // `evaluateJavascript` runs against an empty `documentElement`, and
   // when the WebView finally navigates to `tauri.localhost` the CSS vars
   // are gone. We don't have a clean hook on Tauri's WebViewClient, so
-  // re-fire the same JS on a few back-off delays. Once SvelteKit is up,
+  // re-fire the same JS on a back-off ladder. Once SvelteKit is up,
   // SPA navigations don't reset `documentElement.style`, so the vars
   // persist for the rest of the session.
+  //
+  // On a *first* cold start (especially post-deep-link activity
+  // recreate), SvelteKit's hydration can take longer than the original
+  // 3s window — leaving the document without `--syren-sai-*` set until
+  // the user relaunches the app. The longer ladder + the layout-change
+  // re-fire above are belt-and-suspenders so the vars always land
+  // before the user notices.
   private fun applyInsetsRetried(webView: WebView) {
     val js = insetsJs ?: return
     val handler = Handler(Looper.getMainLooper())
-    listOf(0L, 200L, 600L, 1500L, 3000L).forEach { delay ->
+    listOf(0L, 200L, 600L, 1500L, 3000L, 5000L, 8000L, 12000L).forEach { delay ->
       handler.postDelayed({
         webView.evaluateJavascript(js, null)
       }, delay)
