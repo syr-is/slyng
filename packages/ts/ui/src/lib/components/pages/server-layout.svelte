@@ -161,15 +161,6 @@
 	}
 
 	$effect(() => {
-		// Bail on stale / malformed routes: a `/channels/undefined` URL
-		// (left behind by an earlier dev session, or generated when an
-		// upstream `server.id` was missing) used to fan out to a wall
-		// of 403s; bounce to the DM home instead so the user can pick
-		// a real server from the rail.
-		if (serverId === 'undefined' || serverId === 'null') {
-			goto('/channels/@me', { replaceState: true });
-			return;
-		}
 		if (serverId) loadServer(serverId);
 	});
 

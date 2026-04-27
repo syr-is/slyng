@@ -87,16 +87,6 @@ export function removeServer(serverId: string) {
 
 export function setServers(data: ServerData[]) {
 	servers = data;
-	if (typeof window !== 'undefined') {
-		console.log(
-			'[servers] setServers count=',
-			data.length,
-			'sample-id=',
-			data[0]?.id,
-			'typeof-id=',
-			typeof data[0]?.id
-		);
-	}
 }
 
 export function setActiveServer(serverId: string | null) {
