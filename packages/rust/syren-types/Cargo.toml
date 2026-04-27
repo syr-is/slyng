@@ -4,7 +4,11 @@ version = "0.0.1"
 edition.workspace = true
 license.workspace = true
 authors.workspace = true
-description = "Shared data model + Zod / TS type generation for the Syren API"
+repository.workspace = true
+homepage.workspace = true
+description = "Shared data model for the syren chat API. Source of truth for both the Rust client and the generated TypeScript Zod schemas / interfaces"
+categories = ["api-bindings", "data-structures", "wasm"]
+keywords = ["syren", "chat", "syr", "tsify", "zod"]
 
 [lib]
 crate-type = ["cdylib", "rlib"]

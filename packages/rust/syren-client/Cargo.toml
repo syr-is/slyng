@@ -4,7 +4,11 @@ version = "0.0.1"
 edition.workspace = true
 license.workspace = true
 authors.workspace = true
-description = "Unified Rust + WASM API client for the syren chat platform"
+repository.workspace = true
+homepage.workspace = true
+description = "Typed API client for the syren federated chat platform — compiles to native or WebAssembly"
+categories = ["api-bindings", "wasm", "web-programming::http-client"]
+keywords = ["chat", "syr", "federation", "wasm", "tauri"]
 
 [lib]
 crate-type = ["cdylib", "rlib"]
