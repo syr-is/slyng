@@ -51,27 +51,37 @@ export async function checkAuth(): Promise<AuthIdentity | null> {
 			const session = localStorage.getItem(SESSION_KEY);
 			if (session) headers.Authorization = `Bearer ${session}`;
 		}
-		const resp = await fetch(apiUrl('/auth/me'), {
-			method: 'GET',
-			credentials: 'include',
-			headers
-		});
-		if (resp.ok) {
-			const data = (await resp.json()) as Partial<AuthIdentity>;
-			if (import.meta.env.DEV) console.log('[checkAuth] /auth/me ok=', !!(data?.did && data?.syr_instance_url));
-			if (data?.did && data?.syr_instance_url) {
-				identity = {
-					did: data.did,
-					syr_instance_url: data.syr_instance_url,
-					delegate_public_key: data.delegate_public_key
-				};
-			}
-		} else if (import.meta.env.DEV) {
+		const url = apiUrl('/auth/me');
+		console.log('[checkAuth] fetching', url, 'bearer=', !!headers.Authorization);
+		// Hard 8s ceiling so a stalled fetch (DNS / TLS / mid-flight
+		// socket hang) surfaces as a visible failure instead of an
+		// indefinite Loading screen.
+		const ac = new AbortController();
+		const timeoutId = setTimeout(() => ac.abort(), 8000);
+		try {
+			const resp = await fetch(url, {
+				method: 'GET',
+				credentials: 'include',
+				headers,
+				signal: ac.signal
+			});
 			console.log('[checkAuth] /auth/me status=', resp.status);
+			if (resp.ok) {
+				const data = (await resp.json()) as Partial<AuthIdentity>;
+				if (data?.did && data?.syr_instance_url) {
+					identity = {
+						did: data.did,
+						syr_instance_url: data.syr_instance_url,
+						delegate_public_key: data.delegate_public_key
+					};
+				}
+			}
+		} finally {
+			clearTimeout(timeoutId);
 		}
 	} catch (err) {
-		// API unreachable / network failure — leave identity null
-		if (import.meta.env.DEV) console.log('[checkAuth] caught', err);
+		// API unreachable / 401 / aborted — leave identity null
+		console.warn('[checkAuth] failed', err);
 	}
 	checked = true;
 	loading = false;
