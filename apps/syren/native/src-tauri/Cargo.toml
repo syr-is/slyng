@@ -24,6 +24,7 @@ async-trait = "0.1"
 tokio = { version = "1", features = ["sync", "rt"] }
 url = "2"
 syren-client = { path = "../../../../packages/rust/syren-client" }
+syren-types = { path = "../../../../packages/rust/syren-types" }
 
 # Mobile (Android / iOS): OAuth callback comes back via deep link.
 [target.'cfg(any(target_os = "android", target_os = "ios"))'.dependencies]

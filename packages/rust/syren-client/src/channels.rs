@@ -1,7 +1,7 @@
 use crate::client::Client;
 use crate::error::Result;
-use crate::types::Json;
-use serde_json::json;
+use serde_json::{json, Value as Json};
+use syren_types::{Channel, Message, SuccessResponse};
 
 fn enc(v: &str) -> String {
 	super::servers::urlencode(v)
@@ -14,7 +14,7 @@ impl Client {
 		before: Option<&str>,
 		limit: Option<u32>,
 		include_deleted: Option<bool>,
-	) -> Result<Vec<Json>> {
+	) -> Result<Vec<Message>> {
 		let mut path = format!("/channels/{}/messages", enc(id));
 		let mut params = vec![];
 		if let Some(b) = before {
@@ -33,22 +33,35 @@ impl Client {
 		self.transport.get(&path).await
 	}
 
-	pub async fn channel_send(&self, id: &str, body: &Json) -> Result<Json> {
+	pub async fn channel_send(&self, id: &str, body: &Json) -> Result<Message> {
 		self.transport
 			.post(&format!("/channels/{}/messages", enc(id)), body)
 			.await
 	}
 
-	pub async fn channel_edit_message(&self, channel_id: &str, message_id: &str, content: &str) -> Result<Json> {
+	pub async fn channel_edit_message(
+		&self,
+		channel_id: &str,
+		message_id: &str,
+		content: &str,
+	) -> Result<Message> {
 		self.transport
 			.patch(
-				&format!("/channels/{}/messages/{}", enc(channel_id), enc(message_id)),
+				&format!(
+					"/channels/{}/messages/{}",
+					enc(channel_id),
+					enc(message_id)
+				),
 				&json!({ "content": content }),
 			)
 			.await
 	}
 
-	pub async fn channel_delete_message(&self, channel_id: &str, message_id: &str) -> Result<Json> {
+	pub async fn channel_delete_message(
+		&self,
+		channel_id: &str,
+		message_id: &str,
+	) -> Result<SuccessResponse> {
 		self.transport
 			.delete(&format!(
 				"/channels/{}/messages/{}",
@@ -58,7 +71,7 @@ impl Client {
 			.await
 	}
 
-	pub async fn channel_pins(&self, id: &str, include_deleted: Option<bool>) -> Result<Vec<Json>> {
+	pub async fn channel_pins(&self, id: &str, include_deleted: Option<bool>) -> Result<Vec<Message>> {
 		let path = if include_deleted == Some(true) {
 			format!("/channels/{}/pins?include_deleted=true", enc(id))
 		} else {
@@ -67,7 +80,11 @@ impl Client {
 		self.transport.get(&path).await
 	}
 
-	pub async fn channel_pin(&self, channel_id: &str, message_id: &str) -> Result<Json> {
+	pub async fn channel_pin(
+		&self,
+		channel_id: &str,
+		message_id: &str,
+	) -> Result<SuccessResponse> {
 		self.transport
 			.post(
 				&format!("/channels/{}/pins", enc(channel_id)),
@@ -76,7 +93,11 @@ impl Client {
 			.await
 	}
 
-	pub async fn channel_unpin(&self, channel_id: &str, message_id: &str) -> Result<Json> {
+	pub async fn channel_unpin(
+		&self,
+		channel_id: &str,
+		message_id: &str,
+	) -> Result<SuccessResponse> {
 		self.transport
 			.delete(&format!(
 				"/channels/{}/pins/{}",
@@ -86,25 +107,34 @@ impl Client {
 			.await
 	}
 
-	pub async fn channel_typing(&self, id: &str) -> Result<Json> {
+	pub async fn channel_typing(&self, id: &str) -> Result<SuccessResponse> {
 		self.transport
 			.post(&format!("/channels/{}/typing", enc(id)), &json!({}))
 			.await
 	}
 
-	pub async fn channel_update(&self, id: &str, data: &Json) -> Result<Json> {
+	pub async fn channel_update(&self, id: &str, data: &Json) -> Result<Channel> {
 		self.transport
 			.patch(&format!("/channels/{}", enc(id)), data)
 			.await
 	}
 
-	pub async fn channel_delete(&self, id: &str) -> Result<Json> {
-		self.transport.delete(&format!("/channels/{}", enc(id))).await
+	pub async fn channel_delete(&self, id: &str) -> Result<SuccessResponse> {
+		self.transport
+			.delete(&format!("/channels/{}", enc(id)))
+			.await
 	}
 
-	pub async fn channel_reorder(&self, server_id: &str, body: &Json) -> Result<Json> {
+	pub async fn channel_reorder(
+		&self,
+		server_id: &str,
+		body: &Json,
+	) -> Result<SuccessResponse> {
 		self.transport
-			.post(&format!("/servers/{}/channels/reorder", enc(server_id)), body)
+			.post(
+				&format!("/servers/{}/channels/reorder", enc(server_id)),
+				body,
+			)
 			.await
 	}
 
@@ -114,7 +144,7 @@ impl Client {
 		message_id: &str,
 		kind: &str,
 		value: &str,
-	) -> Result<Json> {
+	) -> Result<Message> {
 		self.transport
 			.post(
 				&format!(
@@ -127,7 +157,11 @@ impl Client {
 			.await
 	}
 
-	pub async fn channel_clear_embeds(&self, channel_id: &str, message_id: &str) -> Result<Json> {
+	pub async fn channel_clear_embeds(
+		&self,
+		channel_id: &str,
+		message_id: &str,
+	) -> Result<Message> {
 		self.transport
 			.delete(&format!(
 				"/channels/{}/messages/{}/embeds",
@@ -137,19 +171,23 @@ impl Client {
 			.await
 	}
 
-	pub async fn channel_restore(&self, id: &str) -> Result<Json> {
+	pub async fn channel_restore(&self, id: &str) -> Result<Channel> {
 		self.transport
 			.post(&format!("/channels/{}/restore", enc(id)), &json!({}))
 			.await
 	}
 
-	pub async fn channel_hard_delete(&self, id: &str) -> Result<Json> {
+	pub async fn channel_hard_delete(&self, id: &str) -> Result<SuccessResponse> {
 		self.transport
 			.delete(&format!("/channels/{}/hard", enc(id)))
 			.await
 	}
 
-	pub async fn channel_restore_message(&self, channel_id: &str, message_id: &str) -> Result<Json> {
+	pub async fn channel_restore_message(
+		&self,
+		channel_id: &str,
+		message_id: &str,
+	) -> Result<Message> {
 		self.transport
 			.post(
 				&format!(
@@ -162,7 +200,11 @@ impl Client {
 			.await
 	}
 
-	pub async fn channel_hard_delete_message(&self, channel_id: &str, message_id: &str) -> Result<Json> {
+	pub async fn channel_hard_delete_message(
+		&self,
+		channel_id: &str,
+		message_id: &str,
+	) -> Result<SuccessResponse> {
 		self.transport
 			.delete(&format!(
 				"/channels/{}/messages/{}/hard",
