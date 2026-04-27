@@ -8,6 +8,29 @@ WORKDIR /app
 
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml .npmrc ./
 
+# ---- WASM Builder Stage ----
+# Compile the syren-client Rust crate to wasm32. Kept in its own stage
+# so the Rust toolchain doesn't bloat the Node builder, and so the
+# WASM artefacts cache independently of JS dependency churn. Debian
+# base over Alpine because rustup ships with the official rust image
+# and wasm-pack drives rustup to install the wasm32 target.
+FROM rust:1.83-bookworm AS wasm-builder
+
+# Pinned wasm-pack matches what `pnpm --filter @syren/client build`
+# would invoke locally; pin keeps Docker builds reproducible.
+RUN cargo install --locked wasm-pack@0.13.1
+RUN rustup target add wasm32-unknown-unknown
+
+WORKDIR /build
+
+# Only the Rust source is needed — wasm-pack reads Cargo.toml and the
+# crate's src/.
+COPY packages/rust ./packages/rust
+
+RUN cd packages/rust/syren-client \
+    && wasm-pack build --release --target web --out-dir /build/wasm-out/web --no-pack \
+    && wasm-pack build --release --target nodejs --out-dir /build/wasm-out/node --no-pack
+
 # ---- Dependencies Stage ----
 FROM base AS deps
 
@@ -15,6 +38,7 @@ COPY apps/syren/web/package.json ./apps/syren/web/
 COPY packages/ts/types/package.json ./packages/ts/types/
 COPY packages/ts/ui/package.json ./packages/ts/ui/
 COPY packages/ts/app-core/package.json ./packages/ts/app-core/
+COPY packages/ts/client/package.json ./packages/ts/client/
 
 RUN echo "inject-workspace-packages=true" >> .npmrc
 RUN pnpm install
@@ -31,9 +55,21 @@ ENV SYREN_API_URL=${SYREN_API_URL}
 COPY apps/syren ./apps/syren
 COPY packages ./packages
 
-# Build workspace packages first (dist/ doesn't exist at install time with injection)
-# Order matters: types → app-core → ui (ui depends on app-core).
+# Slot the prebuilt WASM artefacts into @syren/client's expected dist
+# layout so the package's `tsc` step can run without re-invoking
+# wasm-pack (no Rust toolchain in this image).
+COPY --from=wasm-builder /build/wasm-out/web ./packages/ts/client/dist/wasm/web
+COPY --from=wasm-builder /build/wasm-out/node ./packages/ts/client/dist/wasm/node
+
+# Build workspace packages first (dist/ doesn't exist at install time with injection).
+# Order: types → client → app-core → ui (each depends on the previous).
 RUN pnpm --filter @syren/types build
+# @syren/client's full build = wasm-pack + tsc + node ESM wrapper. Run
+# only the steps that don't need Rust: emit the Node ESM wrapper, then
+# tsc against src/. WASM dist/ was injected from wasm-builder above.
+RUN cd packages/ts/client \
+    && node scripts/generate-node-esm-wrapper.mjs \
+    && pnpm exec tsc
 RUN pnpm --filter @syren/app-core build
 RUN pnpm --filter @syren/ui build
 

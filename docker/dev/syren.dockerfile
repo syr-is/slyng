@@ -9,11 +9,16 @@ RUN corepack enable && corepack prepare pnpm@10.29.3 --activate
 # Copy workspace configuration
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml turbo.json .npmrc ./
 
-# Copy app and packages package.json for dependency resolution
+# Copy app and packages package.json for dependency resolution. The
+# WASM client (`@syren/client`) is referenced transitively through
+# `@syren/app-core`, so pnpm install needs its package.json present
+# even though dev mode mounts the host workspace and uses whatever
+# `dist/` was built locally.
 COPY apps/syren/web/package.json ./apps/syren/web/
 COPY packages/ts/types/package.json ./packages/ts/types/
 COPY packages/ts/ui/package.json ./packages/ts/ui/
 COPY packages/ts/app-core/package.json ./packages/ts/app-core/
+COPY packages/ts/client/package.json ./packages/ts/client/
 
 # Install dependencies from workspace root
 RUN pnpm install --frozen-lockfile

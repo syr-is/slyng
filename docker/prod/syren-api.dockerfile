@@ -13,17 +13,21 @@ FROM base AS deps
 
 COPY apps/syren/api/package.json ./apps/syren/api/
 COPY packages/ts/types/package.json ./packages/ts/types/
-COPY packages/ts/ui/package.json ./packages/ts/ui/
-COPY packages/ts/app-core/package.json ./packages/ts/app-core/
 
 RUN echo "inject-workspace-packages=true" >> .npmrc
-RUN pnpm install
+# Scope the install to the API's own dependency closure — dragging in
+# the front-end packages would also drag in @syren/client (a WASM
+# crate whose source we don't want in the API image).
+RUN pnpm install --filter @syren/api...
 
 # ---- Builder Stage ----
 FROM deps AS builder
 
-COPY apps/syren ./apps/syren
-COPY packages ./packages
+# Only stage what the API actually needs. Pulling in the front-end
+# packages here would re-introduce @syren/client into the workspace
+# and re-trigger the WASM-package-not-found error during deploy.
+COPY apps/syren/api ./apps/syren/api
+COPY packages/ts/types ./packages/ts/types
 
 # Build types first, then API
 RUN pnpm --filter @syren/types build
