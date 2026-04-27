@@ -659,6 +659,24 @@ export interface SyrenClient {
 // api.ts already used. Server-side validation guarantees the shape;
 // the WASM transport just JSON-deserialises. If we ever want runtime
 // validation we drop the corresponding `Schema.parse(raw)` here.
+
+/**
+ * Throws when an id-shaped argument is missing or stringified-undefined,
+ * before it reaches the URL builder. Without this, a JS `undefined`
+ * crossing the wasm-bindgen boundary becomes the literal string
+ * `"undefined"`, leading to requests like `/api/servers/undefined/...`
+ * that 403 with a misleading "not a member" body. Better to fail
+ * loudly at the call site than to chase phantom 403s in DevTools.
+ */
+function requireId(value: unknown, method: string, arg = 'id'): string {
+	if (typeof value !== 'string' || !value || value === 'undefined' || value === 'null') {
+		throw new Error(
+			`@syren/client: ${method}() called with invalid ${arg}: ${JSON.stringify(value)}`
+		);
+	}
+	return value;
+}
+
 function wrap(c: WasmClient): SyrenClient {
 	return {
 		auth: {
@@ -673,18 +691,30 @@ function wrap(c: WasmClient): SyrenClient {
 		servers: {
 			list: () => c.servers_list() as Promise<Server[]>,
 			create: (data) => c.server_create(data) as Promise<Server>,
-			get: (id) => c.server_get(id) as Promise<Server>,
-			update: (id, data) => c.server_update(id, data) as Promise<Server>,
-			delete: (id) => c.server_delete(id) as Promise<{ success: boolean }>,
-			leave: (id) => c.server_leave(id) as Promise<{ success: boolean }>,
+			get: (id) => c.server_get(requireId(id, 'servers.get')) as Promise<Server>,
+			update: (id, data) =>
+				c.server_update(requireId(id, 'servers.update'), data) as Promise<Server>,
+			delete: (id) =>
+				c.server_delete(requireId(id, 'servers.delete')) as Promise<{ success: boolean }>,
+			leave: (id) =>
+				c.server_leave(requireId(id, 'servers.leave')) as Promise<{ success: boolean }>,
 			transferOwnership: (id, newOwnerId) =>
-				c.server_transfer_ownership(id, newOwnerId) as Promise<{ server: Server; former_owner_role_id: string }>,
-			channels: (id) => c.server_channels(id) as Promise<Channel[]>,
-			members: (id) => c.server_members(id) as Promise<ServerMember[]>,
+				c.server_transfer_ownership(
+					requireId(id, 'servers.transferOwnership'),
+					requireId(newOwnerId, 'servers.transferOwnership', 'newOwnerId')
+				) as Promise<{ server: Server; former_owner_role_id: string }>,
+			channels: (id) =>
+				c.server_channels(requireId(id, 'servers.channels')) as Promise<Channel[]>,
+			members: (id) =>
+				c.server_members(requireId(id, 'servers.members')) as Promise<ServerMember[]>,
 			membersPage: (id, params = {}) =>
-				c.server_members_page(id, params) as Promise<Page<ServerMember>>,
-			voiceStates: (id) => c.server_voice_states(id) as Promise<VoiceStatesByChannel>,
-			createChannel: (id, data) => c.server_create_channel(id, data) as Promise<Channel>,
+				c.server_members_page(requireId(id, 'servers.membersPage'), params) as Promise<
+					Page<ServerMember>
+				>,
+			voiceStates: (id) =>
+				c.server_voice_states(requireId(id, 'servers.voiceStates')) as Promise<VoiceStatesByChannel>,
+			createChannel: (id, data) =>
+				c.server_create_channel(requireId(id, 'servers.createChannel'), data) as Promise<Channel>,
 			kickMember: (sid, uid, opts) =>
 				c.member_kick(sid, uid, opts?.delete_seconds) as Promise<{ success: boolean }>,
 			banMember: (sid, body) => c.member_ban(sid, body) as Promise<ServerBan>,
@@ -718,17 +748,24 @@ function wrap(c: WasmClient): SyrenClient {
 			join: (code) => c.invite_join(code) as Promise<{ server_id: string }>
 		},
 		roles: {
-			list: (sid) => c.roles_list(sid) as Promise<ServerRole[]>,
-			create: (sid, data) => c.role_create(sid, data) as Promise<ServerRole>,
-			update: (rid, data) => c.role_update(rid, data) as Promise<ServerRole>,
-			delete: (rid) => c.role_delete(rid) as Promise<{ success: boolean }>,
+			list: (sid) => c.roles_list(requireId(sid, 'roles.list', 'serverId')) as Promise<ServerRole[]>,
+			create: (sid, data) =>
+				c.role_create(requireId(sid, 'roles.create', 'serverId'), data) as Promise<ServerRole>,
+			update: (rid, data) =>
+				c.role_update(requireId(rid, 'roles.update', 'roleId'), data) as Promise<ServerRole>,
+			delete: (rid) =>
+				c.role_delete(requireId(rid, 'roles.delete', 'roleId')) as Promise<{ success: boolean }>,
 			swap: (a, b) => c.role_swap(a, b) as Promise<{ success: boolean }>,
-			reorder: (sid, ids) => c.role_reorder(sid, ids) as Promise<{ success: boolean }>,
+			reorder: (sid, ids) =>
+				c.role_reorder(requireId(sid, 'roles.reorder', 'serverId'), ids) as Promise<{
+					success: boolean;
+				}>,
 			assign: (sid, uid, rid) =>
 				c.role_assign(sid, uid, rid) as Promise<{ success: boolean }>,
 			unassign: (sid, uid, rid) =>
 				c.role_unassign(sid, uid, rid) as Promise<{ success: boolean }>,
-			myPermissions: (sid) => c.my_permissions(sid) as Promise<MyPermissions>,
+			myPermissions: (sid) =>
+				c.my_permissions(requireId(sid, 'roles.myPermissions', 'serverId')) as Promise<MyPermissions>,
 			permissionTree: (sid, uid) =>
 				c.role_permission_tree(sid, uid) as Promise<PermissionTree>,
 			memberPermissions: (sid, uid) =>
@@ -800,8 +837,14 @@ function wrap(c: WasmClient): SyrenClient {
 			token: (cid) => c.voice_token(cid) as Promise<VoiceTokenResponse>
 		},
 		categories: {
-			list: (sid) => c.categories_list(sid) as Promise<ChannelCategory[]>,
-			create: (sid, data) => c.category_create(sid, data.name) as Promise<ChannelCategory>,
+			list: (sid) =>
+				c.categories_list(requireId(sid, 'categories.list', 'serverId')) as Promise<
+					ChannelCategory[]
+				>,
+			create: (sid, data) =>
+				c.category_create(requireId(sid, 'categories.create', 'serverId'), data.name) as Promise<
+					ChannelCategory
+				>,
 			update: (cid, data) => c.category_update(cid, data) as Promise<ChannelCategory>,
 			delete: (cid) => c.category_delete(cid) as Promise<{ success: boolean }>,
 			swap: (a, b) => c.category_swap(a, b) as Promise<{ success: boolean }>,

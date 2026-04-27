@@ -7,15 +7,25 @@ fn enc(v: &str) -> String {
 	urlencode(v)
 }
 
-// Tiny percent-encoder for path segments. We only need to encode '/',
-// '?', '#', '%', and a few others. The full RFC 3986 encoder lives in
-// `url::form_urlencoded` for query strings; for path segments we want
-// to preserve characters like ':' and '@' that the server uses (RecordIDs).
+// Percent-encoder for path segments. We *do* encode `:` and `@`
+// despite both being legal in RFC 3986 path segments — the legacy
+// `app-core/api.ts` used `encodeURIComponent` (which encodes `:` →
+// `%3A` and `@` → `%40`), and the production NestJS deployment
+// turned out to silently rely on that shape: requests with raw
+// colons in the path were routing through to the membership guard
+// with a `serverId` that wouldn't round-trip through
+// `stringToRecordId.decode`, returning 403 "not a member" for valid
+// members. Encoding here matches what the server already accepts
+// and what every pre-migration build sent. The literal `@me`
+// fragments in routes like `/servers/@me` and
+// `/servers/{id}/members/@me/permissions` are baked into the
+// `format!()` strings (they're not run through this function), so
+// they stay unencoded as before.
 pub(crate) fn urlencode(input: &str) -> String {
 	let mut out = String::with_capacity(input.len());
 	for b in input.bytes() {
 		match b {
-			b'/' | b'?' | b'#' | b'%' | b' ' => {
+			b'/' | b'?' | b'#' | b'%' | b' ' | b':' | b'@' => {
 				out.push('%');
 				out.push_str(&format!("{b:02X}"));
 			}
