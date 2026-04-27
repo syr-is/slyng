@@ -22,6 +22,12 @@
 			"import": "./dist/api.js",
 			"default": "./dist/api.js"
 		},
+		"./normalize-host": {
+			"types": "./dist/normalize-host.d.ts",
+			"svelte": "./dist/normalize-host.js",
+			"import": "./dist/normalize-host.js",
+			"default": "./dist/normalize-host.js"
+		},
 		"./stores/*": {
 			"types": "./dist/stores/*.d.ts",
 			"svelte": "./dist/stores/*.js",
@@ -58,6 +64,7 @@
 		"svelte": "^5.0.0"
 	},
 	"dependencies": {
+		"@syren/client": "workspace:*",
 		"@syren/types": "workspace:*",
 		"livekit-client": "^2.18.3"
 	},

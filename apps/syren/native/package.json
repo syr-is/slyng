@@ -48,6 +48,7 @@
 	},
 	"dependencies": {
 		"@syren/app-core": "workspace:*",
+		"@syren/client": "workspace:*",
 		"@syren/types": "workspace:*",
 		"@syren/ui": "workspace:*",
 		"@tauri-apps/api": "^2.5.0",

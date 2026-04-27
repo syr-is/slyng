@@ -26,7 +26,7 @@ export default defineConfig({
 		strictPort: true
 	},
 	ssr: {
-		noExternal: [/^@syren\/(ui|app-core)($|\/)/]
+		noExternal: [/^@syren\/(ui|app-core|client)($|\/)/]
 	},
 	resolve: {
 		// In production, the Docker build sets `inject-workspace-packages=true`
@@ -36,6 +36,6 @@ export default defineConfig({
 		// duplicated — so e.g. setServers() writes to instance A and
 		// ServerList reads from instance B. Force a single resolution per
 		// workspace package name so all callers share the same module.
-		dedupe: ['@syren/app-core', '@syren/ui', '@syren/types', 'svelte']
+		dedupe: ['@syren/app-core', '@syren/ui', '@syren/types', '@syren/client', 'svelte']
 	}
 });

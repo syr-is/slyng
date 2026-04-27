@@ -169,18 +169,26 @@ export class AuthController {
 
 			let target = isAllowedRedirect(postLoginRedirect) ? postLoginRedirect : '/channels/@me';
 
-			// For non-HTTP redirect targets (the native app's deep link
-			// or loopback) the session cookie is useless — cookies are
-			// scoped to web origins. Issue a one-shot bridge token
-			// instead, attach it as `?code=…`, and let the native client
-			// swap it for the real session id via /auth/exchange.
-			if (isCustomSchemeRedirect(target) || target.startsWith('http://localhost:')) {
-				const bridge = this.authService.issueBridgeToken(sessionId);
-				const sep = target.includes('?') ? '&' : '?';
-				target = `${target}${sep}code=${encodeURIComponent(bridge)}`;
-			}
+			// Always issue a one-shot bridge token alongside the cookie.
+			// Native (custom scheme + desktop loopback) needs it because
+			// the cookie can't cross the origin boundary; the web app
+			// uses it to bootstrap a `Bearer`-auth session token in
+			// localStorage instead of relying on the cookie. The cookie
+			// is still set for backwards compatibility / belt-and-braces.
+			//
+			// The param name is intentionally namespaced (`syren_bridge`)
+			// rather than the more conventional `code` — the web app's
+			// root layout consumes and scrubs this on every load, so a
+			// generic `?code=…` would silently swallow any future route
+			// that legitimately needs that param.
+			const bridge = this.authService.issueBridgeToken(sessionId);
+			const sep = target.includes('?') ? '&' : '?';
+			target = `${target}${sep}syren_bridge=${encodeURIComponent(bridge)}`;
 
-			// Same-origin path → normal 302 (legacy web flow).
+			// Same-origin path → normal 302 (web flow). The page picks
+			// the bridge code out of the URL on first load, exchanges
+			// it via /auth/exchange, stores the session id in
+			// localStorage, and scrubs the URL.
 			if (target.startsWith('/')) {
 				return res.redirect(target);
 			}
@@ -188,13 +196,13 @@ export class AuthController {
 			// Desktop loopback (tauri-plugin-oauth listens on
 			// http://localhost:<port>/). A regular 302 is fine — the
 			// browser hits the loopback, plugin-oauth captures the URL
-			// (with `?code=…`), and emits a default success page. No
-			// custom HTML needed here.
+			// (with `?syren_bridge=…`), and emits a default success
+			// page. No custom HTML needed here.
 			if (target.startsWith('http://localhost:')) {
 				return res.redirect(target);
 			}
 
-			// Mobile custom scheme (`syren://auth/callback?code=…`).
+			// Mobile custom scheme (`syren://auth/callback?syren_bridge=…`).
 			// Chrome on Android refuses to follow cross-scheme JS-driven
 			// navigations from the page (no user gesture), and even
 			// Location: redirects can be blocked. The robust pattern
@@ -210,14 +218,14 @@ export class AuthController {
 			//      browsers honour them.
 			const codeParam = (() => {
 				try {
-					return new URL(target).searchParams.get('code') ?? '';
+					return new URL(target).searchParams.get('syren_bridge') ?? '';
 				} catch {
 					return '';
 				}
 			})();
 			const fallbackUrl = `${this.authService.getPlatformOrigin()}/login`;
 			const intentUrl =
-				`intent://auth/callback?code=${encodeURIComponent(codeParam)}` +
+				`intent://auth/callback?syren_bridge=${encodeURIComponent(codeParam)}` +
 				`#Intent;scheme=syren;package=is.syr.syren;` +
 				`S.browser_fallback_url=${encodeURIComponent(fallbackUrl)};end`;
 			const directUrl = target;

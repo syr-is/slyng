@@ -48,7 +48,7 @@ pub struct ExchangeResponse {
 
 // ── Pagination ──
 
-#[derive(Debug, Default, Serialize, Clone)]
+#[derive(Debug, Default, Serialize, Deserialize, Clone)]
 pub struct Paginated {
 	#[serde(skip_serializing_if = "Option::is_none")]
 	pub limit: Option<u32>,
@@ -62,7 +62,7 @@ pub struct Paginated {
 	pub q: Option<String>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct Page<T> {
 	pub items: Vec<T>,
 	pub total: u64,

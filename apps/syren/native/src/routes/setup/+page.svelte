@@ -6,7 +6,7 @@
 	import { Label } from '@syren/ui/label';
 	import { Loader2 } from '@lucide/svelte';
 	import { setStoredHost } from '$lib/host-store';
-	import { normalizeHost, isValidHost } from '$lib/normalize-host';
+	import { normalizeHost, isValidHost } from '@syren/app-core/normalize-host';
 	import { setHost } from '@syren/app-core/host';
 
 	let url = $state('');

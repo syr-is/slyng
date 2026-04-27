@@ -8,7 +8,8 @@
 	import { Label } from '@syren/ui/label';
 	import { getStoredHostSync } from '$lib/host-store';
 	import { getNativeClient } from '$lib/client';
-	import { normalizeHost, isValidHost } from '$lib/normalize-host';
+	import { api } from '@syren/app-core/api';
+	import { normalizeHost, isValidHost } from '@syren/app-core/normalize-host';
 	import { Loader2 } from '@lucide/svelte';
 
 	let instanceUrl = $state('');
@@ -27,8 +28,8 @@
 	}
 
 	// The Rust side fires `auth-changed` once it consumes the
-	// `syren://auth/callback?code=...` deep link and exchanges the
-	// bridge code for a session. We listen here and route into the
+	// `syren://auth/callback?syren_bridge=...` deep link and exchanges
+	// the bridge code for a session. We listen here and route into the
 	// app the moment that lands. Listener registration lives inside
 	// `onMount` so it's synchronised with the component lifecycle —
 	// otherwise an early-destroy could fire `unlisten?.()` while the
@@ -51,10 +52,8 @@
 
 	async function checkAndRedirect(reason: string) {
 		if (redirected) return;
-		const apiHost = getStoredHostSync();
-		if (!apiHost) return;
 		try {
-			await getNativeClient(apiHost).me();
+			await api.auth.me();
 			if (import.meta.env.DEV) console.log(`[login] self-correct: /auth/me succeeded (${reason})`);
 			redirected = true;
 			if (polling) clearInterval(polling);
@@ -126,7 +125,7 @@
 		try {
 			// Rust opens the consent URL in the system browser. After the
 			// user completes consent, syr.is redirects to our API
-			// callback, which bounces to `syren://auth/callback?code=...`.
+			// callback, which bounces to `syren://auth/callback?syren_bridge=...`.
 			// The OS routes that into Tauri; the deep-link handler fires
 			// `complete_login` → `syren-client::login_complete`, which
 			// fetches `/auth/me` and emits `auth-changed`. The listener
