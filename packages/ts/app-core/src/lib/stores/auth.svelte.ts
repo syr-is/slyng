@@ -3,7 +3,7 @@
  * client-side from the user's instance via `profiles.svelte.ts`.
  */
 
-import { getApiTransport, apiUrl } from '../host';
+import { api } from '../api';
 
 export interface AuthIdentity {
 	did: string;
@@ -32,13 +32,13 @@ export async function checkAuth(): Promise<AuthIdentity | null> {
 
 	loading = true;
 	try {
-		// Route through whatever transport is registered — Rust on
-		// native, fetch on web. Same response shape either way.
-		const transport = getApiTransport();
-		if (import.meta.env.DEV) console.log('[checkAuth] transport=', typeof transport);
-		const data = transport
-			? await transport<Partial<AuthIdentity>>('/auth/me', { method: 'GET' })
-			: await (await fetch(apiUrl('/auth/me'), { credentials: 'include' })).json();
+		// Goes through the api singleton, which the host wires up to
+		// the WASM client at boot. That client carries the Bearer
+		// token from its session store on every request — using a raw
+		// `fetch(apiUrl(...))` here would skip the bearer entirely on
+		// native (Tauri webview) and silently 401, even though the
+		// session id is sitting in localStorage.
+		const data = await api.auth.me();
 		if (import.meta.env.DEV) console.log('[checkAuth] /auth/me ok=', !!(data?.did && data?.syr_instance_url));
 		if (data?.did && data?.syr_instance_url) {
 			identity = {
