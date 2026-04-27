@@ -33,26 +33,42 @@ async function ensureClient(): Promise<SyrenClient> {
 }
 
 /**
- * If the page URL carries a `code=…` param, we just landed here from
- * the OAuth callback. `client.auth.exchange(code)` posts to
- * /auth/exchange and persists the returned session id under
+ * If the page URL carries a `syren_bridge=…` param, we just landed
+ * here from the OAuth callback. `client.auth.exchange(bridge)` posts
+ * to /auth/exchange and persists the returned session id under
  * `localStorage[syren_session]` through the Rust client's
  * `LocalStorageStore`. Then scrub the param so the single-use code
  * doesn't sit in history / referrer headers.
+ *
+ * The param is namespaced (`syren_bridge`, not `code`) so the
+ * unconditional consume-and-scrub pass doesn't fight any future route
+ * that legitimately uses `?code=…` for its own purposes.
  */
 export const load = async ({ url }) => {
 	if (!browser) return {};
-	const c = await ensureClient();
-	const code = url.searchParams.get('code');
-	if (code) {
+	let c: SyrenClient;
+	try {
+		c = await ensureClient();
+	} catch (err) {
+		// Surface a real error here — a swallowed init failure means a
+		// blank app with no API client, which is much harder to debug
+		// than a SvelteKit error page.
+		console.error('[syren] failed to initialise WASM client', err);
+		throw err;
+	}
+	const bridge = url.searchParams.get('syren_bridge');
+	if (bridge) {
 		try {
-			await c.auth.exchange(code);
-		} catch {
+			await c.auth.exchange(bridge);
+		} catch (err) {
 			// Bridge code expired or already consumed — fall through;
 			// the (app) bootstrap will redirect to /login if no session.
+			if (import.meta.env.DEV) {
+				console.warn('[syren] bridge exchange failed', err);
+			}
 		}
 		const cleaned = new URL(url.toString());
-		cleaned.searchParams.delete('code');
+		cleaned.searchParams.delete('syren_bridge');
 		if (typeof history !== 'undefined') {
 			history.replaceState(history.state, '', cleaned.toString());
 		}

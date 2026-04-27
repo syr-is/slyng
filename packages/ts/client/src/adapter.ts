@@ -128,6 +128,9 @@ export interface MyPermissions {
 
 export interface InvitePreview {
 	code: string;
+	target_kind: 'open' | 'instance' | 'did';
+	target_value: string | null;
+	label: string | null;
 	server: {
 		id: string;
 		name: string;

@@ -55,13 +55,28 @@
 	let sendInput = $state('');
 	let sendResolving = $state(false);
 	let sendResolved = $state<{ did: string; syr_instance_url: string | null; registered: boolean } | null>(null);
+	// Snapshot of the buildSendQuery() result that produced sendResolved.
+	// Used to invalidate the resolution if the user edits the input
+	// afterwards — otherwise pressing Enter would send a request to the
+	// previously-resolved DID instead of re-resolving the new text.
+	let sendResolvedQuery = $state<string | null>(null);
 	let sending = $state(false);
 
 	function switchSendMode(next: SendMode) {
 		sendMode = next;
 		sendInput = '';
 		sendResolved = null;
+		sendResolvedQuery = null;
 	}
+
+	// Drop the stale resolution as soon as the input drifts from the
+	// query that produced it.
+	$effect(() => {
+		if (sendResolved && buildSendQuery() !== sendResolvedQuery) {
+			sendResolved = null;
+			sendResolvedQuery = null;
+		}
+	});
 
 	const sendProfile = $derived(
 		sendResolved ? resolveProfile(sendResolved.did, sendResolved.syr_instance_url ?? undefined) : null
@@ -84,9 +99,11 @@
 		const q = buildSendQuery();
 		if (!q) return;
 		sendResolved = null;
+		sendResolvedQuery = null;
 		sendResolving = true;
 		try {
 			sendResolved = await api.users.resolve(q);
+			sendResolvedQuery = q;
 		} catch (err) {
 			toast.error(err instanceof Error ? err.message : 'Could not find user');
 		}
@@ -104,6 +121,7 @@
 			await api.relations.sendRequest(sendResolved.did, sendResolved.syr_instance_url ?? undefined);
 			toast.success('Friend request sent');
 			sendResolved = null;
+			sendResolvedQuery = null;
 			sendInput = '';
 		} catch (err) {
 			toast.error(err instanceof Error ? err.message : 'Failed to send request');

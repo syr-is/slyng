@@ -22,7 +22,7 @@
 
 	async function refreshDms() {
 		try {
-			const list = (await api.users.dmChannels()) as any[];
+			const list = await api.users.dmChannels();
 			dms = list.filter((c) => c.is_ignored);
 		} catch {
 			/* best-effort */
@@ -67,6 +67,7 @@
 	async function decline(did: string) {
 		try {
 			await api.relations.decline(did);
+			toast.success('Request declined');
 		} catch (err) {
 			toast.error(err instanceof Error ? err.message : 'Failed');
 		}

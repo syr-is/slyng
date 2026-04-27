@@ -96,20 +96,19 @@
 			]);
 			// Bail if user switched server mid-fetch
 			if (loadingServerId !== id) return;
-			const s = server as any;
 			upsertServer({
-				id: String(s.id),
-				name: s.name ?? 'Server',
-				description: s.description ?? null,
-				icon_url: s.icon_url ?? null,
-				banner_url: s.banner_url ?? null,
-				invite_background_url: s.invite_background_url ?? null,
-				owner_id: s.owner_id ?? '',
-				member_count: s.member_count ?? 0
+				id: String(server.id),
+				name: server.name ?? 'Server',
+				description: server.description ?? null,
+				icon_url: server.icon_url ?? null,
+				banner_url: server.banner_url ?? null,
+				invite_background_url: server.invite_background_url ?? null,
+				owner_id: server.owner_id ?? '',
+				member_count: server.member_count ?? 0
 			});
-			setActiveServerOwner(s.owner_id || null);
-			setServerChannels(channels as any[]);
-			setServerCategories(categories as any[]);
+			setActiveServerOwner(server.owner_id || null);
+			setServerChannels(channels);
+			setServerCategories(categories);
 			{
 				const p = perms as {
 					permissions: string;
@@ -121,10 +120,10 @@
 					is_owner: !!p.is_owner
 				});
 			}
-			setRoles(id, roles as any[]);
-			setMembers(id, members as any[]);
+			setRoles(id, roles);
+			setMembers(id, members);
 
-			const channelIds = (channels as any[]).map((c: any) => String(c.id));
+			const channelIds = channels.map((c) => String(c.id));
 			// Also subscribe to the server-level topic so we receive
 			// CHANNEL_CREATE/UPDATE/DELETE / ROLE_* / MEMBER_* / voice state
 			// broadcasts for the current server only.
@@ -148,15 +147,12 @@
 				}
 			} catch { /* non-critical — WS will fill in as people join */ }
 
-			// Register profile-hash watches for every member so we get
-			// PROFILE_UPDATE events when their syr profile or stories change.
-			const watchPayload = (members as any[])
-				.filter((m) => !!m.syr_instance_url)
-				.map((m) => ({ did: m.user_id as string, instance_url: m.syr_instance_url as string }));
-			if (watchPayload.length) {
-				watchProfiles(watchPayload);
-				watchedDids = watchPayload.map((p) => p.did);
-			}
+			// Profile-hash watches are driven entirely by the member-list
+			// effect below: setMembers above triggers it, it diffs against
+			// `watchedDids` (still empty for a fresh server) and fires
+			// `watchProfiles` for the whole roster. Calling it inline here
+			// would double up — both paths would emit WATCH_PROFILES with
+			// the same DIDs.
 		} catch (err) {
 			if (loadingServerId !== id) return;
 			setServerChannels([]);
@@ -210,6 +206,12 @@
 	// server segment (nav to /settings, /channels/@me, signout, route unmount).
 	// Without this, the old server's topics keep delivering events until a
 	// different server's load fires.
+	//
+	// `onWsEvent` returns an unsubscribe fn — collect them so onDestroy
+	// runs them all. Without this, every remount stacks another listener
+	// and a single event fans out to N copies of the handler.
+	const wsUnsubs: Array<() => void> = [];
+
 	onDestroy(() => {
 		if (subscribedTopics.length) {
 			unsubscribeChannels(subscribedTopics);
@@ -220,6 +222,8 @@
 			watchedDids = [];
 		}
 		setPageSidebar(undefined);
+		for (const unsub of wsUnsubs) unsub();
+		wsUnsubs.length = 0;
 	});
 
 	// Hand the channel sidebar off to (app)/+layout's SwipeLayout drawer
@@ -228,46 +232,46 @@
 	// sidebar to crowd the chat on narrow screens.
 	onMount(() => {
 		setPageSidebar(channelDrawer);
-	});
-
-	// Refetch the channel list when permission overrides change — channels may
-	// become visible or hidden, and per-channel my_permissions bitmasks shift.
-	onWsEvent(WsOp.PERMISSION_OVERRIDE_UPDATE, async () => {
-		const id = serverId;
-		if (!id) return;
-		try {
-			const channels = await api.servers.channels(id);
-			setServerChannels(channels as any[]);
-			// Subscribe to any newly visible channels
-			const known = new Set(subscribedTopics);
-			const missing = (channels as any[])
-				.map((c: any) => String(c.id))
-				.filter((cid: string) => !known.has(cid));
-			if (missing.length) {
-				subscribeChannels(missing);
-				subscribedTopics = [...subscribedTopics, ...missing];
-			}
-		} catch { /* best-effort */ }
-	});
-
-	onWsEvent(WsOp.SERVER_DELETE, (data) => {
-		const { id } = data as { id?: string };
-		if (id && String(id) === serverId) {
-			toast.info('This server was deleted');
-			goto('/channels/@me');
-		}
-	});
-
-	// If the local user is removed (kicked / banned) from the server we're
-	// currently viewing, bail out. Rail-level cleanup lives in the servers
-	// store; this handler just ejects the view.
-	onWsEvent(WsOp.MEMBER_REMOVE, (data) => {
-		const { user_id, server_id } = data as { user_id?: string; server_id?: string };
-		if (!user_id || !server_id) return;
-		if (String(server_id) !== serverId) return;
-		if (user_id !== auth.identity?.did) return;
-		toast.info('You were removed from this server');
-		goto('/channels/@me');
+		// Refetch the channel list when permission overrides change —
+		// channels may become visible or hidden, and per-channel
+		// my_permissions bitmasks shift.
+		wsUnsubs.push(
+			onWsEvent(WsOp.PERMISSION_OVERRIDE_UPDATE, async () => {
+				const id = serverId;
+				if (!id) return;
+				try {
+					const channels = await api.servers.channels(id);
+					setServerChannels(channels);
+					// Subscribe to any newly visible channels
+					const known = new Set(subscribedTopics);
+					const missing = channels
+						.map((c) => String(c.id))
+						.filter((cid) => !known.has(cid));
+					if (missing.length) {
+						subscribeChannels(missing);
+						subscribedTopics = [...subscribedTopics, ...missing];
+					}
+				} catch { /* best-effort */ }
+			}),
+			onWsEvent(WsOp.SERVER_DELETE, (data) => {
+				const { id } = data as { id?: string };
+				if (id && String(id) === serverId) {
+					toast.info('This server was deleted');
+					goto('/channels/@me');
+				}
+			}),
+			// If the local user is removed (kicked / banned) from the server
+			// we're currently viewing, bail out. Rail-level cleanup lives in
+			// the servers store; this handler just ejects the view.
+			onWsEvent(WsOp.MEMBER_REMOVE, (data) => {
+				const { user_id, server_id } = data as { user_id?: string; server_id?: string };
+				if (!user_id || !server_id) return;
+				if (String(server_id) !== serverId) return;
+				if (user_id !== auth.identity?.did) return;
+				toast.info('You were removed from this server');
+				goto('/channels/@me');
+			})
+		);
 	});
 
 	async function handleSignOut() {

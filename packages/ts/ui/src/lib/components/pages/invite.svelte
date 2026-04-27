@@ -11,11 +11,7 @@
 
 	const code = $derived(page.params.code ?? '');
 
-	type Preview = Awaited<ReturnType<typeof api.invites.preview>> & {
-		target_kind?: 'open' | 'instance' | 'did';
-		target_value?: string | null;
-		label?: string | null;
-	};
+	type Preview = Awaited<ReturnType<typeof api.invites.preview>>;
 
 	let preview = $state<Preview | null>(null);
 	let loadingPreview = $state(true);
@@ -43,7 +39,7 @@
 		joining = true;
 		joinError = null;
 		try {
-			const result = (await api.invites.join(code)) as any;
+			const result = await api.invites.join(code);
 			joinedServerId = result.server_id;
 			joined = true;
 		} catch (err) {

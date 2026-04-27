@@ -68,7 +68,7 @@
 
 		try {
 			const servers = await api.servers.list();
-			setServers(servers as any[]);
+			setServers(servers);
 		} catch {
 			toast.error('Failed to load servers');
 		}
@@ -91,7 +91,7 @@
 		try {
 			await api.servers.create(data);
 			const servers = await api.servers.list();
-			setServers(servers as any[]);
+			setServers(servers);
 		} catch {
 			toast.error('Failed to create server');
 		}

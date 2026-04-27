@@ -107,10 +107,10 @@
 			// toggle is pure render-time filtering (no round-trip on flip).
 			// Non-privileged callers receive a stripped response either way —
 			// server-side filter ignores include_deleted without the perm.
-			const msgs = (await api.channels.messages(chId, {
+			const msgs = await api.channels.messages(chId, {
 				limit: 50,
 				include_deleted: perms.canViewRemovedMessages
-			})) as any[];
+			});
 			if (loadedChannelId !== chId) return; // user switched again
 			setCurrentChannel(chId, msgs);
 			setTypingChannel(chId);
@@ -183,16 +183,16 @@
 
 	async function refetchForPermChange(chId: string, reveal: boolean) {
 		try {
-			const msgs = (await api.channels.messages(chId, {
+			const msgs = await api.channels.messages(chId, {
 				limit: 50,
 				include_deleted: reveal
-			})) as any[];
+			});
 			if (loadedChannelId !== chId) return;
 			setCurrentChannel(chId, msgs);
 			hasMoreMessages = msgs.length >= 50;
 			if (!reveal) showRemoved = false;
 		} catch {
-			toast.error('Failed to refresh channel');
+			if (loadedChannelId === chId) toast.error('Failed to refresh channel');
 		}
 	}
 
@@ -262,24 +262,28 @@
 				// timeline. Mirrors the `loadedChannelId` guard in `loadChannel`.
 				const reqChannelId = channelId;
 				try {
-					const older = (await api.channels.messages(reqChannelId, {
+					const older = await api.channels.messages(reqChannelId, {
 						before: oldestMsg.created_at,
 						limit: 50,
 						include_deleted: perms.canViewRemovedMessages
-					})) as any[];
-					if (loadedChannelId !== reqChannelId) return;
-					if (older.length < 50) hasMoreMessages = false;
-					if (older.length > 0) {
-						const prevHeight = messagesContainer.scrollHeight;
-						// Prepend older messages
-						const current = messageStore.list;
-						setCurrentChannel(reqChannelId, [...older, ...current]);
-						// Maintain scroll position
-						requestAnimationFrame(() => {
-							if (messagesContainer) {
-								messagesContainer.scrollTop = messagesContainer.scrollHeight - prevHeight;
-							}
-						});
+					});
+					// Don't `return` here — the `loadingOlder = false` at the
+					// bottom needs to run so the next scroll attempt isn't
+					// silently blocked. Just skip the commit.
+					if (loadedChannelId === reqChannelId) {
+						if (older.length < 50) hasMoreMessages = false;
+						if (older.length > 0) {
+							const prevHeight = messagesContainer.scrollHeight;
+							// Prepend older messages
+							const current = messageStore.list;
+							setCurrentChannel(reqChannelId, [...older, ...current]);
+							// Maintain scroll position
+							requestAnimationFrame(() => {
+								if (messagesContainer) {
+									messagesContainer.scrollTop = messagesContainer.scrollHeight - prevHeight;
+								}
+							});
+						}
 					}
 				} catch {
 					if (loadedChannelId === reqChannelId) toast.error('Failed to load older messages');
@@ -301,16 +305,22 @@
 			height?: number;
 		}>
 	) {
+		// Snapshot the channel the user pressed Send in. If they've switched
+		// channels by the time the request resolves we'd otherwise wipe the
+		// reply chain they've built up in the *new* channel and toast an
+		// error in its UI for a request that originated elsewhere.
+		const reqChannelId = channelId;
 		try {
-			const msg = await api.channels.send(channelId, {
+			const msg = await api.channels.send(reqChannelId, {
 				content,
 				reply_to: replyToIds,
 				attachments
 			});
-			addMessage(msg as any);
+			if (loadedChannelId !== reqChannelId) return;
+			addMessage(msg);
 			replyTo = [];
 		} catch {
-			toast.error('Failed to send message');
+			if (loadedChannelId === reqChannelId) toast.error('Failed to send message');
 		}
 	}
 

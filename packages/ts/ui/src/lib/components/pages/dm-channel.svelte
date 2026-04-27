@@ -5,8 +5,9 @@
 	import MessageItem from '@syren/ui/fragments/message-item.svelte';
 	import MessageInput from '@syren/ui/fragments/message-input.svelte';
 	import ProfileHoverCard from '@syren/ui/fragments/profile-hover-card.svelte';
+	import { onDestroy } from 'svelte';
 	import { api } from '@syren/app-core/api';
-	import { subscribeChannels } from '@syren/app-core/stores/ws.svelte';
+	import { subscribeChannels, unsubscribeChannels } from '@syren/app-core/stores/ws.svelte';
 	import { setCurrentChannel, getMessages, addMessage } from '@syren/app-core/stores/messages.svelte';
 	import { setTypingChannel, getTyping } from '@syren/app-core/stores/typing.svelte';
 	import { resolveProfile, displayName, federatedHandle, getProfile } from '@syren/app-core/stores/profiles.svelte';
@@ -40,6 +41,11 @@
 	const typingStore = getTyping();
 
 	let loadedChannelId: string | null = null;
+	// Track the channel topic we last subscribed to so a fast DM-switch
+	// (or component teardown) can drop the stale sub before opening the
+	// next one. Without this, every visited DM keeps generating WS
+	// traffic against this socket for the rest of the session.
+	let subscribedChannelId: string | null = null;
 
 	async function loadChannel(chId: string) {
 		if (loadedChannelId === chId) return;
@@ -50,6 +56,10 @@
 		stickToBottom = true;
 		otherDid = null;
 		otherInstance = null;
+		if (subscribedChannelId && subscribedChannelId !== chId) {
+			unsubscribeChannels([subscribedChannelId]);
+			subscribedChannelId = null;
+		}
 
 		try {
 			// Resolve the other participant from the DM list so the header has
@@ -67,12 +77,13 @@
 					(otherDid ? relations.instanceFor(otherDid) ?? null : null);
 			}
 
-			const msgs = (await api.channels.messages(chId, { limit: 50 })) as any[];
+			const msgs = await api.channels.messages(chId, { limit: 50 });
 			if (loadedChannelId !== chId) return;
 			setCurrentChannel(chId, msgs);
 			setTypingChannel(chId);
 			setActiveChannelForUnread(chId);
 			subscribeChannels([chId]);
+			subscribedChannelId = chId;
 			hasMoreMessages = msgs.length >= 50;
 		} catch (err) {
 			if (loadedChannelId === chId) {
@@ -83,6 +94,13 @@
 
 	$effect(() => {
 		if (channelId) loadChannel(channelId);
+	});
+
+	onDestroy(() => {
+		if (subscribedChannelId) {
+			unsubscribeChannels([subscribedChannelId]);
+			subscribedChannelId = null;
+		}
 	});
 
 	const visibleMessages = $derived(messageStore.list.filter((m) => !m.deleted));
@@ -142,21 +160,25 @@
 				// can't commit older messages onto the new channel.
 				const reqChannelId = channelId;
 				try {
-					const older = (await api.channels.messages(reqChannelId, {
+					const older = await api.channels.messages(reqChannelId, {
 						before: oldestMsg.created_at,
 						limit: 50
-					})) as any[];
-					if (loadedChannelId !== reqChannelId) return;
-					if (older.length < 50) hasMoreMessages = false;
-					if (older.length > 0) {
-						const prevHeight = messagesContainer.scrollHeight;
-						const current = messageStore.list;
-						setCurrentChannel(reqChannelId, [...older, ...current]);
-						requestAnimationFrame(() => {
-							if (messagesContainer) {
-								messagesContainer.scrollTop = messagesContainer.scrollHeight - prevHeight;
-							}
-						});
+					});
+					// Don't `return` here — the `loadingOlder = false` at the
+					// bottom needs to run so the next scroll attempt isn't
+					// silently blocked. Just skip the commit.
+					if (loadedChannelId === reqChannelId) {
+						if (older.length < 50) hasMoreMessages = false;
+						if (older.length > 0) {
+							const prevHeight = messagesContainer.scrollHeight;
+							const current = messageStore.list;
+							setCurrentChannel(reqChannelId, [...older, ...current]);
+							requestAnimationFrame(() => {
+								if (messagesContainer) {
+									messagesContainer.scrollTop = messagesContainer.scrollHeight - prevHeight;
+								}
+							});
+						}
 					}
 				} catch {
 					if (loadedChannelId === reqChannelId) toast.error('Failed to load older messages');
@@ -178,18 +200,22 @@
 			height?: number;
 		}>
 	) {
+		const reqChannelId = channelId;
 		try {
-			const msg = await api.channels.send(channelId, {
+			const msg = await api.channels.send(reqChannelId, {
 				content,
 				reply_to: replyToIds,
 				attachments
 			});
-			addMessage(msg as any);
+			if (loadedChannelId !== reqChannelId) return;
+			addMessage(msg);
 			replyTo = [];
 		} catch (err) {
 			// Surface the real reason (DM policy / block / etc.) — the backend
 			// returns a user-facing message for canDM rejections.
-			toast.error(err instanceof Error ? err.message : 'Failed to send message');
+			if (loadedChannelId === reqChannelId) {
+				toast.error(err instanceof Error ? err.message : 'Failed to send message');
+			}
 		}
 	}
 

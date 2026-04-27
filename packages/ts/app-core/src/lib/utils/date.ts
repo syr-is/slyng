@@ -7,7 +7,10 @@ export function formatDateLabel(date: Date): string {
 	const now = new Date();
 	const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
 	const target = new Date(date.getFullYear(), date.getMonth(), date.getDate());
-	const days = (today.getTime() - target.getTime()) / (1000 * 60 * 60 * 24);
+	// Round rather than truncate — a DST transition between `target` and
+	// `today` shifts the raw delta by ±1h, which would land on 0.958 or
+	// 1.042 days and silently mislabel "Yesterday" as the dated form.
+	const days = Math.round((today.getTime() - target.getTime()) / (1000 * 60 * 60 * 24));
 	if (days === 0) return 'Today';
 	if (days === 1) return 'Yesterday';
 	return date.toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' });

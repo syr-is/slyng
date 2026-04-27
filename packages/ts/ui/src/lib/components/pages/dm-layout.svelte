@@ -35,11 +35,17 @@
 
 	async function refreshDms() {
 		try {
-			dmChannels = (await api.users.dmChannels()) as any[];
+			dmChannels = await api.users.dmChannels();
 		} catch (err) {
 			toast.error(err instanceof Error ? err.message : 'Failed to load DMs');
 		}
 	}
+
+	// `onWsEvent` returns an unsubscribe fn; collect them so onDestroy
+	// can run them. Without this, every mount stacks another listener on
+	// the global WS bus and a single event fans out to N copies of
+	// refreshDms() for the rest of the session.
+	const wsUnsubs: Array<() => void> = [];
 
 	onMount(async () => {
 		setActiveServer(null);
@@ -48,19 +54,22 @@
 		// crowded the main view on mobile (the user saw both side-by-side
 		// with no way to swipe between them).
 		setPageSidebar(dmSidebar);
+		// Keep the DM list in sync when new DM channels are created or
+		// when the actor's relations change (blocking / ignoring flips
+		// is_blocked / is_ignored on each row).
+		wsUnsubs.push(
+			onWsEvent(WsOp.DM_CHANNEL_CREATE, () => void refreshDms()),
+			onWsEvent(WsOp.BLOCK_UPDATE, () => void refreshDms()),
+			onWsEvent(WsOp.IGNORE_UPDATE, () => void refreshDms())
+		);
 		await refreshDms();
 	});
 
 	onDestroy(() => {
 		setPageSidebar(undefined);
+		for (const unsub of wsUnsubs) unsub();
+		wsUnsubs.length = 0;
 	});
-
-	// Keep the DM list in sync when new DM channels are created or when the
-	// actor's relations change (blocking / ignoring flips is_blocked /
-	// is_ignored on each row, and filtering happens below).
-	onWsEvent(WsOp.DM_CHANNEL_CREATE, () => void refreshDms());
-	onWsEvent(WsOp.BLOCK_UPDATE, () => void refreshDms());
-	onWsEvent(WsOp.IGNORE_UPDATE, () => void refreshDms());
 
 	// Main list: all NON-ignored DMs. Ignored DMs live in the dedicated
 	// /channels/@me/ignored tab.

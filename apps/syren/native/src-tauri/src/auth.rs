@@ -7,12 +7,12 @@
 //!   API receives `http://localhost:<port>/` as the redirect_uri,
 //!   the system browser hits that URL after the OAuth callback's
 //!   bounce, and the plugin's request handler calls us with the
-//!   full URL (which carries the bridge `?code=…`).
+//!   full URL (which carries the bridge `?syren_bridge=…`).
 //!
 //! - **Mobile** (`tauri-plugin-deep-link`): we register `syren://`
-//!   at the OS level. The API redirects to `syren://auth/callback?code=…`,
-//!   the OS routes it into Tauri, and the deep-link plugin fires our
-//!   on_open_url handler.
+//!   at the OS level. The API redirects to
+//!   `syren://auth/callback?syren_bridge=…`, the OS routes it into
+//!   Tauri, and the deep-link plugin fires our on_open_url handler.
 //!
 //! Both code paths funnel into [`handle_callback_url`], which parses
 //! the bridge code, calls `syren_client::login_complete`, persists
@@ -70,7 +70,7 @@ pub fn handle_callback_url<R: Runtime>(app: &AppHandle<R>, url_str: &str) {
 	let parsed = url::Url::parse(url_str).ok();
 	let code = parsed.as_ref().and_then(|u| {
 		u.query_pairs()
-			.find(|(k, _)| k == "code")
+			.find(|(k, _)| k == "syren_bridge")
 			.map(|(_, v)| v.into_owned())
 	});
 	#[cfg(debug_assertions)]

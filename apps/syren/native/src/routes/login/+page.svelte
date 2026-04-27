@@ -28,8 +28,8 @@
 	}
 
 	// The Rust side fires `auth-changed` once it consumes the
-	// `syren://auth/callback?code=...` deep link and exchanges the
-	// bridge code for a session. We listen here and route into the
+	// `syren://auth/callback?syren_bridge=...` deep link and exchanges
+	// the bridge code for a session. We listen here and route into the
 	// app the moment that lands. Listener registration lives inside
 	// `onMount` so it's synchronised with the component lifecycle —
 	// otherwise an early-destroy could fire `unlisten?.()` while the
@@ -125,7 +125,7 @@
 		try {
 			// Rust opens the consent URL in the system browser. After the
 			// user completes consent, syr.is redirects to our API
-			// callback, which bounces to `syren://auth/callback?code=...`.
+			// callback, which bounces to `syren://auth/callback?syren_bridge=...`.
 			// The OS routes that into Tauri; the deep-link handler fires
 			// `complete_login` → `syren-client::login_complete`, which
 			// fetches `/auth/me` and emits `auth-changed`. The listener

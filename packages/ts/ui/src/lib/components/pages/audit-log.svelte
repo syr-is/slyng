@@ -26,6 +26,11 @@
 	}
 
 	$effect(() => {
+		// Wait for the perms snapshot to land before deciding whether to
+		// kick the user out — bitmask defaults to 0 (no perms) until
+		// `setServerPerms` runs, so a naive check would always redirect
+		// on first paint.
+		if (perms.serverId !== serverId) return;
 		if (!perms.canViewAuditLog) {
 			// Guard against route params being missing — `/channels/` is not
 			// a canonical destination. Fall back to /channels/@me when there's
