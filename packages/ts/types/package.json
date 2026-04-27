@@ -21,7 +21,8 @@
 	"sideEffects": false,
 	"scripts": {
 		"gen": "cargo run --manifest-path ../../rust/Cargo.toml -p syren-types --bin generate-zod -- src/generated.ts",
-		"build": "pnpm run gen && tsup",
+		"build": "tsup",
+		"build:fresh": "pnpm run gen && tsup",
 		"dev": "tsup --watch",
 		"check": "tsc --noEmit",
 		"test": "vitest run",
