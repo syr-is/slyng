@@ -3,7 +3,9 @@
  * client-side from the user's instance via `profiles.svelte.ts`.
  */
 
-import { api } from '../api';
+import { apiUrl } from '../host';
+
+const SESSION_KEY = 'syren_session';
 
 export interface AuthIdentity {
 	did: string;
@@ -32,23 +34,43 @@ export async function checkAuth(): Promise<AuthIdentity | null> {
 
 	loading = true;
 	try {
-		// Goes through the api singleton, which the host wires up to
-		// the WASM client at boot. That client carries the Bearer
-		// token from its session store on every request — using a raw
-		// `fetch(apiUrl(...))` here would skip the bearer entirely on
-		// native (Tauri webview) and silently 401, even though the
-		// session id is sitting in localStorage.
-		const data = await api.auth.me();
-		if (import.meta.env.DEV) console.log('[checkAuth] /auth/me ok=', !!(data?.did && data?.syr_instance_url));
-		if (data?.did && data?.syr_instance_url) {
-			identity = {
-				did: data.did,
-				syr_instance_url: data.syr_instance_url,
-				delegate_public_key: data.delegate_public_key
-			};
+		// Plain fetch with both cookie *and* Bearer attachment — covers
+		// every shape we deploy:
+		//  - web same-origin with cookie auth (legacy): credentials send
+		//    the cookie.
+		//  - web with Bearer in localStorage (post-bridge): Authorization
+		//    header attaches it.
+		//  - native (Tauri webview, cross-origin to API host): cookies
+		//    don't cross, but the Bearer in localStorage (mirrored from
+		//    the Tauri Store at boot) authenticates the call.
+		// This deliberately bypasses the WASM api singleton — checkAuth
+		// is sometimes called from page scripts that run before
+		// +layout.ts's `setApi()` lands, and the lazy facade would throw.
+		const headers: Record<string, string> = { Accept: 'application/json' };
+		if (typeof localStorage !== 'undefined') {
+			const session = localStorage.getItem(SESSION_KEY);
+			if (session) headers.Authorization = `Bearer ${session}`;
+		}
+		const resp = await fetch(apiUrl('/auth/me'), {
+			method: 'GET',
+			credentials: 'include',
+			headers
+		});
+		if (resp.ok) {
+			const data = (await resp.json()) as Partial<AuthIdentity>;
+			if (import.meta.env.DEV) console.log('[checkAuth] /auth/me ok=', !!(data?.did && data?.syr_instance_url));
+			if (data?.did && data?.syr_instance_url) {
+				identity = {
+					did: data.did,
+					syr_instance_url: data.syr_instance_url,
+					delegate_public_key: data.delegate_public_key
+				};
+			}
+		} else if (import.meta.env.DEV) {
+			console.log('[checkAuth] /auth/me status=', resp.status);
 		}
 	} catch (err) {
-		// API unreachable / 401
+		// API unreachable / network failure — leave identity null
 		if (import.meta.env.DEV) console.log('[checkAuth] caught', err);
 	}
 	checked = true;
