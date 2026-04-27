@@ -1,10 +1,10 @@
 import { redirect } from '@sveltejs/kit';
 import { setHost } from '@syren/app-core/host';
 import { setApi } from '@syren/app-core/api';
-import { setWsTokenProvider } from '@syren/app-core/stores/ws.svelte';
-import { invoke } from '@tauri-apps/api/core';
+import { setRealtime } from '@syren/app-core/realtime';
 import { getStoredHost, getStoredHostSync } from '$lib/host-store';
 import { createNativeApi } from '$lib/native-api';
+import { createNativeRealtime } from '$lib/native-realtime';
 
 export const ssr = false;
 export const prerender = false;
@@ -20,15 +20,8 @@ let wiredHost: string | null = null;
  */
 function ensureApi(host: string) {
 	if (wiredHost === host) return;
-	const api = createNativeApi(host);
-	setApi(api);
-	setWsTokenProvider(async () => {
-		try {
-			return (await invoke<string | null>('session_token', { apiHost: host })) ?? null;
-		} catch {
-			return null;
-		}
-	});
+	setApi(createNativeApi(host));
+	setRealtime(createNativeRealtime(host));
 	wiredHost = host;
 }
 

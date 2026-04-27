@@ -1,37 +1,31 @@
 import { WsOp } from '@syren/types';
-import { wsOrigin } from '../host';
+import { getRealtime, type WsState } from '../realtime';
 
 /**
- * WebSocket connection store.
- * Auto-reconnect, heartbeat, channel subscriptions remembered for reconnect.
+ * WebSocket dispatch layer. The actual wire transport (connect, IDENTIFY,
+ * heartbeat, reconnect, subscribe-state) lives in Rust now — see
+ * `RealtimeClient` in `packages/rust/syren-client/src/ws/`. This module
+ * registers a single `on_frame` callback against the platform's
+ * `RealtimeHandle` and routes incoming frames to per-op listeners
+ * (`onWsEvent(op, handler)`), preserving the API consumer stores have
+ * always used.
  *
- * Auth: same-origin web relies on the `syren_session` cookie, which the
- * NestJS gateway auto-identifies from. The Tauri native shell can't ride
- * cookies (different origin), so it registers a `tokenProvider` via
- * `setWsTokenProvider` — when set, we send an explicit `IDENTIFY` message
- * with the persisted session id immediately after the socket opens.
- *
- * IDENTIFY ordering: `ws.onopen` is `async` and we may have to await the
- * token provider, so the socket can be in the `OPEN` state before IDENTIFY
- * is dispatched. To prevent any concurrent `send(...)` call from leaking
- * an unauthenticated frame ahead of IDENTIFY, we gate `send()` on a
- * separate `identified` flag rather than the socket's `readyState`.
+ * `setWsTokenProvider` is a back-compat no-op: the Rust client reads
+ * the bearer directly from its `SessionStore` (LocalStorage on web,
+ * Tauri Store on native), so JS no longer needs to ferry tokens.
  */
 
-let socket: WebSocket | null = $state(null);
-let connected = $state(false);
 let identified = $state(false);
-let reconnectAttempts = 0;
-let heartbeatInterval: ReturnType<typeof setInterval> | null = null;
+let connected = $state(false);
 
 const listeners = new Map<number, Set<(data: unknown) => void>>();
-const sendQueue: { op: number; d: unknown }[] = [];
 const subscribedChannels = new Set<string>();
+let unsubscribeFrame: (() => void) | null = null;
+let unsubscribeState: (() => void) | null = null;
 
 type WsTokenProvider = () => Promise<string | null>;
-let tokenProvider: WsTokenProvider | null = null;
-export function setWsTokenProvider(provider: WsTokenProvider | null): void {
-	tokenProvider = provider;
+export function setWsTokenProvider(_provider: WsTokenProvider | null): void {
+	// kept for back-compat — Rust client owns token retrieval now.
 }
 
 export function getWsState() {
@@ -42,123 +36,56 @@ export function getWsState() {
 	};
 }
 
-export function connectWs(_apiUrl?: string) {
-	if (socket?.readyState === WebSocket.OPEN || socket?.readyState === WebSocket.CONNECTING) return;
+export function connectWs(_apiUrl?: string): void {
+	const rt = getRealtime();
+	if (!rt) {
+		console.warn('[ws] connectWs called before setRealtime() — skipping');
+		return;
+	}
 
-	const wsUrl = wsOrigin() + '/ws';
-	if (import.meta.env.DEV) console.log('[ws] connecting tokenProvider=', tokenProvider ? 'set' : 'unset');
-	const ws = new WebSocket(wsUrl);
-	socket = ws;
-
-	ws.onopen = async () => {
-		connected = true;
-		reconnectAttempts = 0;
-
-		// Native: explicit IDENTIFY before anything else (no cookies cross
-		// the tauri.localhost ↔ app.slyng.gg origin boundary). Web: skip,
-		// gateway auto-identifies from the cookie on the upgrade request.
-		// Either way, `identified` flips to true *after* IDENTIFY has been
-		// written (or immediately on the cookie path) — `send()` queues
-		// every other outbound frame until then.
-		if (tokenProvider) {
-			try {
-				const token = await tokenProvider();
-				if (token) {
-					if (import.meta.env.DEV) console.log('[ws] IDENTIFY sent');
-					rawSend(ws, { op: WsOp.IDENTIFY, d: { token } });
-				} else {
-					console.warn('[ws] tokenProvider returned no token; connection will be unauthenticated');
-				}
-			} catch (err) {
-				console.warn('[ws] tokenProvider threw', err);
-			}
-		}
-		identified = true;
-
-		// Re-subscribe to all channels (in case of reconnect)
-		if (subscribedChannels.size > 0) {
-			rawSend(ws, { op: WsOp.SUBSCRIBE, d: { channel_ids: [...subscribedChannels] } });
-		}
-
-		// Flush any queued sends
-		while (sendQueue.length > 0) {
-			rawSend(ws, sendQueue.shift()!);
-		}
-
-		heartbeatInterval = setInterval(() => {
-			send({ op: WsOp.HEARTBEAT, d: null });
-		}, 45000);
-	};
-
-	ws.onmessage = (event) => {
-		try {
-			const msg = JSON.parse(event.data as string);
-			const handlers = listeners.get(msg.op);
-			// Default log: op + handler count only (msg.d for `MESSAGE_CREATE`
-			// etc. carries plaintext content). Bodies are dev-only.
+	if (!unsubscribeFrame) {
+		unsubscribeFrame = rt.onFrame((op, d) => {
+			const handlers = listeners.get(op);
 			if (import.meta.env.DEV) {
-				console.log(`[ws] recv op=${msg.op} handlers=${handlers?.size ?? 0}`, msg.d);
+				console.log(`[ws] recv op=${op} handlers=${handlers?.size ?? 0}`, d);
 			}
-			if (handlers) {
-				for (const handler of handlers) {
-					handler(msg.d);
-				}
-			}
-		} catch (err) {
-			console.warn('[ws] invalid message', err);
-		}
-	};
+			if (handlers) for (const h of handlers) h(d);
+		});
+	}
+	if (!unsubscribeState) {
+		unsubscribeState = rt.onState((state: WsState) => {
+			connected = state === 'connected' || state === 'identified';
+			identified = state === 'identified';
+			if (import.meta.env.DEV) console.log('[ws] state=', state);
+		});
+	}
 
-	ws.onclose = (event) => {
-		if (import.meta.env.DEV) console.log('[ws] close code=', event.code, 'wasClean=', event.wasClean);
-		connected = false;
-		identified = false;
-		socket = null;
-		if (heartbeatInterval) {
-			clearInterval(heartbeatInterval);
-			heartbeatInterval = null;
-		}
-
-		const delay = Math.min(1000 * 2 ** reconnectAttempts, 30000);
-		reconnectAttempts++;
-		setTimeout(() => connectWs(), delay);
-	};
-
-	ws.onerror = (event) => {
-		if (import.meta.env.DEV) console.warn('[ws] error', event);
-		ws.close();
-	};
+	void rt.connect();
 }
 
-export function disconnectWs() {
-	if (heartbeatInterval) {
-		clearInterval(heartbeatInterval);
-		heartbeatInterval = null;
+export function disconnectWs(): void {
+	const rt = getRealtime();
+	subscribedChannels.clear();
+	if (unsubscribeFrame) {
+		unsubscribeFrame();
+		unsubscribeFrame = null;
 	}
-	socket?.close();
-	socket = null;
+	if (unsubscribeState) {
+		unsubscribeState();
+		unsubscribeState = null;
+	}
+	if (rt) void rt.disconnect();
 	connected = false;
 	identified = false;
-	subscribedChannels.clear();
-	sendQueue.length = 0;
 }
 
-// @nestjs/platform-ws routes incoming messages to @SubscribeMessage('message')
-// based on a `event` field on the parsed JSON. Wrap our { op, d } payload so
-// it actually reaches the handler.
-function rawSend(ws: WebSocket, data: { op: number; d: unknown }) {
-	ws.send(JSON.stringify({ event: 'message', data }));
-}
-
-export function send(data: { op: number; d: unknown }) {
-	// Gate on `identified` (not socket state) so concurrent send() calls
-	// during the `await tokenProvider()` window in onopen can't leak an
-	// unauthenticated frame ahead of IDENTIFY.
-	if (identified && socket?.readyState === WebSocket.OPEN) {
-		rawSend(socket, data);
-	} else {
-		sendQueue.push(data);
+export function send(data: { op: number; d: unknown }): void {
+	const rt = getRealtime();
+	if (!rt) {
+		console.warn('[ws] send before realtime ready', data);
+		return;
 	}
+	void rt.send(data.op, data.d);
 }
 
 export function onWsEvent(op: number, handler: (data: unknown) => void): () => void {
@@ -174,16 +101,23 @@ export function onWsEvent(op: number, handler: (data: unknown) => void): () => v
 	};
 }
 
-export function subscribeChannels(channelIds: string[]) {
+export function subscribeChannels(channelIds: string[]): void {
+	const rt = getRealtime();
 	for (const id of channelIds) subscribedChannels.add(id);
-	send({ op: WsOp.SUBSCRIBE, d: { channel_ids: channelIds } });
+	if (rt) void rt.subscribeChannels(channelIds);
 }
 
-export function unsubscribeChannels(channelIds: string[]) {
+export function unsubscribeChannels(channelIds: string[]): void {
+	const rt = getRealtime();
 	for (const id of channelIds) subscribedChannels.delete(id);
-	send({ op: WsOp.UNSUBSCRIBE, d: { channel_ids: channelIds } });
+	if (rt) void rt.unsubscribeChannels(channelIds);
 }
 
-export function sendTyping(channelId: string) {
-	send({ op: WsOp.TYPING_START, d: { channel_id: channelId } });
+export function sendTyping(channelId: string): void {
+	const rt = getRealtime();
+	if (rt) void rt.sendTyping(channelId);
 }
+
+// Re-export so consumers that import WsOp from this module's old path
+// keep working — every existing store does this.
+export { WsOp };

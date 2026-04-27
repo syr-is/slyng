@@ -1,69 +1,154 @@
-//! WebSocket transport. Two impls behind one public API:
-//! native uses `tokio-tungstenite`, WASM uses `gloo-net::websocket`.
+//! Realtime (WebSocket) client.
 //!
-//! The opcode space and event payloads mirror
-//! `packages/ts/types/src/ws.ts`. We reproduce the integer constants
-//! here as a const block rather than depending on a generated bridge —
-//! keeps the WASM bundle small and the wire compatibility explicit.
+//! One `RealtimeClient` per app process. Owns the socket, IDENTIFY
+//! handshake, heartbeat, exponential-backoff reconnect, and subscription
+//! state (so reconnects auto-resubscribe to the channels the caller
+//! originally requested). Consumers register a single
+//! `on_frame(op, data)` callback; routing by opcode happens on the
+//! JS side, where the existing `onWsEvent(op, handler)` API in
+//! `ws.svelte.ts` already does that work.
+//!
+//! Two transport backends behind a uniform public API:
+//! - native (`tokio-tungstenite`)
+//! - wasm32 (`gloo-net::websocket`)
+//!
+//! The wire format is `{ event: 'message', data: { op, d } }` for
+//! outgoing frames (the NestJS `@SubscribeMessage('message')` shape)
+//! and `{ op, d }` for incoming frames.
 
+use crate::session::SessionStore;
 use serde::{Deserialize, Serialize};
+use serde_json::Value as Json;
+use std::collections::HashSet;
+use std::sync::Arc;
+use url::Url;
 
+#[cfg(target_arch = "wasm32")]
+use std::cell::RefCell;
+#[cfg(target_arch = "wasm32")]
+use std::rc::Rc;
+
+#[cfg(not(target_arch = "wasm32"))]
+use tokio::sync::Mutex as AsyncMutex;
+
+/// Numeric opcodes mirrored from `packages/rust/syren-types/src/ws.rs::WsOp`.
+/// Hard-coded here so the WS layer doesn't depend on the full types
+/// surface — keeps the WASM bundle a touch leaner. Kept in sync via
+/// the workspace's `cargo check`.
 #[allow(non_upper_case_globals, dead_code)]
 pub mod op {
-	// Client → Server
-	pub const IDENTIFY: u8 = 1;
-	pub const HEARTBEAT: u8 = 2;
-	pub const SUBSCRIBE: u8 = 3;
-	pub const UNSUBSCRIBE: u8 = 4;
-	pub const TYPING_START: u8 = 5;
-	pub const PRESENCE_UPDATE: u8 = 6;
-	pub const VOICE_STATE_UPDATE: u8 = 7;
-
-	// Server → Client
-	pub const READY: u8 = 10;
-	pub const HEARTBEAT_ACK: u8 = 11;
-	pub const MESSAGE_CREATE: u8 = 20;
-	pub const MESSAGE_UPDATE: u8 = 21;
-	pub const MESSAGE_DELETE: u8 = 22;
-	pub const TYPING_START_BROADCAST: u8 = 25;
-	pub const PRESENCE_UPDATE_BROADCAST: u8 = 26;
-	pub const CHANNEL_CREATE: u8 = 28;
-	pub const CHANNEL_DELETE: u8 = 29;
-	pub const CHANNEL_UPDATE: u8 = 30;
-	pub const SERVER_UPDATE: u8 = 31;
-	pub const ROLE_CREATE: u8 = 32;
-	pub const ROLE_UPDATE: u8 = 33;
-	pub const ROLE_DELETE: u8 = 34;
-	pub const MEMBER_ADD: u8 = 35;
-	pub const MEMBER_UPDATE: u8 = 36;
-	pub const MEMBER_REMOVE: u8 = 37;
-	pub const PIN_ADD: u8 = 38;
-	pub const PIN_REMOVE: u8 = 39;
-	pub const REACTION_ADD: u8 = 40;
-	pub const REACTION_REMOVE: u8 = 41;
-	pub const PROFILE_UPDATE: u8 = 42;
-	pub const VOICE_STATE_BROADCAST: u8 = 43;
-	pub const AUDIT_LOG_APPEND: u8 = 44;
-
-	// WebRTC signaling
-	pub const RTC_OFFER: u8 = 100;
-	pub const RTC_ANSWER: u8 = 101;
-	pub const RTC_ICE: u8 = 102;
+	pub const IDENTIFY: u32 = 1;
+	pub const HEARTBEAT: u32 = 2;
+	pub const SUBSCRIBE: u32 = 3;
+	pub const UNSUBSCRIBE: u32 = 4;
+	pub const TYPING_START: u32 = 5;
 }
 
-/// A single frame on the wire — `{ op, d }`.
+/// One frame on the wire — `{ op, d }`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Frame {
-	pub op: u8,
-	pub d: serde_json::Value,
+	pub op: u32,
+	#[serde(default)]
+	pub d: Json,
+}
+
+/// Coarse connection state, surfaced to JS so the UI can render
+/// "connecting…" / "reconnecting…" indicators. `Identified` is the only
+/// state in which `send()` writes immediately; everything else queues.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum WsState {
+	Disconnected,
+	Connecting,
+	Connected,
+	Identified,
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+type FrameCb = Arc<dyn Fn(Frame) + Send + Sync + 'static>;
+#[cfg(target_arch = "wasm32")]
+type FrameCb = Rc<dyn Fn(Frame) + 'static>;
+
+#[cfg(not(target_arch = "wasm32"))]
+type StateCb = Arc<dyn Fn(WsState) + Send + Sync + 'static>;
+#[cfg(target_arch = "wasm32")]
+type StateCb = Rc<dyn Fn(WsState) + 'static>;
+
+/// Shared state. Both transport impls hold an `Arc`/`Rc` to this and
+/// mutate it from their reader/writer pumps.
+struct Inner {
+	base_url: Url,
+	store: Arc<dyn SessionStore>,
+	state: WsState,
+	subscribed: HashSet<String>,
+	pending: Vec<Frame>,
+	on_frame: Option<FrameCb>,
+	on_state: Option<StateCb>,
+	reconnect_attempt: u32,
+	stopped: bool,
+	#[cfg(not(target_arch = "wasm32"))]
+	outgoing: Option<tokio::sync::mpsc::UnboundedSender<Frame>>,
+	#[cfg(target_arch = "wasm32")]
+	outgoing: Option<futures_channel::mpsc::UnboundedSender<Frame>>,
+}
+
+impl Inner {
+	fn set_state(&mut self, new_state: WsState) {
+		if self.state == new_state {
+			return;
+		}
+		self.state = new_state;
+		if let Some(cb) = self.on_state.clone() {
+			cb(new_state);
+		}
+	}
+}
+
+/// Public realtime handle. Cheap to clone — internal state is shared
+/// via `Arc`/`Rc`.
+#[derive(Clone)]
+pub struct RealtimeClient {
+	#[cfg(not(target_arch = "wasm32"))]
+	inner: Arc<AsyncMutex<Inner>>,
+	#[cfg(target_arch = "wasm32")]
+	inner: Rc<RefCell<Inner>>,
+}
+
+impl RealtimeClient {
+	/// Build a client from an existing API client. Reuses its base URL
+	/// (with scheme rewritten to ws/wss) and its session store.
+	pub fn from_client(client: &crate::Client) -> Self {
+		Self::new(client.base().clone(), client.store())
+	}
+
+	pub fn new(base_url: Url, store: Arc<dyn SessionStore>) -> Self {
+		let inner = Inner {
+			base_url,
+			store,
+			state: WsState::Disconnected,
+			subscribed: HashSet::new(),
+			pending: Vec::new(),
+			on_frame: None,
+			on_state: None,
+			reconnect_attempt: 0,
+			stopped: false,
+			outgoing: None,
+		};
+		#[cfg(not(target_arch = "wasm32"))]
+		{
+			Self {
+				inner: Arc::new(AsyncMutex::new(inner)),
+			}
+		}
+		#[cfg(target_arch = "wasm32")]
+		{
+			Self {
+				inner: Rc::new(RefCell::new(inner)),
+			}
+		}
+	}
 }
 
 #[cfg(not(target_arch = "wasm32"))]
 mod native;
-#[cfg(not(target_arch = "wasm32"))]
-pub use native::Connection;
-
 #[cfg(target_arch = "wasm32")]
 mod wasm;
-#[cfg(target_arch = "wasm32")]
-pub use wasm::Connection;

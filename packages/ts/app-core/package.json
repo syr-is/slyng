@@ -22,6 +22,12 @@
 			"import": "./dist/api.js",
 			"default": "./dist/api.js"
 		},
+		"./realtime": {
+			"types": "./dist/realtime.d.ts",
+			"svelte": "./dist/realtime.js",
+			"import": "./dist/realtime.js",
+			"default": "./dist/realtime.js"
+		},
 		"./normalize-host": {
 			"types": "./dist/normalize-host.d.ts",
 			"svelte": "./dist/normalize-host.js",

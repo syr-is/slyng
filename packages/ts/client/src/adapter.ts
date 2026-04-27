@@ -287,11 +287,40 @@ export interface SyrenClient {
 	dispose(): void;
 }
 
+// ── Realtime (WS) handle ─────────────────────────────────────────────
+
+export type WsState = 'disconnected' | 'connecting' | 'connected' | 'identified';
+
+/** Platform-agnostic realtime surface. WASM-backed on web (built via
+ *  `createSyrenRealtime`); Tauri-IPC-backed on native (built per-app). */
+export interface RealtimeHandle {
+	connect(): Promise<void>;
+	disconnect(): Promise<void>;
+	send(op: number, d: unknown): Promise<void>;
+	subscribeChannels(ids: string[]): Promise<void>;
+	unsubscribeChannels(ids: string[]): Promise<void>;
+	sendTyping(channelId: string): Promise<void>;
+	onFrame(cb: (op: number, d: unknown) => void): () => void;
+	onState(cb: (state: WsState) => void): () => void;
+}
+
+interface WasmRealtime {
+	connect(): Promise<void>;
+	disconnect(): Promise<void>;
+	send(op: number, d: unknown): Promise<void>;
+	subscribe_channels(ids: string[]): Promise<void>;
+	unsubscribe_channels(ids: string[]): Promise<void>;
+	send_typing(channelId: string): Promise<void>;
+	on_frame(cb: (op: number, d: unknown) => void): void;
+	on_state(cb: (state: string) => void): void;
+}
+
 // ── WASM module loader (browser dynamic import) ──────────────────────
 
 interface WasmExports {
 	default?: (() => Promise<unknown>) | unknown;
 	Client: new (baseUrl: string, sessionKey?: string) => WasmClient;
+	Realtime: new (client: WasmClient) => WasmRealtime;
 }
 
 let wasm: WasmExports | null = null;
@@ -326,6 +355,53 @@ export async function initSyrenClient(
 	const m = await loadWasm();
 	const inner = new m.Client(baseUrl, opts.sessionKey ?? 'syren_session');
 	return wrap(inner);
+}
+
+/** Build the WASM-backed realtime handle. Constructs its own internal
+ *  `Client` (sharing the same `LocalStorageStore` key as the api one
+ *  by default), so IDENTIFY rides the same bearer the HTTP layer uses.
+ *  Web's `+layout.ts` calls this once at boot and registers the result
+ *  via `setRealtime(...)` in `@syren/app-core/realtime`. */
+export async function createSyrenRealtime(
+	baseUrl: string,
+	opts: { sessionKey?: string } = {},
+): Promise<RealtimeHandle> {
+	const m = await loadWasm();
+	const inner = new m.Client(baseUrl, opts.sessionKey ?? 'syren_session');
+	const realtime = new m.Realtime(inner);
+	const frameSubs = new Set<(op: number, d: unknown) => void>();
+	const stateSubs = new Set<(s: WsState) => void>();
+	let frameWired = false;
+	let stateWired = false;
+	return {
+		connect: () => realtime.connect(),
+		disconnect: () => realtime.disconnect(),
+		send: (op, d) => realtime.send(op, d),
+		subscribeChannels: (ids) => realtime.subscribe_channels(ids),
+		unsubscribeChannels: (ids) => realtime.unsubscribe_channels(ids),
+		sendTyping: (cid) => realtime.send_typing(cid),
+		onFrame(cb) {
+			frameSubs.add(cb);
+			if (!frameWired) {
+				frameWired = true;
+				realtime.on_frame((op, d) => {
+					for (const fn of frameSubs) fn(op, d);
+				});
+			}
+			return () => frameSubs.delete(cb);
+		},
+		onState(cb) {
+			stateSubs.add(cb);
+			if (!stateWired) {
+				stateWired = true;
+				realtime.on_state((s) => {
+					const state = s as WsState;
+					for (const fn of stateSubs) fn(state);
+				});
+			}
+			return () => stateSubs.delete(cb);
+		},
+	};
 }
 
 // ── Namespace adapter ───────────────────────────────────────────────

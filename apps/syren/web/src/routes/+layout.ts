@@ -1,8 +1,8 @@
 import { browser } from '$app/environment';
 import { setHost } from '@syren/app-core/host';
 import { setApi } from '@syren/app-core/api';
-import { setWsTokenProvider } from '@syren/app-core/stores/ws.svelte';
-import { initSyrenClient, type SyrenClient } from '@syren/client';
+import { setRealtime } from '@syren/app-core/realtime';
+import { createSyrenRealtime, initSyrenClient, type SyrenClient } from '@syren/client';
 
 // Web app is served same-origin with the API behind a `/api` reverse proxy
 // (Vite proxy in dev, nginx/Caddy in prod). Empty host = relative URLs.
@@ -25,9 +25,8 @@ async function ensureClient(): Promise<SyrenClient> {
 	if (client) return client;
 	const c = await initSyrenClient(window.location.origin, { sessionKey: SESSION_KEY });
 	setApi(c);
-	setWsTokenProvider(async () =>
-		typeof localStorage !== 'undefined' ? localStorage.getItem(SESSION_KEY) : null
-	);
+	const realtime = await createSyrenRealtime(window.location.origin, { sessionKey: SESSION_KEY });
+	setRealtime(realtime);
 	client = c;
 	return c;
 }

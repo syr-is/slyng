@@ -21,8 +21,8 @@
  * doesn't reach into `dist/wasm/web/`.
  */
 
-export { initSyrenClient } from './adapter.js';
-export type { SyrenClient } from './adapter.js';
+export { initSyrenClient, createSyrenRealtime } from './adapter.js';
+export type { SyrenClient, RealtimeHandle, WsState } from './adapter.js';
 
 // Auto-derived data types from the wasm-pack `.d.ts`. Adding more
 // here is purely a convenience — every type is reachable via

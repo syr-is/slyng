@@ -39,3 +39,4 @@ pub use session::{MemoryStore, SessionStore};
 #[cfg(target_arch = "wasm32")]
 pub use session::LocalStorageStore;
 pub use types::*;
+pub use ws::{Frame, RealtimeClient, WsState};

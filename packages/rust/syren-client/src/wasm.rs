@@ -996,6 +996,92 @@ impl Client {
 	}
 }
 
+// ── Realtime (WS) ────────────────────────────────────────────────────
+//
+// `#[wasm_bindgen]` view over `crate::ws::RealtimeClient`. The TS
+// adapter (`packages/ts/app-core/src/lib/stores/ws.svelte.ts`) keeps a
+// single `Realtime` instance, registers an `on_frame` callback that
+// dispatches to the existing `onWsEvent(op, handler)` listener map, and
+// exposes the same `connectWs` / `disconnectWs` / `subscribeChannels`
+// API to consumers. None of the per-store handlers change.
+
+#[wasm_bindgen]
+pub struct Realtime {
+	inner: crate::ws::RealtimeClient,
+}
+
+#[wasm_bindgen]
+impl Realtime {
+	/// Build a `Realtime` from an existing `Client`. Reuses its base
+	/// URL (rewritten to `ws/wss`) and its session store, so IDENTIFY
+	/// always carries the same bearer the HTTP layer is using.
+	#[wasm_bindgen(constructor)]
+	pub fn new(client: &Client) -> Self {
+		Self {
+			inner: crate::ws::RealtimeClient::from_client(&client.inner),
+		}
+	}
+
+	pub async fn connect(&self) {
+		self.inner.connect().await;
+	}
+
+	pub async fn disconnect(&self) {
+		self.inner.disconnect().await;
+	}
+
+	pub async fn send(&self, op: u32, d: JsValue) -> std::result::Result<(), JsValue> {
+		let v: serde_json::Value = from_jsv(d)?;
+		self.inner.send(op, v).await;
+		Ok(())
+	}
+
+	pub async fn subscribe_channels(&self, channel_ids: Vec<String>) {
+		self.inner.subscribe_channels(channel_ids).await;
+	}
+
+	pub async fn unsubscribe_channels(&self, channel_ids: Vec<String>) {
+		self.inner.unsubscribe_channels(channel_ids).await;
+	}
+
+	pub async fn send_typing(&self, channel_id: String) {
+		self.inner.send_typing(&channel_id).await;
+	}
+
+	/// Register a JS callback invoked once per incoming frame. The
+	/// callback receives `(op: number, d: any)` — the consumer
+	/// dispatches by `op` (matching `WsOp` from `@syren/types`).
+	pub fn on_frame(&self, callback: js_sys::Function) {
+		let cb = callback.clone();
+		self.inner.on_frame(move |frame| {
+			let serializer = serde_wasm_bindgen::Serializer::json_compatible();
+			let d = frame
+				.d
+				.serialize(&serializer)
+				.unwrap_or(JsValue::NULL);
+			let op = JsValue::from_f64(frame.op as f64);
+			let _ = cb.call2(&JsValue::NULL, &op, &d);
+		});
+	}
+
+	/// Register a JS callback invoked on every state transition
+	/// (Disconnected → Connecting → Connected → Identified → ...).
+	/// The callback receives a string ('disconnected', 'connecting',
+	/// 'connected', 'identified').
+	pub fn on_state(&self, callback: js_sys::Function) {
+		let cb = callback.clone();
+		self.inner.on_state(move |state| {
+			let s = match state {
+				crate::ws::WsState::Disconnected => "disconnected",
+				crate::ws::WsState::Connecting => "connecting",
+				crate::ws::WsState::Connected => "connected",
+				crate::ws::WsState::Identified => "identified",
+			};
+			let _ = cb.call1(&JsValue::NULL, &JsValue::from_str(s));
+		});
+	}
+}
+
 // Marker function — hangs onto a couple of imports we'd otherwise need
 // to clutter `mod` declarations with conditional `#[allow(unused)]`s.
 #[allow(dead_code)]

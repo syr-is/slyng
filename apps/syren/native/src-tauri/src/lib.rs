@@ -1,5 +1,6 @@
 mod auth;
 mod commands;
+mod realtime;
 mod session_store;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -19,6 +20,7 @@ pub fn run() {
 
 	let builder = builder
 		.manage(auth::ClientHandle::new())
+		.manage(realtime::RealtimeHandle::new())
 		.setup(|_app| {
 			#[cfg(target_os = "ios")]
 			{
@@ -152,6 +154,13 @@ pub fn run() {
 			commands::overrides_for_category,
 			commands::override_upsert,
 			commands::override_delete,
+			// Realtime (WS).
+			realtime::realtime_connect,
+			realtime::realtime_disconnect,
+			realtime::realtime_send,
+			realtime::realtime_subscribe_channels,
+			realtime::realtime_unsubscribe_channels,
+			realtime::realtime_send_typing,
 		]);
 
 	builder

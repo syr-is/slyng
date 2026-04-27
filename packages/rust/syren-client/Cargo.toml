@@ -47,6 +47,7 @@ web-sys = { version = "0.3", features = ["Storage", "Window", "WebSocket", "Mess
 serde-wasm-bindgen = "0.6"
 gloo-net = { version = "0.6", default-features = false, features = ["websocket", "http"] }
 gloo-timers = { version = "0.3", features = ["futures"] }
+futures-channel = "0.3"
 getrandom = { version = "0.2", features = ["js"] }
 
 [dev-dependencies]
