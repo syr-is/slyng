@@ -65,6 +65,24 @@ macro_rules! page_of {
 			pub items: Vec<$inner>,
 			pub total: u64,
 		}
+
+		impl From<Page<$inner>> for $name {
+			fn from(p: Page<$inner>) -> Self {
+				Self {
+					items: p.items,
+					total: p.total,
+				}
+			}
+		}
+
+		impl From<$name> for Page<$inner> {
+			fn from(p: $name) -> Self {
+				Self {
+					items: p.items,
+					total: p.total,
+				}
+			}
+		}
 	};
 }
 
