@@ -6,9 +6,8 @@
 	import { Button } from '@syren/ui/button';
 	import { Input } from '@syren/ui/input';
 	import { Label } from '@syren/ui/label';
+	import { invoke } from '@tauri-apps/api/core';
 	import { getStoredHostSync } from '$lib/host-store';
-	import { getNativeClient } from '$lib/client';
-	import { syncSessionFromTauri } from '$lib/session-bridge';
 	import { api } from '@syren/app-core/api';
 	import { normalizeHost, isValidHost } from '@syren/app-core/normalize-host';
 	import { Loader2 } from '@lucide/svelte';
@@ -110,12 +109,9 @@
 
 	async function checkAndRedirect(reason: string) {
 		if (redirected) return;
-		// The Rust OAuth flow stores the session in the Tauri Store; the
-		// WASM api.auth.me() reads from localStorage. Mirror the former
-		// to the latter before each check so a successful Rust-side
-		// login is visible to the JS-side client.
-		const apiHost = getStoredHostSync();
-		if (apiHost) await syncSessionFromTauri(apiHost);
+		// Both the api singleton (Tauri-IPC `me` command) and the OAuth
+		// flow share the same Tauri Store as their session source — no
+		// localStorage mirror needed any more.
 		try {
 			await api.auth.me();
 			if (import.meta.env.DEV) console.log(`[login] self-correct: /auth/me succeeded (${reason})`);
@@ -161,12 +157,9 @@
 			unlisten = await listen<unknown>('auth-changed', async (event) => {
 				if (import.meta.env.DEV) console.log('[login] auth-changed authed=', !!event.payload);
 				if (!event.payload) return;
-				// Mirror the freshly-persisted Tauri-store session into
-				// localStorage so the (app) layout's checkAuth() — which
-				// goes through the WASM client — actually finds a session
-				// instead of bouncing back to /login.
-				const apiHost = getStoredHostSync();
-				if (apiHost) await syncSessionFromTauri(apiHost);
+				// The Tauri-side login_complete already persisted the
+				// session in the Tauri Store; the api singleton reads
+				// from there directly via the `me` command. No mirror.
 				redirected = true;
 				stopPolling();
 				clearPendingOAuth();
@@ -233,11 +226,11 @@
 			// Rust opens the consent URL in the system browser. After the
 			// user completes consent, syr.is redirects to our API
 			// callback, which bounces to `syren://auth/callback?syren_bridge=...`.
-			// The OS routes that into Tauri; the deep-link handler fires
-			// `complete_login` → `syren-client::login_complete`, which
-			// fetches `/auth/me` and emits `auth-changed`. The listener
-			// above handles the navigation into the app.
-			await getNativeClient(apiHost).startLogin(normalized);
+			// The OS routes that into Tauri; the deep-link handler calls
+			// `syren-client::login_complete`, which fetches `/auth/me` and
+			// emits `auth-changed`. The listener above handles the
+			// navigation into the app.
+			await invoke('start_login', { apiHost, instanceUrl: normalized });
 			signingIn = true;
 			// Poll `/auth/me` while the user is in the system browser.
 			// If `auth-changed` is missed (event not buffered, fired

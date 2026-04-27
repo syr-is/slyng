@@ -2,64 +2,50 @@ import { redirect } from '@sveltejs/kit';
 import { setHost } from '@syren/app-core/host';
 import { setApi } from '@syren/app-core/api';
 import { setWsTokenProvider } from '@syren/app-core/stores/ws.svelte';
-import { initSyrenClient, type SyrenClient } from '@syren/client';
+import { invoke } from '@tauri-apps/api/core';
 import { getStoredHost, getStoredHostSync } from '$lib/host-store';
-import { syncSessionFromTauri } from '$lib/session-bridge';
+import { createNativeApi } from '$lib/native-api';
 
 export const ssr = false;
 export const prerender = false;
 
-const SESSION_KEY = 'syren_session';
-let client: SyrenClient | null = null;
 let wiredHost: string | null = null;
 
 /**
- * Wire the singleton WASM client + bearer-bearing WS token provider.
- * Re-init if the user changes API host on /setup — different baseUrl
- * means a different `Client` instance.
+ * Wire the singleton native api + WS token provider for `host`. The
+ * native api is a Tauri-IPC `SyrenClient` impl; no WASM is loaded.
+ * Bearer tokens live in the Tauri Store on the Rust side; we surface
+ * them to the JS WebSocket layer via the `session_token` command so
+ * the gateway's `IDENTIFY` frame carries the right value.
  */
-async function ensureClient(host: string): Promise<SyrenClient> {
-	if (client && wiredHost === host) return client;
-	// Release the prior WASM Client (different `wiredHost`) before
-	// replacing it — wasm-bindgen allocations don't get reclaimed when
-	// the JS reference goes out of scope.
-	const prev = client;
-	const c = await initSyrenClient(host, { sessionKey: SESSION_KEY });
-	setApi(c);
-	setWsTokenProvider(async () =>
-		typeof localStorage !== 'undefined' ? localStorage.getItem(SESSION_KEY) : null
-	);
-	client = c;
+function ensureApi(host: string) {
+	if (wiredHost === host) return;
+	const api = createNativeApi(host);
+	setApi(api);
+	setWsTokenProvider(async () => {
+		try {
+			return (await invoke<string | null>('session_token', { apiHost: host })) ?? null;
+		} catch {
+			return null;
+		}
+	});
 	wiredHost = host;
-	prev?.dispose();
-	return c;
 }
 
 export const load = async ({ url }: { url: URL }) => {
-	// Fast path — synchronous localStorage read. Avoids blocking the
-	// initial render on a Tauri IPC roundtrip that can hang briefly
-	// right after a cross-origin navigation lands back on the native shell.
 	let host = getStoredHostSync();
 
 	if (!host) {
-		// Fall back to Tauri Store in case localStorage was wiped.
 		try {
 			host = await getStoredHost();
 		} catch {
-			/* no store → falls through to /setup */
+			/* falls through to /setup */
 		}
 	}
 
 	if (host) {
 		setHost(host);
-		// Mirror any persisted session from the Tauri Store into
-		// localStorage *before* spinning up the WASM client — its
-		// LocalStorageStore is what api.auth.me() reads from. Without
-		// this, restarting the app after a previous successful login
-		// leaves the WASM client unauthenticated and bounces the user
-		// back to /login despite the session still being on disk.
-		await syncSessionFromTauri(host);
-		await ensureClient(host);
+		ensureApi(host);
 	} else if (url.pathname !== '/setup') {
 		throw redirect(307, `/setup?return=${encodeURIComponent(url.pathname + url.search)}`);
 	}
