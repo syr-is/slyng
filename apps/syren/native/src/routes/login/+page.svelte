@@ -13,8 +13,23 @@
 	import { normalizeHost, isValidHost } from '@syren/app-core/normalize-host';
 	import { Loader2 } from '@lucide/svelte';
 
+	// Survives across webview restarts (Android can kill the backgrounded
+	// app while the user is in the system browser). When set, we restore
+	// the "Completing sign-in…" state on mount so the user never sees a
+	// reset login form during an in-flight OAuth round-trip.
+	const OAUTH_STATE_KEY = 'syren_oauth_state';
+	const OAUTH_TTL_MS = 5 * 60 * 1000; // 5 minutes — well beyond the polling cap
+
+	interface OAuthState {
+		instance_url: string;
+		started_at: number;
+	}
+
 	let instanceUrl = $state('');
 	let loading = $state(false);
+	/** True from the moment the system browser opens until the OAuth
+	 *  round-trip resolves (auth-changed / auth-error) or times out. */
+	let signingIn = $state(false);
 	let errorMsg = $state<string | null>(null);
 
 	const urlError = page.url.searchParams.get('error');
@@ -28,28 +43,70 @@
 		errorMsg = map[urlError] ?? decodeURIComponent(urlError);
 	}
 
-	// The Rust side fires `auth-changed` once it consumes the
-	// `syren://auth/callback?syren_bridge=...` deep link and exchanges
-	// the bridge code for a session. We listen here and route into the
-	// app the moment that lands. Listener registration lives inside
-	// `onMount` so it's synchronised with the component lifecycle —
-	// otherwise an early-destroy could fire `unlisten?.()` while the
-	// `listen()` promise is still resolving and the unlisten fn is
-	// `undefined`.
 	let unlisten: (() => void) | undefined;
 	let unlistenError: (() => void) | undefined;
 
-	// Belt and braces: the `auth-changed` event isn't buffered, so if
-	// the WebView was paused while the user was in the system browser,
-	// or if the deep-link callback fired before our `listen()` finished
-	// resolving, we'd miss it and stay stuck on /login despite the
-	// session being persisted to the Tauri store. Re-poll `/auth/me`
-	// any time the app comes back into the foreground (visibility +
-	// focus events), and a short interval right after the user kicks
-	// off OAuth — the moment we see a valid session, route into the app.
 	let polling: ReturnType<typeof setInterval> | undefined;
 	let pollingTimeout: ReturnType<typeof setTimeout> | undefined;
 	let redirected = false;
+
+	function readPendingOAuth(): OAuthState | null {
+		if (typeof localStorage === 'undefined') return null;
+		const raw = localStorage.getItem(OAUTH_STATE_KEY);
+		if (!raw) return null;
+		try {
+			const parsed = JSON.parse(raw) as OAuthState;
+			if (!parsed.started_at || Date.now() - parsed.started_at > OAUTH_TTL_MS) {
+				localStorage.removeItem(OAUTH_STATE_KEY);
+				return null;
+			}
+			return parsed;
+		} catch {
+			localStorage.removeItem(OAUTH_STATE_KEY);
+			return null;
+		}
+	}
+
+	function clearPendingOAuth() {
+		if (typeof localStorage !== 'undefined') {
+			localStorage.removeItem(OAUTH_STATE_KEY);
+		}
+	}
+
+	function startPolling() {
+		if (polling) clearInterval(polling);
+		if (pollingTimeout) clearTimeout(pollingTimeout);
+		polling = setInterval(() => void checkAndRedirect('poll'), 1500);
+		pollingTimeout = setTimeout(() => {
+			if (polling) {
+				clearInterval(polling);
+				polling = undefined;
+			}
+			pollingTimeout = undefined;
+			// 2 minutes is enough for any reasonable OAuth round-trip.
+			// If we're still here, the user probably abandoned consent
+			// or the deep-link delivery failed silently. Reset the UI
+			// so they can try again.
+			if (signingIn) {
+				signingIn = false;
+				clearPendingOAuth();
+				if (!errorMsg) {
+					errorMsg = "Sign-in didn't complete in time. Tap Continue to try again.";
+				}
+			}
+		}, 120_000);
+	}
+
+	function stopPolling() {
+		if (polling) {
+			clearInterval(polling);
+			polling = undefined;
+		}
+		if (pollingTimeout) {
+			clearTimeout(pollingTimeout);
+			pollingTimeout = undefined;
+		}
+	}
 
 	async function checkAndRedirect(reason: string) {
 		if (redirected) return;
@@ -63,8 +120,9 @@
 			await api.auth.me();
 			if (import.meta.env.DEV) console.log(`[login] self-correct: /auth/me succeeded (${reason})`);
 			redirected = true;
-			if (polling) clearInterval(polling);
-			if (pollingTimeout) clearTimeout(pollingTimeout);
+			stopPolling();
+			clearPendingOAuth();
+			signingIn = false;
 			goto('/channels/@me', { replaceState: true });
 		} catch {
 			// Still unauthenticated — stay on /login.
@@ -80,10 +138,25 @@
 		void checkAndRedirect('focus');
 	}
 
+	function cancelSigningIn() {
+		stopPolling();
+		clearPendingOAuth();
+		signingIn = false;
+		errorMsg = null;
+	}
+
 	onMount(() => {
-		// Listener registration is fire-and-forget; the listen() promises
-		// resolve to unlisten fns we capture once available. onDestroy
-		// guards on `unlisten?.()` so a destroy before resolution is safe.
+		// Restore in-flight OAuth state if the WebView was killed while
+		// the user was in the system browser. Without this, returning to
+		// the app shows a fresh empty form for several seconds before
+		// polling discovers the session — looks like the app hung.
+		const pending = readPendingOAuth();
+		if (pending) {
+			instanceUrl = pending.instance_url;
+			signingIn = true;
+			startPolling();
+		}
+
 		void (async () => {
 			unlisten = await listen<unknown>('auth-changed', async (event) => {
 				if (import.meta.env.DEV) console.log('[login] auth-changed authed=', !!event.payload);
@@ -94,27 +167,22 @@
 				// instead of bouncing back to /login.
 				const apiHost = getStoredHostSync();
 				if (apiHost) await syncSessionFromTauri(apiHost);
+				redirected = true;
+				stopPolling();
+				clearPendingOAuth();
 				goto('/channels/@me', { replaceState: true });
 			});
 			unlistenError = await listen<string>('auth-error', (event) => {
 				if (import.meta.env.DEV) console.log('[login] auth-error', event.payload);
-				// Surface OAuth failures (missing bridge token, exchange
-				// failure, no active client, etc.) instead of silently
-				// stranding the user on /login. Stops polling so the
-				// /auth/me 401 loop doesn't keep firing.
-				const msg = typeof event.payload === 'string' && event.payload
-					? event.payload
-					: 'Sign-in did not complete';
+				const msg =
+					typeof event.payload === 'string' && event.payload
+						? event.payload
+						: 'Sign-in did not complete';
 				errorMsg = msg;
+				signingIn = false;
 				loading = false;
-				if (polling) {
-					clearInterval(polling);
-					polling = undefined;
-				}
-				if (pollingTimeout) {
-					clearTimeout(pollingTimeout);
-					pollingTimeout = undefined;
-				}
+				stopPolling();
+				clearPendingOAuth();
 			});
 		})();
 
@@ -130,8 +198,7 @@
 		unlistenError?.();
 		document.removeEventListener('visibilitychange', onVisibility);
 		window.removeEventListener('focus', onFocus);
-		if (polling) clearInterval(polling);
-		if (pollingTimeout) clearTimeout(pollingTimeout);
+		stopPolling();
 	});
 
 	async function handleSyrLogin(e: SubmitEvent) {
@@ -152,6 +219,17 @@
 		loading = true;
 		errorMsg = null;
 		try {
+			// Persist OAuth-in-flight state BEFORE opening the browser so
+			// that if the OS kills our WebView while the user is in the
+			// system browser, the next mount can restore the
+			// "Completing sign-in…" state instead of showing an empty form.
+			if (typeof localStorage !== 'undefined') {
+				const state: OAuthState = {
+					instance_url: normalized,
+					started_at: Date.now()
+				};
+				localStorage.setItem(OAUTH_STATE_KEY, JSON.stringify(state));
+			}
 			// Rust opens the consent URL in the system browser. After the
 			// user completes consent, syr.is redirects to our API
 			// callback, which bounces to `syren://auth/callback?syren_bridge=...`.
@@ -160,23 +238,15 @@
 			// fetches `/auth/me` and emits `auth-changed`. The listener
 			// above handles the navigation into the app.
 			await getNativeClient(apiHost).startLogin(normalized);
+			signingIn = true;
 			// Poll `/auth/me` while the user is in the system browser.
 			// If `auth-changed` is missed (event not buffered, fired
 			// before our listener attached, etc.) the next poll catches
 			// the persisted session and routes us into the app anyway.
-			// Stops automatically once a redirect fires or after 2 min.
-			if (polling) clearInterval(polling);
-			if (pollingTimeout) clearTimeout(pollingTimeout);
-			polling = setInterval(() => void checkAndRedirect('poll'), 1500);
-			pollingTimeout = setTimeout(() => {
-				if (polling) {
-					clearInterval(polling);
-					polling = undefined;
-				}
-				pollingTimeout = undefined;
-			}, 120_000);
+			startPolling();
 		} catch (err) {
 			errorMsg = err instanceof Error ? err.message : 'Connection failed';
+			clearPendingOAuth();
 		} finally {
 			loading = false;
 		}
@@ -184,48 +254,77 @@
 </script>
 
 <div class="flex min-h-0 flex-1 items-center justify-center bg-background p-6">
-	<form
-		onsubmit={handleSyrLogin}
-		class="w-full max-w-md space-y-4 rounded-lg border border-border bg-card p-6 shadow-sm"
-	>
-		<div class="space-y-1">
-			<h1 class="text-xl font-semibold tracking-tight">Sign in with syr</h1>
-			<p class="text-sm text-muted-foreground">
-				Enter your syr instance to continue. You'll be redirected for consent.
-			</p>
-		</div>
-		<div class="space-y-2">
-			<Label for="instance">Instance URL</Label>
-			<Input
-				id="instance"
-				type="text"
-				inputmode="url"
-				placeholder="syr.example.com"
-				bind:value={instanceUrl}
-				autocomplete="off"
-				autocorrect="off"
-				autocapitalize="off"
-				spellcheck={false}
-				disabled={loading}
-			/>
-			<p class="text-xs text-muted-foreground">
-				Just the host. <span class="font-mono">https://</span> is added automatically (or
-				<span class="font-mono">http://</span> for <span class="font-mono">localhost</span> / LAN).
-				To force one, type the protocol yourself.
-			</p>
+	{#if signingIn}
+		<!-- Persistent "completing sign-in" UI. Stays visible while the
+		     user is in the system browser AND while we're waiting for
+		     either the auth-changed deep-link callback or the polling
+		     fallback to land. Without this, returning to the app showed
+		     a fresh empty form for several seconds — felt like the app
+		     had hung. -->
+		<div class="w-full max-w-md space-y-4 rounded-lg border border-border bg-card p-6 text-center shadow-sm">
+			<div class="flex justify-center">
+				<Loader2 class="size-8 animate-spin text-primary" />
+			</div>
+			<div class="space-y-1">
+				<h1 class="text-xl font-semibold tracking-tight">Completing sign-in…</h1>
+				<p class="text-sm text-muted-foreground">
+					Finish authorising in your browser. We'll bring you back automatically.
+				</p>
+			</div>
+			{#if instanceUrl}
+				<p class="font-mono text-xs text-muted-foreground">{instanceUrl}</p>
+			{/if}
 			{#if errorMsg}
 				<p class="text-sm text-destructive">{errorMsg}</p>
 			{/if}
+			<Button type="button" variant="ghost" size="sm" class="w-full" onclick={cancelSigningIn}>
+				Cancel and try again
+			</Button>
 		</div>
-		<Button type="submit" class="w-full" disabled={loading}>
-			{#if loading}<Loader2 class="mr-2 size-4 animate-spin" />Connecting…{:else}Continue{/if}
-		</Button>
-		<button
-			type="button"
-			class="w-full text-xs text-muted-foreground hover:text-foreground"
-			onclick={() => goto('/setup')}
+	{:else}
+		<form
+			onsubmit={handleSyrLogin}
+			class="w-full max-w-md space-y-4 rounded-lg border border-border bg-card p-6 shadow-sm"
 		>
-			Change API host
-		</button>
-	</form>
+			<div class="space-y-1">
+				<h1 class="text-xl font-semibold tracking-tight">Sign in with syr</h1>
+				<p class="text-sm text-muted-foreground">
+					Enter your syr instance to continue. You'll be redirected for consent.
+				</p>
+			</div>
+			<div class="space-y-2">
+				<Label for="instance">Instance URL</Label>
+				<Input
+					id="instance"
+					type="text"
+					inputmode="url"
+					placeholder="syr.example.com"
+					bind:value={instanceUrl}
+					autocomplete="off"
+					autocorrect="off"
+					autocapitalize="off"
+					spellcheck={false}
+					disabled={loading}
+				/>
+				<p class="text-xs text-muted-foreground">
+					Just the host. <span class="font-mono">https://</span> is added automatically (or
+					<span class="font-mono">http://</span> for <span class="font-mono">localhost</span> / LAN).
+					To force one, type the protocol yourself.
+				</p>
+				{#if errorMsg}
+					<p class="text-sm text-destructive">{errorMsg}</p>
+				{/if}
+			</div>
+			<Button type="submit" class="w-full" disabled={loading}>
+				{#if loading}<Loader2 class="mr-2 size-4 animate-spin" />Opening browser…{:else}Continue{/if}
+			</Button>
+			<button
+				type="button"
+				class="w-full text-xs text-muted-foreground hover:text-foreground"
+				onclick={() => goto('/setup')}
+			>
+				Change API host
+			</button>
+		</form>
+	{/if}
 </div>
