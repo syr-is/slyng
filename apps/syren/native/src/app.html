@@ -4,7 +4,22 @@
 		<meta charset="utf-8" />
 		<link rel="icon" href="%sveltekit.assets%/favicon.png" />
 		<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+		<meta name="color-scheme" content="dark light" />
 		<title>Syren</title>
+		<!-- Paints the app background BEFORE any stylesheet (or SvelteKit) loads,
+		     so a cold-start cycle (deep-link delivery on Android, fresh WebView
+		     on iOS) doesn't show a white flash before our theme variables apply.
+		     The `oklch(...)` values mirror `--background` in `@syren/ui/styles`
+		     for `:root` (light) and `.dark` (dark). The hex fallbacks cover
+		     WebViews too old to support oklch. -->
+		<style>
+			html, body { background: #ffffff; color: #1d2230; }
+			html, body { background: oklch(1 0 0); color: oklch(0.129 0.042 264.695); }
+			@media (prefers-color-scheme: dark) {
+				html, body { background: #0a0f1d; color: #f5f7fa; }
+				html, body { background: oklch(0.129 0.042 264.695); color: oklch(0.984 0.003 247.858); }
+			}
+		</style>
 		%sveltekit.head%
 	</head>
 	<body data-sveltekit-preload-data="hover" class="bg-background text-foreground">
