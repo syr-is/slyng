@@ -118,7 +118,12 @@
 			redirected = true;
 			stopPolling();
 			clearPendingOAuth();
-			signingIn = false;
+			// Deliberately leave `signingIn` true. Setting it to false
+			// here would flip the {#if signingIn} branch to the form for
+			// one render frame before `goto` unmounts the page, producing
+			// a visible "form flash" on slow mobile devices where polling
+			// (rather than the auth-changed event) ends up resolving the
+			// flow.
 			goto('/channels/@me', { replaceState: true });
 		} catch {
 			// Still unauthenticated — stay on /login.
