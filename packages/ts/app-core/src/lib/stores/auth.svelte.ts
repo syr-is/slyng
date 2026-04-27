@@ -3,9 +3,7 @@
  * client-side from the user's instance via `profiles.svelte.ts`.
  */
 
-import { apiUrl } from '../host';
-
-const SESSION_KEY = 'syren_session';
+import { api } from '../api';
 
 export interface AuthIdentity {
 	did: string;
@@ -34,54 +32,23 @@ export async function checkAuth(): Promise<AuthIdentity | null> {
 
 	loading = true;
 	try {
-		// Plain fetch with both cookie *and* Bearer attachment — covers
-		// every shape we deploy:
-		//  - web same-origin with cookie auth (legacy): credentials send
-		//    the cookie.
-		//  - web with Bearer in localStorage (post-bridge): Authorization
-		//    header attaches it.
-		//  - native (Tauri webview, cross-origin to API host): cookies
-		//    don't cross, but the Bearer in localStorage (mirrored from
-		//    the Tauri Store at boot) authenticates the call.
-		// This deliberately bypasses the WASM api singleton — checkAuth
-		// is sometimes called from page scripts that run before
-		// +layout.ts's `setApi()` lands, and the lazy facade would throw.
-		const headers: Record<string, string> = { Accept: 'application/json' };
-		if (typeof localStorage !== 'undefined') {
-			const session = localStorage.getItem(SESSION_KEY);
-			if (session) headers.Authorization = `Bearer ${session}`;
-		}
-		const url = apiUrl('/auth/me');
-		console.log('[checkAuth] fetching', url, 'bearer=', !!headers.Authorization);
-		// Hard 8s ceiling so a stalled fetch (DNS / TLS / mid-flight
-		// socket hang) surfaces as a visible failure instead of an
-		// indefinite Loading screen.
-		const ac = new AbortController();
-		const timeoutId = setTimeout(() => ac.abort(), 8000);
-		try {
-			const resp = await fetch(url, {
-				method: 'GET',
-				credentials: 'include',
-				headers,
-				signal: ac.signal
-			});
-			console.log('[checkAuth] /auth/me status=', resp.status);
-			if (resp.ok) {
-				const data = (await resp.json()) as Partial<AuthIdentity>;
-				if (data?.did && data?.syr_instance_url) {
-					identity = {
-						did: data.did,
-						syr_instance_url: data.syr_instance_url,
-						delegate_public_key: data.delegate_public_key
-					};
-				}
-			}
-		} finally {
-			clearTimeout(timeoutId);
+		// Goes through the registered api singleton — WASM-backed
+		// (`@syren/client`) on web, Tauri-IPC-backed (`createNativeApi`)
+		// on native. Both impls source the bearer from their respective
+		// session store (localStorage for web, Tauri Store for native);
+		// `checkAuth` does not need to know which.
+		const data = await api.auth.me();
+		if (data?.did && data?.syr_instance_url) {
+			identity = {
+				did: data.did,
+				syr_instance_url: data.syr_instance_url,
+				delegate_public_key: data.delegate_public_key
+			};
 		}
 	} catch (err) {
-		// API unreachable / 401 / aborted — leave identity null
-		console.warn('[checkAuth] failed', err);
+		// 401 / network failure / api not yet wired — leave identity null.
+		// Caller decides what to do (typically redirect to /login).
+		if (import.meta.env.DEV) console.warn('[checkAuth] failed', err);
 	}
 	checked = true;
 	loading = false;
