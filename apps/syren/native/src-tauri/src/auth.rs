@@ -68,9 +68,13 @@ pub fn handle_callback_url<R: Runtime>(app: &AppHandle<R>, url_str: &str) {
 	// logcat / Console.app where any process with log access could
 	// race the exchange. Length-only diagnostics are below.
 	let parsed = url::Url::parse(url_str).ok();
+	// Accept both names during the rollout transition: the new
+	// namespaced `?syren_bridge=…` and the legacy `?code=…`. Either
+	// one carries the same one-shot bridge token. Drop the `code`
+	// fallback once every deployed API has shipped the rename.
 	let code = parsed.as_ref().and_then(|u| {
 		u.query_pairs()
-			.find(|(k, _)| k == "syren_bridge")
+			.find(|(k, _)| k == "syren_bridge" || k == "code")
 			.map(|(_, v)| v.into_owned())
 	});
 	#[cfg(debug_assertions)]

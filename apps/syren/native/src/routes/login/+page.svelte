@@ -86,6 +86,23 @@
 			});
 			unlistenError = await listen<string>('auth-error', (event) => {
 				if (import.meta.env.DEV) console.log('[login] auth-error', event.payload);
+				// Surface OAuth failures (missing bridge token, exchange
+				// failure, no active client, etc.) instead of silently
+				// stranding the user on /login. Stops polling so the
+				// /auth/me 401 loop doesn't keep firing.
+				const msg = typeof event.payload === 'string' && event.payload
+					? event.payload
+					: 'Sign-in did not complete';
+				errorMsg = msg;
+				loading = false;
+				if (polling) {
+					clearInterval(polling);
+					polling = undefined;
+				}
+				if (pollingTimeout) {
+					clearTimeout(pollingTimeout);
+					pollingTimeout = undefined;
+				}
 			});
 		})();
 
