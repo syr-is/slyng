@@ -14,7 +14,12 @@ COPY package.json pnpm-lock.yaml pnpm-workspace.yaml .npmrc ./
 # WASM artefacts cache independently of JS dependency churn. Debian
 # base over Alpine because rustup ships with the official rust image
 # and wasm-pack drives rustup to install the wasm32 target.
-FROM rust:1.83-bookworm AS wasm-builder
+#
+# 1.86 minimum: transitive deps (e.g. `time` 0.3.47) declare
+# `edition = "2024"` in their Cargo.toml, which Cargo only parses
+# from 1.85 onward. Without this bump the build fails with
+# "feature `edition2024` is required" before any WASM compiles.
+FROM rust:1.86-bookworm AS wasm-builder
 
 # Pinned wasm-pack matches what `pnpm --filter @syren/client build`
 # would invoke locally; pin keeps Docker builds reproducible.
