@@ -36,7 +36,13 @@ reqwest = { version = "0.12", default-features = false, features = ["json", "str
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 reqwest = { version = "0.12", default-features = false, features = ["json", "stream", "rustls-tls", "cookies"] }
 tokio = { version = "1", features = ["sync", "rt", "macros", "time"] }
-tokio-tungstenite = { version = "0.24", features = ["rustls-tls-native-roots"] }
+# Ship Mozilla's CA bundle with the binary instead of trying to read
+# the OS trust store. `rustls-tls-native-roots` works on macOS / Linux /
+# Windows but on Android the trust store isn't reachable from rustls
+# without bridging code, so the `wss://` handshake fails silently —
+# users sees "I can send (HTTP works) but never receive (WS dead)". The
+# webpki bundle resolves identically on every platform.
+tokio-tungstenite = { version = "0.24", features = ["rustls-tls-webpki-roots"] }
 reqwest_cookie_store = "0.8"
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]

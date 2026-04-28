@@ -46,7 +46,17 @@ impl RealtimeHandle {
 				"op": frame.op,
 				"d": frame.d,
 			});
-			let _ = app_emit.emit("realtime-frame", payload);
+			match app_emit.emit("realtime-frame", payload) {
+				#[cfg(debug_assertions)]
+				Ok(()) => eprintln!("[realtime/bridge] emit realtime-frame op={}", frame.op),
+				#[cfg(not(debug_assertions))]
+				Ok(()) => {}
+				Err(e) => {
+					#[cfg(debug_assertions)]
+					eprintln!("[realtime/bridge] emit failed: {e}");
+					let _ = e;
+				}
+			}
 		});
 		let app_state = app.clone();
 		rt.on_state(move |state: WsState| {
@@ -56,6 +66,8 @@ impl RealtimeHandle {
 				WsState::Connected => "connected",
 				WsState::Identified => "identified",
 			};
+			#[cfg(debug_assertions)]
+			eprintln!("[realtime/bridge] state={s}");
 			let _ = app_state.emit("realtime-state", s);
 		});
 

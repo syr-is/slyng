@@ -23,6 +23,8 @@ export function createNativeRealtime(apiHost: string): RealtimeHandle {
 		if (!frameUnlisten) {
 			frameUnlisten = listen<FramePayload>('realtime-frame', (e) => {
 				const { op, d } = e.payload;
+				if (import.meta.env.DEV)
+					console.log(`[native-realtime] frame op=${op} subs=${frameSubs.size}`);
 				for (const fn of frameSubs) fn(op, d);
 			});
 		}
@@ -32,6 +34,7 @@ export function createNativeRealtime(apiHost: string): RealtimeHandle {
 		if (!stateUnlisten) {
 			stateUnlisten = listen<string>('realtime-state', (e) => {
 				const state = e.payload as WsState;
+				if (import.meta.env.DEV) console.log(`[native-realtime] state=${state}`);
 				for (const fn of stateSubs) fn(state);
 			});
 		}

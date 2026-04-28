@@ -152,10 +152,24 @@ async fn connect_once(inner: Arc<AsyncMutex<Inner>>) -> Result<(), String> {
 		(u, token)
 	};
 
+	#[cfg(debug_assertions)]
+	eprintln!(
+		"[realtime] connecting to {} (token present = {})",
+		url,
+		token.is_some()
+	);
+
 	let (ws, _resp) = tokio_tungstenite::connect_async(url.as_str())
 		.await
-		.map_err(|e| e.to_string())?;
+		.map_err(|e| {
+			#[cfg(debug_assertions)]
+			eprintln!("[realtime] connect_async failed: {e}");
+			e.to_string()
+		})?;
 	let (mut sink, mut stream) = ws.split();
+
+	#[cfg(debug_assertions)]
+	eprintln!("[realtime] connected; preparing IDENTIFY");
 
 	let (tx, mut rx) = mpsc::unbounded_channel::<Frame>();
 	{
@@ -173,8 +187,15 @@ async fn connect_once(inner: Arc<AsyncMutex<Inner>>) -> Result<(), String> {
 		};
 		let payload = json!({ "event": "message", "data": identify });
 		if let Err(e) = sink.send(Message::Text(payload.to_string())).await {
+			#[cfg(debug_assertions)]
+			eprintln!("[realtime] IDENTIFY send error: {e}");
 			return Err(format!("identify send: {e}"));
 		}
+		#[cfg(debug_assertions)]
+		eprintln!("[realtime] IDENTIFY sent");
+	} else {
+		#[cfg(debug_assertions)]
+		eprintln!("[realtime] no bearer in store; skipping IDENTIFY (gateway will reject auth-gated subs)");
 	}
 
 	// Re-subscribe + flush queued sends now that we're identified.
@@ -205,22 +226,43 @@ async fn connect_once(inner: Arc<AsyncMutex<Inner>>) -> Result<(), String> {
 	loop {
 		tokio::select! {
 			Some(frame) = rx.recv() => {
+				#[cfg(debug_assertions)]
+				eprintln!("[realtime] -> op={}", frame.op);
 				let payload = json!({ "event": "message", "data": frame });
-				if sink.send(Message::Text(payload.to_string())).await.is_err() {
+				if let Err(e) = sink.send(Message::Text(payload.to_string())).await {
+					#[cfg(debug_assertions)]
+					eprintln!("[realtime] outgoing send error: {e}");
 					break;
 				}
 			}
 			Some(msg) = stream.next() => {
 				match msg {
 					Ok(Message::Text(t)) => {
-						if let Ok(frame) = serde_json::from_str::<Frame>(&t) {
-							let cb = inner.lock().await.on_frame.clone();
-							if let Some(cb) = cb {
-								cb(frame);
+						match serde_json::from_str::<Frame>(&t) {
+							Ok(frame) => {
+								#[cfg(debug_assertions)]
+								eprintln!("[realtime] <- op={}", frame.op);
+								let cb = inner.lock().await.on_frame.clone();
+								if let Some(cb) = cb {
+									cb(frame);
+								}
+							}
+							Err(e) => {
+								#[cfg(debug_assertions)]
+								eprintln!("[realtime] frame parse error: {e}; raw_len={}", t.len());
 							}
 						}
 					}
-					Ok(Message::Close(_)) | Err(_) => break,
+					Ok(Message::Close(c)) => {
+						#[cfg(debug_assertions)]
+						eprintln!("[realtime] WS closed by peer: {c:?}");
+						break;
+					}
+					Err(e) => {
+						#[cfg(debug_assertions)]
+						eprintln!("[realtime] WS read error: {e}");
+						break;
+					}
 					_ => {}
 				}
 			}
