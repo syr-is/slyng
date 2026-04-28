@@ -1,7 +1,8 @@
 //! WKWebView hooks that make `navigator.mediaDevices.getUserMedia` work.
 //!
-//! Tauri serves the SPA over its `tauri://localhost` custom scheme.
-//! Two WebKit defaults stop media capture in that context:
+//! Tauri serves the SPA over its `tauri://localhost` custom scheme on
+//! macOS and iOS — same WebKit underneath, same two defaults stopping
+//! media capture:
 //!
 //! 1. **The custom scheme isn't a secure context.** WebKit gates the
 //!    Media Capture API to secure origins (https + http://localhost).
@@ -13,19 +14,23 @@
 //!    secure origin, every `getUserMedia` request asks the
 //!    UIDelegate `webView:requestMediaCapturePermissionForOrigin:initiatedByFrame:type:decisionHandler:`
 //!    for permission. Wry doesn't override that delegate, so requests
-//!    fall through to the default which silently denies. We swizzle
-//!    in our own implementation that calls `decisionHandler(.grant)`.
+//!    fall through to the default which silently denies. We install a
+//!    minimal `NSObject` subclass that handles those selectors and
+//!    calls `decisionHandler(.grant)`.
 //!
 //! Both selectors are private API — same pattern Cordova / Capacitor /
 //! Ionic ship in production. They've been stable across WebKit
 //! versions for ~8 years. The OS still gates camera + mic at the TCC
 //! layer using the `NSCameraUsageDescription` / `NSMicrophoneUsageDescription`
-//! keys in `Info.plist`, so the user still gets the standard macOS
-//! "App wants to access your camera" prompt the first time — we're
-//! not bypassing TCC, only the WebKit-internal "is this origin
-//! allowed?" gate.
+//! Info.plist keys, so the user still gets the standard "App wants to
+//! access your camera" prompt the first time — we're not bypassing
+//! TCC, only the WebKit-internal "is this origin allowed?" gate.
+//!
+//! On iOS the same code path applies; the display-capture selector
+//! is a no-op there (iOS WKWebView doesn't surface `getDisplayMedia`)
+//! but installing it doesn't hurt — WebKit never calls it.
 
-#![cfg(target_os = "macos")]
+#![cfg(any(target_os = "macos", target_os = "ios"))]
 
 use objc2::declare::ClassBuilder;
 use objc2::msg_send;

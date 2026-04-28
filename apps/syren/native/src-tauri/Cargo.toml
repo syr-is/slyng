@@ -38,17 +38,14 @@ tauri-plugin-deep-link = "2"
 [target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
 tauri-plugin-oauth = "2"
 
-# macOS-only: `objc2` lets us swizzle the WKUIDelegate so
-# `getUserMedia` + `getDisplayMedia` requests inside the WebView are
-# auto-granted at the WebKit layer (TCC still gates the actual hardware
-# access via `Info.plist` keys). Plus the safe-area helper we share
-# with iOS via the `ios` module in `lib.rs`.
-[target.'cfg(target_os = "macos")'.dependencies]
-objc2 = "0.6"
-objc2-foundation = { version = "0.3", features = ["NSString"] }
-
-# iOS-only: lets us configure WKWebView via objc2 so `env(safe-area-inset-*)`
-# returns non-zero values inside the webview.
-[target.'cfg(target_os = "ios")'.dependencies]
+# Apple targets (macOS + iOS) share the same WebKit underneath, so
+# the same `objc2` glue lights up `navigator.mediaDevices` on both —
+# `_registerURLSchemeAsSecure:` on the `tauri://` scheme + a custom
+# `WKUIDelegate` that auto-grants media-capture permissions at the
+# WebKit layer. TCC still gates actual hardware via the `Info.plist`
+# usage descriptions, so the user gets the standard OS prompt the
+# first time around. The same crates also drive the iOS-only safe-
+# area helper that sets `env(safe-area-inset-*)` inside the webview.
+[target.'cfg(any(target_os = "macos", target_os = "ios"))'.dependencies]
 objc2 = "0.6"
 objc2-foundation = { version = "0.3", features = ["NSString"] }

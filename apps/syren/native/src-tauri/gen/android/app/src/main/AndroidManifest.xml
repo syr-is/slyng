@@ -2,6 +2,18 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <uses-permission android:name="android.permission.INTERNET" />
 
+    <!-- Voice channels: WebView's `getUserMedia` ultimately ends up
+         hitting `Camera2` / `MediaRecorder` on Android, which require
+         these runtime permissions. The WebView itself prompts via
+         `WebChromeClient.onPermissionRequest` (Wry auto-grants), but
+         the OS still checks the manifest first; without these the
+         camera and mic are simply not accessible. -->
+    <uses-permission android:name="android.permission.CAMERA" />
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
+    <uses-feature android:name="android.hardware.camera" android:required="false" />
+    <uses-feature android:name="android.hardware.microphone" android:required="false" />
+
     <!-- AndroidTV support -->
     <uses-feature android:name="android.software.leanback" android:required="false" />
 

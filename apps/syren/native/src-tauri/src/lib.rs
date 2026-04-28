@@ -2,14 +2,12 @@ mod auth;
 mod commands;
 mod realtime;
 mod session_store;
-#[cfg(target_os = "macos")]
-mod macos_webview;
+#[cfg(any(target_os = "macos", target_os = "ios"))]
+mod apple_webview;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-	#[cfg(any(target_os = "ios", target_os = "android"))]
-	use tauri::Manager;
-	#[cfg(target_os = "macos")]
+	#[cfg(any(target_os = "macos", target_os = "ios", target_os = "android"))]
 	use tauri::Manager;
 
 	let builder = tauri::Builder::default()
@@ -26,14 +24,7 @@ pub fn run() {
 		.manage(auth::ClientHandle::new())
 		.manage(realtime::RealtimeHandle::new())
 		.setup(|_app| {
-			#[cfg(target_os = "ios")]
-			{
-				if let Some(window) = _app.get_webview_window("main") {
-					ios::install_safe_area(&window);
-				}
-			}
-
-			#[cfg(target_os = "macos")]
+			#[cfg(any(target_os = "macos", target_os = "ios"))]
 			{
 				// WKWebView refuses `navigator.mediaDevices` for two
 				// independent reasons by default — Tauri's `tauri://`
@@ -43,7 +34,14 @@ pub fn run() {
 				// hooks below are private-API but mirror what every
 				// Cordova / Capacitor / Ionic app ships in production.
 				if let Some(window) = _app.get_webview_window("main") {
-					macos_webview::enable_media_capture(&window);
+					apple_webview::enable_media_capture(&window);
+				}
+			}
+
+			#[cfg(target_os = "ios")]
+			{
+				if let Some(window) = _app.get_webview_window("main") {
+					ios::install_safe_area(&window);
 				}
 			}
 
