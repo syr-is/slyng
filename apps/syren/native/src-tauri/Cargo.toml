@@ -12,6 +12,9 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
+# Sets up the JNI symbol exports libwebrtc needs to bridge audio /
+# video frames from Kotlin into Rust. No-op on non-Android targets.
+webrtc-sys-build = "0.3"
 
 [dependencies]
 tauri = { version = "2", features = [] }
@@ -26,6 +29,19 @@ url = "2"
 syren-client = { path = "../../../../packages/rust/syren-client" }
 syren-types = { path = "../../../../packages/rust/syren-types" }
 
+# ── Voice (LiveKit) ─────────────────────────────────────────────────
+#
+# Rust LiveKit SDK + libwebrtc. Same `Room` / `RtcAudioSource` /
+# `RtcVideoStream` lifecycle on every platform; only the audio I/O
+# pipeline differs (cpal on desktop, platform-native on mobile via
+# JNI / FFI). `webrtc-sys-build` (a build-dep above) downloads the
+# right libwebrtc binary for the active target — first build pulls a
+# couple hundred MB of artefacts; subsequent builds reuse the cache.
+livekit = { version = "0.7", features = ["rustls-tls-webpki-roots"] }
+livekit-api = { version = "0.4", default-features = false, features = ["access-token"] }
+parking_lot = "0.12"
+futures = "0.3"
+
 # Mobile (Android / iOS): OAuth callback comes back via deep link.
 [target.'cfg(any(target_os = "android", target_os = "ios"))'.dependencies]
 tauri-plugin-deep-link = "2"
@@ -35,11 +51,21 @@ tauri-plugin-deep-link = "2"
 # port for the duration of each handshake; the OAuth redirect_uri is
 # `http://localhost:<port>/`, the system browser hits it, and the
 # plugin's request handler fires our callback with the full URL.
+#
+# Voice audio I/O is also desktop-only here — `cpal` binds CoreAudio /
+# WASAPI / ALSA / PulseAudio directly. Mobile targets supply their own
+# audio capture / playback via the platform shell.
 [target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
 tauri-plugin-oauth = "2"
+cpal = "0.15"
 
 # iOS-only: lets us configure WKWebView via objc2 so `env(safe-area-inset-*)`
 # returns non-zero values inside the webview.
 [target.'cfg(target_os = "ios")'.dependencies]
 objc2 = "0.6"
 objc2-foundation = { version = "0.3", features = ["NSString"] }
+
+# Android-only: JNI surface for the platform shell to push captured PCM
+# samples into Rust and pull playback PCM samples out.
+[target.'cfg(target_os = "android")'.dependencies]
+jni = "0.21"

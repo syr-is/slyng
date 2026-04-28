@@ -2,6 +2,7 @@ mod auth;
 mod commands;
 mod realtime;
 mod session_store;
+mod voice;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -21,6 +22,7 @@ pub fn run() {
 	let builder = builder
 		.manage(auth::ClientHandle::new())
 		.manage(realtime::RealtimeHandle::new())
+		.manage(voice::VoiceHandle::new())
 		.setup(|_app| {
 			#[cfg(target_os = "ios")]
 			{
@@ -161,6 +163,12 @@ pub fn run() {
 			realtime::realtime_subscribe_channels,
 			realtime::realtime_unsubscribe_channels,
 			realtime::realtime_send_typing,
+			// Voice (LiveKit).
+			voice::voice_join,
+			voice::voice_leave,
+			voice::voice_set_mic,
+			voice::voice_set_camera,
+			voice::voice_set_speaker,
 		]);
 
 	builder
