@@ -12,6 +12,14 @@
  *   - if user explicitly picks 'idle' via the picker, it's NOT autoIdle, so
  *     activity leaves them idle
  *   - if user picks dnd/invisible, onIdle() does nothing (status !== 'online')
+ *
+ * Mobile / app-resume: input events alone don't fire when the app comes
+ * back from the background — the user might just look at the screen
+ * without touching it, and on Android the WS may have been killed
+ * while we were backgrounded so the server thinks we're offline. We
+ * also bind to `visibilitychange` / `focus` / `pageshow` and on resume
+ * we both bump (restores from auto-idle) AND re-send the presence so
+ * the server flips us off the disconnect-induced 'offline' state.
  */
 
 import { updateMyPresence, type PresenceStatus } from './presence.svelte';
@@ -34,6 +42,21 @@ function bump() {
 	if (autoIdle) {
 		if (import.meta.env.DEV) console.log('[idle] activity bump → restoring to', userStatus);
 		autoIdle = false;
+		updateMyPresence({ status: userStatus });
+	}
+}
+
+function onResume() {
+	if (typeof document !== 'undefined' && document.visibilityState !== 'visible') return;
+	if (import.meta.env.DEV) console.log('[idle] resume; userStatus =', userStatus, 'autoIdle =', autoIdle);
+	bump();
+	// Even when autoIdle was already false, a backgrounded WS may have
+	// dropped and the gateway will have flagged us 'offline'. Re-firing
+	// the chosen status forces the server back to whatever the user
+	// explicitly picked (or 'online' as the default). Skipped for
+	// 'invisible' — that status is meant to persist as offline-looking
+	// and we don't want a resume to spuriously re-broadcast it.
+	if (userStatus !== 'invisible') {
 		updateMyPresence({ status: userStatus });
 	}
 }
@@ -73,6 +96,14 @@ export function startIdleWatcher() {
 	for (const e of ACTIVITY_EVENTS) {
 		window.addEventListener(e, bump, { passive: true });
 	}
+	if (typeof document !== 'undefined') {
+		document.addEventListener('visibilitychange', onResume);
+	}
+	window.addEventListener('focus', onResume);
+	// `pageshow` fires when the page is restored from the bfcache (some
+	// mobile browsers / WebViews) — visibilitychange doesn't always fire
+	// in that path on iOS Safari / WKWebView.
+	window.addEventListener('pageshow', onResume);
 	armTimer();
 }
 
@@ -84,4 +115,9 @@ export function stopIdleWatcher() {
 	for (const e of ACTIVITY_EVENTS) {
 		window.removeEventListener(e, bump);
 	}
+	if (typeof document !== 'undefined') {
+		document.removeEventListener('visibilitychange', onResume);
+	}
+	window.removeEventListener('focus', onResume);
+	window.removeEventListener('pageshow', onResume);
 }
