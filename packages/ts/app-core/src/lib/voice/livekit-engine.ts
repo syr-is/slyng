@@ -85,8 +85,30 @@ interface NativeCanvas {
 	stream: MediaStream;
 	width: number;
 	height: number;
+	/**
+	 * Set while a `createImageBitmap` decode is still in flight. New
+	 * frames that arrive while busy get dropped instead of queued —
+	 * keeping the canvas at "latest frame wins" instead of letting
+	 * the decode queue grow unbounded under load.
+	 */
+	decoding: boolean;
 }
 const nativeCanvases = new Map<string, NativeCanvas>();
+
+/**
+ * Decodes a base64 string to a `Uint8Array`. `atob` produces a binary
+ * string the browser implements as a fast bulk decode; the per-byte
+ * loop charCode is still the hot path, but it dwarfs anything the JS
+ * code does and beats the older "data:image/jpeg;base64,…" `<img>` src
+ * path because we hand the bytes straight into a `Blob` for
+ * `createImageBitmap`.
+ */
+function base64ToBytes(b64: string): Uint8Array {
+	const binary = atob(b64);
+	const out = new Uint8Array(binary.length);
+	for (let i = 0; i < binary.length; i++) out[i] = binary.charCodeAt(i);
+	return out;
+}
 
 function getOrCreateNativeCanvas(userId: string, width: number, height: number): NativeCanvas {
 	const existing = nativeCanvases.get(userId);
@@ -101,7 +123,7 @@ function getOrCreateNativeCanvas(userId: string, width: number, height: number):
 	const ctx = canvas.getContext('2d');
 	if (!ctx) throw new Error('canvas 2d context unavailable');
 	const stream = canvas.captureStream(30);
-	const entry: NativeCanvas = { canvas, ctx, stream, width, height };
+	const entry: NativeCanvas = { canvas, ctx, stream, width, height, decoding: false };
 	nativeCanvases.set(userId, entry);
 	if (userId === selfDid()) {
 		// Local self-preview: feed the same canvas-backed stream into
@@ -151,17 +173,26 @@ function ensureNativeListener() {
 		// for those, so we skip them here to avoid leaking a
 		// "__preview__ participant" into the remote-video map.
 		if (f.participant === '__preview__') return;
-		// Decode the JPEG via an `<img>` and draw onto the per-
-		// participant canvas. The captureStream-backed MediaStream
-		// already binds to the canvas so the voice tile picks it up
-		// without any extra wiring.
 		const target = getOrCreateNativeCanvas(f.participant, f.width, f.height);
-		const img = new Image();
-		img.onload = () => {
-			target.ctx.drawImage(img, 0, 0, target.width, target.height);
-		};
-		img.onerror = () => { /* drop bad frame */ };
-		img.src = `data:image/jpeg;base64,${f.jpeg_b64}`;
+		// "Latest frame wins" backpressure: if a decode is already in
+		// flight, drop this frame on the floor. Without this the JPEG
+		// decoder backs up on bursty input and you end up rendering
+		// stale frames seconds behind the wall clock.
+		if (target.decoding) return;
+		target.decoding = true;
+		// `createImageBitmap(Blob)` decodes off the main thread (where
+		// available — modern WKWebView / WebView2 / WebKitGTK all
+		// support it) and avoids the per-frame `<img>` element churn
+		// + base64 data-URL parse the previous path did.
+		const bytes = base64ToBytes(f.jpeg_b64);
+		const blob = new Blob([new Uint8Array(bytes)], { type: 'image/jpeg' });
+		void createImageBitmap(blob)
+			.then((bmp) => {
+				target.ctx.drawImage(bmp, 0, 0, target.width, target.height);
+				bmp.close();
+			})
+			.catch(() => { /* drop bad frame */ })
+			.finally(() => { target.decoding = false; });
 	});
 }
 

@@ -249,11 +249,14 @@ fn run_capture_loop(
 		buffer: I420Buffer::new(width, height),
 	};
 	let start = Instant::now();
-	let mut frame_count: u32 = 0;
-	// Local preview runs at ~10 fps (capture is 30) — the self-tile
-	// just needs a recent picture, not real-time motion.
-	let preview_every: u32 = 3;
 	let mut rgb_buf: Vec<u8> = Vec::new();
+	// Local self-preview runs at ~10 fps regardless of capture rate —
+	// the self-tile just needs a recent picture, not real-time motion,
+	// and decoupling preview cadence from capture rate keeps the
+	// publish path running at its full target fps even at 60 fps
+	// capture.
+	let preview_interval = std::time::Duration::from_millis(100);
+	let mut last_preview_at: Option<Instant> = None;
 
 	while is_running.load(Ordering::Acquire) {
 		let buf = match camera.frame() {
@@ -274,10 +277,15 @@ fn run_capture_loop(
 		frame.timestamp_us = start.elapsed().as_micros() as i64;
 		source.capture_frame(&frame);
 
-		frame_count = frame_count.wrapping_add(1);
 		if let Some(p) = preview.as_ref() {
-			if frame_count % preview_every == 0 {
+			let now = Instant::now();
+			let due = match last_preview_at {
+				Some(t) => now.duration_since(t) >= preview_interval,
+				None => true,
+			};
+			if due {
 				emit_preview_frame(p, &frame.buffer, width, height, &mut rgb_buf);
+				last_preview_at = Some(now);
 			}
 		}
 	}
@@ -477,10 +485,32 @@ fn emit_preview_frame(
 	rgb_buf: &mut Vec<u8>,
 ) {
 	use base64::{engine::general_purpose::STANDARD, Engine};
-	use image::{codecs::jpeg::JpegEncoder, ColorType};
 
+	if !i420_to_rgb(i420, width, height, rgb_buf) {
+		return;
+	}
+	let Some(jpeg) = encode_jpeg_rgb(rgb_buf, width, height, PREVIEW_QUALITY) else {
+		return;
+	};
+	(preview.emit)(RemoteFrame {
+		participant: preview.identity.clone(),
+		track_sid: "local".into(),
+		width,
+		height,
+		jpeg_b64: STANDARD.encode(&jpeg),
+	});
+}
+
+/// Per-call JPEG quality for the local-preview + remote-display side
+/// channel. 60 is visually indistinguishable from 70 for chat tiles
+/// and shaves a meaningful slice of encode time.
+const PREVIEW_QUALITY: f32 = 60.0;
+
+/// libyuv-backed I420 → packed RGB24 conversion. Reuses `dst` so the
+/// caller can avoid a per-frame allocation.
+fn i420_to_rgb(i420: &I420Buffer, width: u32, height: u32, dst: &mut Vec<u8>) -> bool {
 	let pixels = (width as usize) * (height as usize);
-	rgb_buf.resize(pixels * 3, 0);
+	dst.resize(pixels * 3, 0);
 	let (stride_y, stride_u, stride_v) = i420.strides();
 	let (data_y, data_u, data_v) = i420.data();
 	let ret = unsafe {
@@ -491,33 +521,26 @@ fn emit_preview_frame(
 			stride_u as i32,
 			data_v.as_ptr(),
 			stride_v as i32,
-			rgb_buf.as_mut_ptr(),
+			dst.as_mut_ptr(),
 			(width * 3) as i32,
 			width as i32,
 			height as i32,
 		)
 	};
-	if ret != 0 {
-		return;
-	}
+	ret == 0
+}
 
-	let mut jpeg: Vec<u8> = Vec::with_capacity(pixels / 4);
-	{
-		let mut encoder = JpegEncoder::new_with_quality(&mut jpeg, 70);
-		if encoder
-			.encode(rgb_buf, width, height, ColorType::Rgb8.into())
-			.is_err()
-		{
-			return;
-		}
-	}
-	(preview.emit)(RemoteFrame {
-		participant: preview.identity.clone(),
-		track_sid: "local".into(),
-		width,
-		height,
-		jpeg_b64: STANDARD.encode(&jpeg),
-	});
+/// SIMD JPEG encoding via mozjpeg (libjpeg-turbo). The pure-Rust
+/// `image::codecs::jpeg::JpegEncoder` was the chopiness bottleneck
+/// — it sat around 30-50 ms per 720p frame and starved the capture
+/// loop; mozjpeg drops that to ~3-5 ms.
+fn encode_jpeg_rgb(rgb: &[u8], width: u32, height: u32, quality: f32) -> Option<Vec<u8>> {
+	let mut cinfo = mozjpeg::Compress::new(mozjpeg::ColorSpace::JCS_RGB);
+	cinfo.set_size(width as usize, height as usize);
+	cinfo.set_quality(quality);
+	let mut started = cinfo.start_compress(Vec::with_capacity((width * height) as usize)).ok()?;
+	started.write_scanlines(rgb).ok()?;
+	started.finish().ok()
 }
 
 // ── Standalone Settings preview ─────────────────────────────────────
@@ -604,8 +627,9 @@ fn run_preview_loop(
 
 	let mut i420 = I420Buffer::new(width, height);
 	let mut rgb_buf: Vec<u8> = Vec::new();
-	let mut frame_count: u32 = 0;
-	let preview_every: u32 = 1; // already at low fps; emit every frame
+	// Standalone Settings preview is allowed to render at the camera's
+	// chosen rate — there's no concurrent publish path eating CPU, so
+	// the encoder can keep up with whatever fps the user picked.
 
 	while is_running.load(Ordering::Acquire) {
 		let buf = match camera.frame() {
@@ -615,44 +639,19 @@ fn run_preview_loop(
 		if !convert_to_i420(buf.buffer(), frame_format, width, height, &mut i420) {
 			continue;
 		}
-		frame_count = frame_count.wrapping_add(1);
-		if frame_count % preview_every != 0 {
+
+		// I420 → RGB → JPEG → emit. Helpers reuse `rgb_buf` so we
+		// avoid a per-frame allocation, and the JPEG encode runs
+		// through mozjpeg (SIMD libjpeg-turbo) instead of the pure-
+		// Rust `image` crate so a 720p frame fits well under the
+		// frame budget.
+		if !i420_to_rgb(&i420, width, height, &mut rgb_buf) {
 			continue;
 		}
-
-		// I420 → RGB → JPEG → emit. Reuse a single buffer across
-		// frames to avoid the per-frame allocation cost.
-		let pixels = (width as usize) * (height as usize);
-		rgb_buf.resize(pixels * 3, 0);
-		let (sy, su, sv) = i420.strides();
-		let (dy, du, dv) = i420.data();
-		let ret = unsafe {
-			yuv_sys::rs_I420ToRAW(
-				dy.as_ptr(),
-				sy as i32,
-				du.as_ptr(),
-				su as i32,
-				dv.as_ptr(),
-				sv as i32,
-				rgb_buf.as_mut_ptr(),
-				(width * 3) as i32,
-				width as i32,
-				height as i32,
-			)
+		let Some(jpeg) = encode_jpeg_rgb(&rgb_buf, width, height, PREVIEW_QUALITY) else {
+			continue;
 		};
-		if ret != 0 {
-			continue;
-		}
-
 		use base64::{engine::general_purpose::STANDARD, Engine};
-		use image::{codecs::jpeg::JpegEncoder, ColorType};
-		let mut jpeg: Vec<u8> = Vec::with_capacity(pixels / 4);
-		{
-			let mut enc = JpegEncoder::new_with_quality(&mut jpeg, 70);
-			if enc.encode(&rgb_buf, width, height, ColorType::Rgb8.into()).is_err() {
-				continue;
-			}
-		}
 		emit(RemoteFrame {
 			participant: PREVIEW_PARTICIPANT.to_string(),
 			track_sid: "preview".into(),
@@ -698,7 +697,6 @@ pub async fn forward_remote_video<R: Runtime>(
 ) {
 	use base64::{engine::general_purpose::STANDARD, Engine};
 	use futures::StreamExt;
-	use image::{codecs::jpeg::JpegEncoder, ColorType};
 
 	let mut rgb_buf: Vec<u8> = Vec::new();
 
@@ -706,41 +704,13 @@ pub async fn forward_remote_video<R: Runtime>(
 		let i420 = frame.buffer.to_i420();
 		let width = i420.width() as u32;
 		let height = i420.height() as u32;
-		let pixels = (width as usize) * (height as usize);
-		rgb_buf.resize(pixels * 3, 0);
 
-		let (stride_y, stride_u, stride_v) = i420.strides();
-		let (data_y, data_u, data_v) = i420.data();
-
-		let ret = unsafe {
-			yuv_sys::rs_I420ToRAW(
-				data_y.as_ptr(),
-				stride_y as i32,
-				data_u.as_ptr(),
-				stride_u as i32,
-				data_v.as_ptr(),
-				stride_v as i32,
-				rgb_buf.as_mut_ptr(),
-				(width * 3) as i32,
-				width as i32,
-				height as i32,
-			)
-		};
-		if ret != 0 {
+		if !i420_to_rgb(&i420, width, height, &mut rgb_buf) {
 			continue;
 		}
-
-		let mut jpeg: Vec<u8> = Vec::with_capacity(pixels / 4);
-		{
-			let mut encoder = JpegEncoder::new_with_quality(&mut jpeg, 70);
-			if encoder
-				.encode(&rgb_buf, width, height, ColorType::Rgb8.into())
-				.is_err()
-			{
-				continue;
-			}
-		}
-
+		let Some(jpeg) = encode_jpeg_rgb(&rgb_buf, width, height, PREVIEW_QUALITY) else {
+			continue;
+		};
 		let payload = RemoteFrame {
 			participant: participant.clone(),
 			track_sid: track_sid.clone(),

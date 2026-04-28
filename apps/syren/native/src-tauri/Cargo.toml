@@ -97,6 +97,15 @@ version = "0.25"
 default-features = false
 features = ["jpeg"]
 
+# SIMD JPEG encoder for the local-preview + remote-display sidechannel.
+# `image::codecs::jpeg::JpegEncoder` is pure scalar Rust and saturates a
+# core at 720p / 30 fps, which was choppy. mozjpeg wraps libjpeg-turbo
+# with AVX2 / NEON, so per-frame encode drops from ~40ms to ~3ms.
+[target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies.mozjpeg]
+version = "0.10"
+default-features = false
+features = ["with_simd"]
+
 # iOS-only: lets us configure WKWebView via objc2 so `env(safe-area-inset-*)`
 # returns non-zero values inside the webview.
 [target.'cfg(target_os = "ios")'.dependencies]

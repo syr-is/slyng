@@ -245,17 +245,34 @@
 
 	let nativePreviewActive = $state(false);
 	let nativePreviewCanvas = $state<HTMLCanvasElement | null>(null);
+	let nativePreviewDecoding = false;
 	const unsubNativePreview = isTauri()
 		? onVoiceVideoFrame((f) => {
 			if (f.participant !== NATIVE_PREVIEW_PARTICIPANT) return;
 			if (!nativePreviewCanvas) return;
+			// Drop frames while a previous decode is still in flight —
+			// otherwise bursty input queues up `createImageBitmap` calls
+			// and the canvas drifts seconds behind realtime.
+			if (nativePreviewDecoding) return;
 			if (nativePreviewCanvas.width !== f.width) nativePreviewCanvas.width = f.width;
 			if (nativePreviewCanvas.height !== f.height) nativePreviewCanvas.height = f.height;
 			const ctx = nativePreviewCanvas.getContext('2d');
 			if (!ctx) return;
-			const img = new Image();
-			img.onload = () => ctx.drawImage(img, 0, 0, f.width, f.height);
-			img.src = `data:image/jpeg;base64,${f.jpeg_b64}`;
+			nativePreviewDecoding = true;
+			// `createImageBitmap` decodes off the main thread; the old
+			// `new Image()` + `data:image/jpeg;base64,…` src path
+			// blocked layout while WebKit decoded the image inline.
+			const binary = atob(f.jpeg_b64);
+			const bytes = new Uint8Array(binary.length);
+			for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+			const blob = new Blob([bytes], { type: 'image/jpeg' });
+			void createImageBitmap(blob)
+				.then((bmp) => {
+					ctx.drawImage(bmp, 0, 0, f.width, f.height);
+					bmp.close();
+				})
+				.catch(() => { /* drop bad frame */ })
+				.finally(() => { nativePreviewDecoding = false; });
 		})
 		: () => {};
 
