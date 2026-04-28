@@ -15,15 +15,17 @@
 //! (iOS `AVAudioEngine`) instead of cpal, but the room control flow
 //! stays identical.
 
-use futures::StreamExt;
 use livekit::{
 	options::TrackPublishOptions,
-	track::{LocalAudioTrack, LocalTrack, RemoteTrack, TrackSource},
+	track::{LocalAudioTrack, LocalTrack, LocalVideoTrack, RemoteTrack, TrackSource},
 	webrtc::{
 		audio_frame::AudioFrame,
 		audio_source::native::NativeAudioSource,
 		audio_stream::native::NativeAudioStream,
-		prelude::{AudioSourceOptions, RtcAudioSource},
+		prelude::{AudioSourceOptions, RtcAudioSource, RtcVideoSource},
+		video_source::native::NativeVideoSource,
+		video_source::VideoResolution,
+		video_stream::native::NativeVideoStream,
 	},
 	Room, RoomEvent, RoomOptions,
 };
@@ -35,6 +37,8 @@ use tokio::sync::mpsc;
 
 #[cfg(not(any(target_os = "ios", target_os = "android")))]
 use crate::voice_audio::{AudioCapture, AudioMixer, AudioPlayback, NUM_CHANNELS, SAMPLE_RATE};
+#[cfg(not(any(target_os = "ios", target_os = "android")))]
+use crate::voice_video::{forward_remote_video, VideoCapture};
 
 #[cfg(any(target_os = "ios", target_os = "android"))]
 const SAMPLE_RATE: u32 = 48000;
@@ -43,7 +47,7 @@ const NUM_CHANNELS: u32 = 1;
 
 #[derive(Debug)]
 pub enum VoiceCommand {
-	Join { url: String, token: String, channel_id: String },
+	Join { url: String, token: String, channel_id: String, self_identity: String },
 	Leave,
 	SetMicEnabled(bool),
 	SetCameraEnabled(bool),
@@ -83,6 +87,11 @@ pub enum VoiceEvent {
 struct ActiveRoom {
 	room: Arc<Room>,
 	local_track: LocalAudioTrack,
+	/// Identity the local participant joins under — passed by JS when
+	/// `voice_join` is invoked and reused for the local self-preview
+	/// `voice-video-frame` emit so the UI can route those frames into
+	/// the same per-participant canvas as remote frames.
+	self_identity: String,
 	#[cfg(not(any(target_os = "ios", target_os = "android")))]
 	source: NativeAudioSource,
 	#[cfg(not(any(target_os = "ios", target_os = "android")))]
@@ -93,6 +102,22 @@ struct ActiveRoom {
 	playback: Option<AudioPlayback>,
 	#[cfg(not(any(target_os = "ios", target_os = "android")))]
 	mic_forward: Option<tokio::task::JoinHandle<()>>,
+	// ── Video pipeline ──────────────────────────────────────────────
+	//
+	// Video gets a long-lived `NativeVideoSource` + `LocalVideoTrack`
+	// that we publish on the first `SetCameraEnabled(true)` and keep
+	// alive for the room's lifetime. The actual capture (nokhwa
+	// thread) lives in `video_capture` and is created / dropped as the
+	// camera toggles, so disabled = no camera-on indicator on remote
+	// participants but the published track stays valid for re-enable.
+	#[cfg(not(any(target_os = "ios", target_os = "android")))]
+	video_source: NativeVideoSource,
+	#[cfg(not(any(target_os = "ios", target_os = "android")))]
+	video_track: LocalVideoTrack,
+	#[cfg(not(any(target_os = "ios", target_os = "android")))]
+	video_capture: Option<VideoCapture>,
+	#[cfg(not(any(target_os = "ios", target_os = "android")))]
+	video_published: bool,
 }
 
 pub struct VoiceHandle {
@@ -158,7 +183,6 @@ impl VoiceHandle {
 	pub fn set_pref_output(&self, id: Option<String>) {
 		*self.pref_output.lock() = id;
 	}
-	#[allow(dead_code)]
 	pub fn set_pref_camera(&self, id: Option<String>) {
 		*self.pref_camera.lock() = id;
 	}
@@ -167,6 +191,9 @@ impl VoiceHandle {
 	}
 	pub fn pref_output(&self) -> Option<String> {
 		self.pref_output.lock().clone()
+	}
+	pub fn pref_camera(&self) -> Option<String> {
+		self.pref_camera.lock().clone()
 	}
 }
 
@@ -188,7 +215,7 @@ async fn service_task<R: Runtime>(
 
 	while let Some(cmd) = cmd_rx.recv().await {
 		match cmd {
-			VoiceCommand::Join { url, token, channel_id } => {
+			VoiceCommand::Join { url, token, channel_id, self_identity } => {
 				if active.is_some() {
 					active = leave_active(&app, active).await;
 				}
@@ -198,7 +225,17 @@ async fn service_task<R: Runtime>(
 				);
 				let pref_in = handle.pref_input();
 				let pref_out = handle.pref_output();
-				match handle_join(&app, &url, &token, &channel_id, pref_in.as_deref(), pref_out.as_deref()).await {
+				match handle_join(
+					&app,
+					&url,
+					&token,
+					&channel_id,
+					&self_identity,
+					pref_in.as_deref(),
+					pref_out.as_deref(),
+				)
+				.await
+				{
 					Ok(state) => {
 						let _ = app.emit(
 							"voice-event",
@@ -226,8 +263,13 @@ async fn service_task<R: Runtime>(
 				}
 			}
 			VoiceCommand::SetCameraEnabled(enabled) => {
-				#[cfg(debug_assertions)]
-				eprintln!("[voice] set_camera_enabled = {enabled} (TODO: video pipeline)");
+				#[cfg(not(any(target_os = "ios", target_os = "android")))]
+				if let Some(state) = active.as_mut() {
+					if let Err(e) = set_camera_enabled(&app, state, enabled, handle.pref_camera()).await {
+						let _ = app.emit("voice-event", VoiceEvent::Error { message: e });
+					}
+				}
+				#[cfg(any(target_os = "ios", target_os = "android"))]
 				let _ = enabled;
 			}
 			VoiceCommand::SetSpeakerEnabled(enabled) => {
@@ -254,9 +296,15 @@ async fn service_task<R: Runtime>(
 				}
 			}
 			VoiceCommand::SetCameraDevice(id) => {
-				handle.set_pref_camera(id);
-				// Camera publishing pipeline isn't wired yet — selection is
-				// just stashed for when it lands.
+				handle.set_pref_camera(id.clone());
+				#[cfg(not(any(target_os = "ios", target_os = "android")))]
+				if let Some(state) = active.as_mut() {
+					if state.video_capture.is_some() {
+						if let Err(e) = swap_camera(&app, state, id.as_deref()) {
+							let _ = app.emit("voice-event", VoiceEvent::Error { message: e });
+						}
+					}
+				}
 			}
 		}
 	}
@@ -291,11 +339,80 @@ fn swap_output(state: &mut ActiveRoom, id: Option<&str>) -> Result<(), String> {
 }
 
 #[cfg(not(any(target_os = "ios", target_os = "android")))]
+async fn set_camera_enabled<R: Runtime>(
+	app: &AppHandle<R>,
+	state: &mut ActiveRoom,
+	enabled: bool,
+	pref: Option<String>,
+) -> Result<(), String> {
+	if enabled {
+		// Lazy-publish on first enable so room participants don't see a
+		// dead camera track for users who never turn theirs on.
+		if !state.video_published {
+			state
+				.room
+				.local_participant()
+				.publish_track(
+					LocalTrack::Video(state.video_track.clone()),
+					TrackPublishOptions { source: TrackSource::Camera, ..Default::default() },
+				)
+				.await
+				.map_err(|e| format!("publish video: {e}"))?;
+			state.video_published = true;
+		}
+		state.video_track.unmute();
+		if state.video_capture.is_none() {
+			let preview = build_preview_sink(app, &state.self_identity);
+			state.video_capture = Some(VideoCapture::new(
+				pref.as_deref(),
+				state.video_source.clone(),
+				Some(preview),
+			)?);
+		}
+	} else {
+		state.video_capture.take();
+		state.video_track.mute();
+	}
+	Ok(())
+}
+
+#[cfg(not(any(target_os = "ios", target_os = "android")))]
+fn swap_camera<R: Runtime>(
+	app: &AppHandle<R>,
+	state: &mut ActiveRoom,
+	id: Option<&str>,
+) -> Result<(), String> {
+	state.video_capture.take();
+	let preview = build_preview_sink(app, &state.self_identity);
+	state.video_capture = Some(VideoCapture::new(
+		id,
+		state.video_source.clone(),
+		Some(preview),
+	)?);
+	Ok(())
+}
+
+#[cfg(not(any(target_os = "ios", target_os = "android")))]
+fn build_preview_sink<R: Runtime>(
+	app: &AppHandle<R>,
+	identity: &str,
+) -> crate::voice_video::LocalPreviewSink {
+	let app_clone = app.clone();
+	crate::voice_video::LocalPreviewSink::new(
+		identity.to_string(),
+		Box::new(move |frame| {
+			let _ = app_clone.emit("voice-video-frame", frame);
+		}),
+	)
+}
+
+#[cfg(not(any(target_os = "ios", target_os = "android")))]
 async fn handle_join<R: Runtime>(
 	app: &AppHandle<R>,
 	url: &str,
 	token: &str,
 	_channel_id: &str,
+	self_identity: &str,
 	pref_input: Option<&str>,
 	pref_output: Option<&str>,
 ) -> Result<ActiveRoom, String> {
@@ -343,6 +460,20 @@ async fn handle_join<R: Runtime>(
 		.await
 		.map_err(|e| format!("publish mic: {e}"))?;
 
+	// Local camera scaffolding. Source + track exist for the room's
+	// life so any future camera-on toggle just unmutes; we only build
+	// the capture thread (and publish) on the first enable so users
+	// who never turn the camera on don't show a dead track.
+	let video_source = NativeVideoSource::new(
+		VideoResolution { width: 1280, height: 720 },
+		false, // not a screen-share source
+	);
+	let video_track = LocalVideoTrack::create_video_track(
+		"camera",
+		RtcVideoSource::Native(video_source.clone()),
+	);
+	video_track.mute();
+
 	// Forward `RoomEvent`s to the JS side and feed remote audio into
 	// the mixer.
 	let app_for_events = app.clone();
@@ -357,11 +488,16 @@ async fn handle_join<R: Runtime>(
 	Ok(ActiveRoom {
 		room,
 		local_track: track,
+		self_identity: self_identity.to_string(),
 		source,
 		mixer,
 		capture: Some(capture),
 		playback: Some(playback),
 		mic_forward: Some(mic_forward),
+		video_source,
+		video_track,
+		video_capture: None,
+		video_published: false,
 	})
 }
 
@@ -371,9 +507,11 @@ async fn handle_join<R: Runtime>(
 	_url: &str,
 	_token: &str,
 	_channel_id: &str,
+	self_identity: &str,
 	_pref_input: Option<&str>,
 	_pref_output: Option<&str>,
 ) -> Result<ActiveRoom, String> {
+	let _ = self_identity;
 	Err("voice not implemented on this platform yet".into())
 }
 
@@ -453,7 +591,7 @@ async fn forward_room_events<R: Runtime>(
 					VoiceEvent::ParticipantLeft { identity: p.identity().to_string() },
 				);
 			}
-			RoomEvent::TrackSubscribed { track, participant, .. } => {
+			RoomEvent::TrackSubscribed { track, participant, publication } => {
 				let kind = format!("{:?}", track.kind()).to_lowercase();
 				let _ = app.emit(
 					"voice-event",
@@ -462,18 +600,30 @@ async fn forward_room_events<R: Runtime>(
 						track_kind: kind,
 					},
 				);
-				if let RemoteTrack::Audio(audio_track) = track {
-					let mixer_clone = mixer.clone();
-					let mut stream = NativeAudioStream::new(
-						audio_track.rtc_track(),
-						SAMPLE_RATE as i32,
-						NUM_CHANNELS as i32,
-					);
-					tokio::spawn(async move {
-						while let Some(frame) = stream.next().await {
-							mixer_clone.add_audio_data(frame.data.as_ref());
-						}
-					});
+				match track {
+					RemoteTrack::Audio(audio_track) => {
+						let mixer_clone = mixer.clone();
+						let mut stream = NativeAudioStream::new(
+							audio_track.rtc_track(),
+							SAMPLE_RATE as i32,
+							NUM_CHANNELS as i32,
+						);
+						tokio::spawn(async move {
+							use futures::StreamExt;
+							while let Some(frame) = stream.next().await {
+								mixer_clone.add_audio_data(frame.data.as_ref());
+							}
+						});
+					}
+					RemoteTrack::Video(video_track) => {
+						let stream = NativeVideoStream::new(video_track.rtc_track());
+						tokio::spawn(forward_remote_video(
+							app.clone(),
+							participant.identity().to_string(),
+							publication.sid().to_string(),
+							stream,
+						));
+					}
 				}
 			}
 			RoomEvent::TrackUnsubscribed { track, participant, .. } => {
@@ -510,9 +660,10 @@ pub async fn voice_join<R: Runtime>(
 	url: String,
 	token: String,
 	channel_id: String,
+	self_identity: String,
 ) -> Result<(), String> {
 	let tx = state.ensure(&app);
-	tx.send(VoiceCommand::Join { url, token, channel_id })
+	tx.send(VoiceCommand::Join { url, token, channel_id, self_identity })
 		.map_err(|e| e.to_string())
 }
 

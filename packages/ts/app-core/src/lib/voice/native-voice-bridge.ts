@@ -49,9 +49,14 @@ export function onVoiceEvent(handler: FrameHandler): () => void {
 	return () => frameHandlers.delete(handler);
 }
 
-export async function nativeJoin(url: string, token: string, channelId: string): Promise<void> {
+export async function nativeJoin(
+	url: string,
+	token: string,
+	channelId: string,
+	selfIdentity: string
+): Promise<void> {
 	ensureListener();
-	await invoke('voice_join', { url, token, channelId });
+	await invoke('voice_join', { url, token, channelId, selfIdentity });
 }
 
 export async function nativeLeave(): Promise<void> {
@@ -111,4 +116,36 @@ export async function nativeSetOutputDevice(deviceId: string | null): Promise<vo
 
 export async function nativeSetCameraDevice(deviceId: string | null): Promise<void> {
 	await invoke('voice_set_camera_device', { deviceId });
+}
+
+// ── Remote video frames ─────────────────────────────────────────────
+//
+// Each subscribed remote video track on the Rust side decodes I420 to
+// RGB, JPEG-encodes the frame, and emits `voice-video-frame` Tauri
+// events with the participant identity + base64 JPEG payload. The JS
+// side decodes back to an `<img>`/canvas paint per participant.
+
+export interface VoiceVideoFrame {
+	participant: string;
+	track_sid: string;
+	width: number;
+	height: number;
+	jpeg_b64: string;
+}
+
+type FrameListener = (frame: VoiceVideoFrame) => void;
+const frameListeners = new Set<FrameListener>();
+let unlistenFrames: Promise<UnlistenFn> | null = null;
+
+function ensureFrameListener(): void {
+	if (unlistenFrames || !isTauri()) return;
+	unlistenFrames = listen<VoiceVideoFrame>('voice-video-frame', (e) => {
+		for (const fn of frameListeners) fn(e.payload);
+	});
+}
+
+export function onVoiceVideoFrame(handler: FrameListener): () => void {
+	ensureFrameListener();
+	frameListeners.add(handler);
+	return () => frameListeners.delete(handler);
 }

@@ -454,9 +454,8 @@
 
 				{#if isTauri()}
 					<div class="mb-4 rounded-md border border-border bg-muted/40 p-3 text-sm text-muted-foreground">
-						Camera publishing isn't wired through the native voice pipeline yet — your selection
-						is stored and will take effect when video lands. Preview and screen share still
-						need the web client for now.
+						Screen sharing isn't wired through the native pipeline yet — use the web client to
+						share a screen. Camera capture works.
 					</div>
 				{/if}
 

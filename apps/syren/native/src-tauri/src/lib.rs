@@ -6,6 +6,8 @@ mod session_store;
 mod voice;
 #[cfg(not(any(target_os = "ios", target_os = "android")))]
 mod voice_audio;
+#[cfg(not(any(target_os = "ios", target_os = "android")))]
+mod voice_video;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {

@@ -26,12 +26,14 @@ import {
 	isTauri,
 	nativeJoin,
 	nativeLeave,
+	nativeSetCamera,
 	nativeSetCameraDevice,
 	nativeSetInputDevice,
 	nativeSetMic,
 	nativeSetOutputDevice,
 	nativeSetSpeaker,
-	onVoiceEvent
+	onVoiceEvent,
+	onVoiceVideoFrame
 } from './native-voice-bridge';
 
 // ── State ──
@@ -68,6 +70,48 @@ export class CameraPermissionError extends Error {
 // ── Room lifecycle ──
 
 let nativeUnlisten: (() => void) | null = null;
+let nativeFrameUnlisten: (() => void) | null = null;
+
+/**
+ * Per-participant canvas used to assemble native JPEG frames into a
+ * `MediaStream` the existing voice tile (`<video use:attachStream>`)
+ * can render unchanged. `canvas.captureStream(fps).getVideoTracks()`
+ * is well-supported across WKWebView / WebKitGTK / WebView2.
+ */
+interface NativeCanvas {
+	canvas: HTMLCanvasElement;
+	ctx: CanvasRenderingContext2D;
+	stream: MediaStream;
+	width: number;
+	height: number;
+}
+const nativeCanvases = new Map<string, NativeCanvas>();
+
+function getOrCreateNativeCanvas(userId: string, width: number, height: number): NativeCanvas {
+	const existing = nativeCanvases.get(userId);
+	if (existing && existing.width === width && existing.height === height) return existing;
+	if (existing) {
+		existing.stream.getTracks().forEach((t) => t.stop());
+		nativeCanvases.delete(userId);
+	}
+	const canvas = document.createElement('canvas');
+	canvas.width = width;
+	canvas.height = height;
+	const ctx = canvas.getContext('2d');
+	if (!ctx) throw new Error('canvas 2d context unavailable');
+	const stream = canvas.captureStream(30);
+	const entry: NativeCanvas = { canvas, ctx, stream, width, height };
+	nativeCanvases.set(userId, entry);
+	if (userId === selfDid()) {
+		// Local self-preview: feed the same canvas-backed stream into
+		// the local-video pipeline so the existing voice tile picks it
+		// up via `onLocalVideo`.
+		for (const fn of localVideoListeners) fn(stream);
+	} else {
+		dispatchRemoteVideo(userId, 'camera', stream);
+	}
+	return entry;
+}
 
 function ensureNativeListener() {
 	if (nativeUnlisten) return;
@@ -85,7 +129,33 @@ function ensureNativeListener() {
 			if (did) removeLocalUser(did);
 			setVoiceChannel(null);
 			currentChannelId = null;
+			// Drop any per-participant canvases — fresh ones get built
+			// on the next room's TrackSubscribed events.
+			for (const [, c] of nativeCanvases) c.stream.getTracks().forEach((t) => t.stop());
+			nativeCanvases.clear();
+		} else if (frame.event === 'track_unsubscribed' && frame.track_kind === 'video') {
+			const c = nativeCanvases.get(frame.participant);
+			if (c) {
+				c.stream.getTracks().forEach((t) => t.stop());
+				nativeCanvases.delete(frame.participant);
+				dispatchRemoteVideo(frame.participant, 'camera', null);
+			}
 		}
+	});
+
+	if (nativeFrameUnlisten) return;
+	nativeFrameUnlisten = onVoiceVideoFrame((f) => {
+		// Decode the JPEG via an `<img>` and draw onto the per-
+		// participant canvas. The captureStream-backed MediaStream
+		// already binds to the canvas so the voice tile picks it up
+		// without any extra wiring.
+		const target = getOrCreateNativeCanvas(f.participant, f.width, f.height);
+		const img = new Image();
+		img.onload = () => {
+			target.ctx.drawImage(img, 0, 0, target.width, target.height);
+		};
+		img.onerror = () => { /* drop bad frame */ };
+		img.src = `data:image/jpeg;base64,${f.jpeg_b64}`;
 	});
 }
 
@@ -112,7 +182,7 @@ export async function joinVoiceChannel(channelId: string): Promise<void> {
 			}
 		});
 		try {
-			await nativeJoin(url, token, channelId);
+			await nativeJoin(url, token, channelId, selfDid());
 		} catch (err) {
 			throw new MicPermissionError(
 				'unknown',
@@ -203,11 +273,12 @@ export async function leaveVoiceChannel(): Promise<void> {
 
 // ── Audio controls ──
 
-// Mirror of `room.localParticipant.getTrackPublication(...).isMuted`
-// for the native path — Rust owns the actual track state, but we
-// echo it locally so `isMuted()` stays correct between explicit
-// toggles.
+// Mirrors of room.localParticipant track-mute state for the native
+// path — Rust owns the actual track state, but we echo it locally so
+// `isMuted()` / `isCameraOn()` stay correct between explicit toggles
+// without round-tripping every read through Tauri IPC.
 let nativeMuted = false;
+let nativeCameraOn = false;
 
 export function toggleMute(): boolean {
 	if (isTauri()) {
@@ -289,10 +360,18 @@ export function getConnectedPeers(): string[] {
 
 export async function startCamera(): Promise<void> {
 	if (isTauri()) {
-		// Camera/screen aren't wired through the Rust LiveKit pipeline yet —
-		// audio-only on native for now. Surface a typed error so callers
-		// can show a "not supported" toast instead of crashing.
-		throw new CameraPermissionError('unknown', 'Camera not yet supported on the native client');
+		if (!currentChannelId) throw new Error('Not in a voice channel');
+		try {
+			await nativeSetCamera(true);
+		} catch (err) {
+			throw new CameraPermissionError(
+				'unknown',
+				(err as Error).message || 'Could not start the camera'
+			);
+		}
+		nativeCameraOn = true;
+		notifyVideoState();
+		return;
 	}
 	if (!room || !currentChannelId) throw new Error('Not in a voice channel');
 	if (isCameraOn()) return;
@@ -309,7 +388,12 @@ export async function startCamera(): Promise<void> {
 }
 
 export async function stopCamera(): Promise<void> {
-	if (isTauri()) return;
+	if (isTauri()) {
+		await nativeSetCamera(false).catch(() => {});
+		nativeCameraOn = false;
+		notifyVideoState();
+		return;
+	}
 	if (!room) return;
 	await room.localParticipant.setCameraEnabled(false);
 	notifyVideoState();
@@ -317,7 +401,7 @@ export async function stopCamera(): Promise<void> {
 }
 
 export function isCameraOn(): boolean {
-	if (isTauri()) return false;
+	if (isTauri()) return nativeCameraOn;
 	if (!room) return false;
 	const pub = room.localParticipant.getTrackPublication(Track.Source.Camera);
 	return !!pub && !pub.isMuted;
@@ -325,7 +409,10 @@ export function isCameraOn(): boolean {
 
 export async function startScreenShare(): Promise<void> {
 	if (isTauri()) {
-		throw new ScreenSharePermissionError('unknown', 'Screen share not yet supported on the native client');
+		// Screen capture on native still needs a separate platform path
+		// (cpal/nokhwa don't do it; libwebrtc has DesktopCapturer but the
+		// Rust API surface is bare). Surface a typed error for now.
+		throw new ScreenSharePermissionError('unknown', 'Screen share isn\'t wired through the native pipeline yet');
 	}
 	if (!room || !currentChannelId) throw new Error('Not in a voice channel');
 	if (isScreenSharing()) return;
@@ -447,6 +534,14 @@ export function getRemoteVideoStreams(): Map<VideoStreamKey, MediaStream> { retu
 export function getRemoteAudioElement(_userId: string): HTMLAudioElement | undefined { return undefined; }
 
 function getLocalVideoStream(): MediaStream | null {
+	if (isTauri()) {
+		// Native: the local camera frames land on a canvas keyed by
+		// the user's DID via the `voice-video-frame` listener; the
+		// canvas's `captureStream()` MediaStream is what the UI binds.
+		const did = selfDid();
+		const c = did ? nativeCanvases.get(did) : undefined;
+		return c?.stream ?? null;
+	}
 	if (!room) return null;
 	// Prefer camera for the local video preview (self-tile in voice room).
 	// Screen share renders in the separate screen-share overlay.

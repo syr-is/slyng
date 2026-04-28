@@ -41,6 +41,10 @@ livekit = { version = "0.7", features = ["rustls-tls-webpki-roots"] }
 livekit-api = { version = "0.4", default-features = false, features = ["access-token"] }
 parking_lot = "0.12"
 futures = "0.3"
+# Used to base64-encode JPEG-encoded remote-video frames for the
+# `voice-video-frame` Tauri event payload (Tauri's IPC is JSON, so
+# raw bytes need to be encoded).
+base64 = "0.22"
 
 # Mobile (Android / iOS): OAuth callback comes back via deep link.
 [target.'cfg(any(target_os = "android", target_os = "ios"))'.dependencies]
@@ -59,25 +63,39 @@ tauri-plugin-deep-link = "2"
 tauri-plugin-oauth = "2"
 cpal = "0.15"
 
-# Camera enumeration on desktop. Each platform pulls a different
-# nokhwa backend so we can ask the OS for its real cameras instead of
-# pretending the device list is empty (the WebView has no
-# `navigator.mediaDevices`). `default-features = false` skips the
-# image-decoding deps we don't need for enumeration.
+# Camera enumeration + capture on desktop. Each platform pulls a
+# different nokhwa backend so we can ask the OS for its real cameras
+# instead of pretending the device list is empty (the WebView has no
+# `navigator.mediaDevices`). `default-features = false` skips deps
+# we don't need; `output-threaded` is what surfaces `CallbackCamera`
+# and the `Buffer::buffer()` accessor used by the capture loop.
+#
+# `yuv-sys` is libyuv compiled to Rust — we need it for the YUYV /
+# RGB24 / MJPEG -> I420 conversions libwebrtc's `NativeVideoSource`
+# expects, plus the I420 -> RGBA path for sending remote frames into
+# the WebView.
 [target.'cfg(target_os = "macos")'.dependencies.nokhwa]
 version = "0.10"
 default-features = false
-features = ["input-avfoundation"]
+features = ["input-avfoundation", "output-threaded"]
 
 [target.'cfg(target_os = "linux")'.dependencies.nokhwa]
 version = "0.10"
 default-features = false
-features = ["input-v4l"]
+features = ["input-v4l", "output-threaded"]
 
 [target.'cfg(target_os = "windows")'.dependencies.nokhwa]
 version = "0.10"
 default-features = false
-features = ["input-msmf"]
+features = ["input-msmf", "output-threaded"]
+
+[target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies.yuv-sys]
+version = "0.3.14"
+
+[target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies.image]
+version = "0.25"
+default-features = false
+features = ["jpeg"]
 
 # iOS-only: lets us configure WKWebView via objc2 so `env(safe-area-inset-*)`
 # returns non-zero values inside the webview.
