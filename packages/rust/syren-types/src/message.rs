@@ -119,9 +119,45 @@ pub struct Message {
 #[cfg_attr(target_arch = "wasm32", derive(Tsify))]
 #[cfg_attr(target_arch = "wasm32", tsify(into_wasm_abi, from_wasm_abi))]
 pub struct SendMessageInput {
-	pub content: String,
+	#[serde(skip_serializing_if = "Option::is_none", default)]
+	pub content: Option<String>,
 	#[serde(default)]
 	pub reply_to: Vec<String>,
 	#[serde(default)]
 	pub attachments: Vec<Attachment>,
+}
+
+/// Body for `PATCH /api/channels/:channelId/messages/:messageId`.
+#[derive(Clone, Debug, Serialize, Deserialize, ZodSchema)]
+#[cfg_attr(target_arch = "wasm32", derive(Tsify))]
+#[cfg_attr(target_arch = "wasm32", tsify(into_wasm_abi, from_wasm_abi))]
+pub struct EditMessageInput {
+	pub content: String,
+}
+
+/// Body for `POST /api/channels/:channelId/messages/:messageId/reactions`.
+#[derive(Clone, Debug, Serialize, Deserialize, ZodSchema)]
+#[cfg_attr(target_arch = "wasm32", derive(Tsify))]
+#[cfg_attr(target_arch = "wasm32", tsify(into_wasm_abi, from_wasm_abi))]
+pub struct AddReactionInput {
+	pub kind: String,
+	pub value: String,
+	#[serde(skip_serializing_if = "Option::is_none", default)]
+	pub image_url: Option<String>,
+}
+
+/// Body for `DELETE /api/channels/:channelId/messages/:messageId/reactions`.
+#[derive(Clone, Debug, Serialize, Deserialize, ZodSchema)]
+#[cfg_attr(target_arch = "wasm32", derive(Tsify))]
+#[cfg_attr(target_arch = "wasm32", tsify(into_wasm_abi, from_wasm_abi))]
+pub struct RemoveReactionInput {
+	pub value: String,
+}
+
+/// Body for `POST /api/channels/:channelId/pins`.
+#[derive(Clone, Debug, Serialize, Deserialize, ZodSchema)]
+#[cfg_attr(target_arch = "wasm32", derive(Tsify))]
+#[cfg_attr(target_arch = "wasm32", tsify(into_wasm_abi, from_wasm_abi))]
+pub struct PinMessageInput {
+	pub message_id: String,
 }

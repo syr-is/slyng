@@ -87,8 +87,8 @@ export class MemberController {
 		if (!actor) throw new HttpException('Unauthorized', 401);
 		try {
 			await this.memberService.ban(serverId, body.user_id, actor, {
-				reason: body.reason ?? undefined,
-				deleteMessageSeconds: body.delete_seconds ?? undefined
+				reason: body.reason,
+				deleteMessageSeconds: body.delete_seconds
 			});
 			return { success: true };
 		} catch (err) {

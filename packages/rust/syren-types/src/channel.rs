@@ -116,3 +116,74 @@ pub struct ChannelReorderInput {
 	#[serde(rename = "categoryId", skip_serializing_if = "Option::is_none", default)]
 	pub category_id: Option<String>,
 }
+
+// ── Channel input shapes ────────────────────────────────────────────
+
+/// Body for `POST /api/servers/:serverId/channels`.
+#[derive(Clone, Debug, Default, Serialize, Deserialize, ZodSchema)]
+#[cfg_attr(target_arch = "wasm32", derive(Tsify))]
+#[cfg_attr(target_arch = "wasm32", tsify(into_wasm_abi, from_wasm_abi))]
+pub struct CreateChannelInput {
+	pub name: String,
+	#[serde(skip_serializing_if = "Option::is_none", default, rename = "type")]
+	pub channel_type: Option<String>,
+	#[serde(skip_serializing_if = "Option::is_none", default)]
+	pub category_id: Option<String>,
+}
+
+/// Body for `PATCH /api/channels/:id`.
+#[derive(Clone, Debug, Default, Serialize, Deserialize, ZodSchema)]
+#[cfg_attr(target_arch = "wasm32", derive(Tsify))]
+#[cfg_attr(target_arch = "wasm32", tsify(into_wasm_abi, from_wasm_abi))]
+pub struct UpdateChannelInput {
+	#[serde(skip_serializing_if = "Option::is_none", default)]
+	pub name: Option<String>,
+	#[serde(skip_serializing_if = "Option::is_none", default)]
+	pub topic: Option<String>,
+	#[serde(skip_serializing_if = "Option::is_none", default)]
+	pub category_id: Option<String>,
+}
+
+/// Body for `POST /api/users/@me/channels` (open a DM).
+#[derive(Clone, Debug, Serialize, Deserialize, ZodSchema)]
+#[cfg_attr(target_arch = "wasm32", derive(Tsify))]
+#[cfg_attr(target_arch = "wasm32", tsify(into_wasm_abi, from_wasm_abi))]
+pub struct CreateDmInput {
+	pub recipient_id: String,
+	#[serde(skip_serializing_if = "Option::is_none", default)]
+	pub syr_instance_url: Option<String>,
+}
+
+/// Body for `POST /api/users/@me/channels/:channelId/read`.
+#[derive(Clone, Debug, Serialize, Deserialize, ZodSchema)]
+#[cfg_attr(target_arch = "wasm32", derive(Tsify))]
+#[cfg_attr(target_arch = "wasm32", tsify(into_wasm_abi, from_wasm_abi))]
+pub struct MarkChannelReadInput {
+	pub last_message_id: String,
+}
+
+/// Body for `POST /api/servers/:serverId/categories`.
+#[derive(Clone, Debug, Serialize, Deserialize, ZodSchema)]
+#[cfg_attr(target_arch = "wasm32", derive(Tsify))]
+#[cfg_attr(target_arch = "wasm32", tsify(into_wasm_abi, from_wasm_abi))]
+pub struct CreateCategoryInput {
+	pub name: String,
+}
+
+/// Body for `PATCH /api/categories/:id`.
+#[derive(Clone, Debug, Default, Serialize, Deserialize, ZodSchema)]
+#[cfg_attr(target_arch = "wasm32", derive(Tsify))]
+#[cfg_attr(target_arch = "wasm32", tsify(into_wasm_abi, from_wasm_abi))]
+pub struct UpdateCategoryInput {
+	#[serde(skip_serializing_if = "Option::is_none", default)]
+	pub name: Option<String>,
+}
+
+/// Body for `POST /api/servers/:serverId/categories/reorder`.
+#[derive(Clone, Debug, Serialize, Deserialize, ZodSchema)]
+#[cfg_attr(target_arch = "wasm32", derive(Tsify))]
+#[cfg_attr(target_arch = "wasm32", tsify(into_wasm_abi, from_wasm_abi))]
+pub struct CategoryReorderInput {
+	#[serde(rename = "categoryIds")]
+	pub category_ids: Vec<String>,
+}

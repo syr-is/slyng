@@ -152,3 +152,38 @@ pub struct IgnoredRow {
 	pub ignored_id: String,
 	pub created_at: String,
 }
+
+// ── Relation input shapes ───────────────────────────────────────────
+
+/// Body for `POST /api/users/@me/friends` (send friend request).
+#[derive(Clone, Debug, Serialize, Deserialize, ZodSchema)]
+#[cfg_attr(target_arch = "wasm32", derive(Tsify))]
+#[cfg_attr(target_arch = "wasm32", tsify(into_wasm_abi, from_wasm_abi))]
+pub struct FriendSendInput {
+	pub user_id: String,
+	#[serde(skip_serializing_if = "Option::is_none", default)]
+	pub syr_instance_url: Option<String>,
+}
+
+/// Body for `POST /api/users/@me/blocklist` and `POST /api/users/@me/ignorelist`.
+#[derive(Clone, Debug, Serialize, Deserialize, ZodSchema)]
+#[cfg_attr(target_arch = "wasm32", derive(Tsify))]
+#[cfg_attr(target_arch = "wasm32", tsify(into_wasm_abi, from_wasm_abi))]
+pub struct UserIdInput {
+	pub user_id: String,
+}
+
+/// Body for `PATCH /api/users/@me`. Limited to privacy / trust controls;
+/// profile fields (display_name, avatar_url, …) come from the user's syr
+/// instance and are never set via this endpoint.
+#[derive(Clone, Debug, Default, Serialize, Deserialize, ZodSchema)]
+#[cfg_attr(target_arch = "wasm32", derive(Tsify))]
+#[cfg_attr(target_arch = "wasm32", tsify(into_wasm_abi, from_wasm_abi))]
+pub struct UpdateMyselfPolicyInput {
+	#[serde(skip_serializing_if = "Option::is_none", default)]
+	pub trusted_domains: Option<Vec<String>>,
+	#[serde(skip_serializing_if = "Option::is_none", default)]
+	pub allow_dms: Option<AllowDms>,
+	#[serde(skip_serializing_if = "Option::is_none", default)]
+	pub allow_friend_requests: Option<AllowFriendRequests>,
+}

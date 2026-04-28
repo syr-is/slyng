@@ -38,3 +38,11 @@ pub struct VoiceState {
 /// `GET /api/servers/:id/voice-states` reply: keyed by channel id, each
 /// value is the list of participants currently in that voice channel.
 pub type VoiceStatesByChannel = HashMap<String, Vec<VoiceState>>;
+
+/// Body for `POST /api/voice/token`.
+#[derive(Clone, Debug, Serialize, Deserialize, ZodSchema)]
+#[cfg_attr(target_arch = "wasm32", derive(Tsify))]
+#[cfg_attr(target_arch = "wasm32", tsify(into_wasm_abi, from_wasm_abi))]
+pub struct VoiceTokenInput {
+	pub channel_id: String,
+}

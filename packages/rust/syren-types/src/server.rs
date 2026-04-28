@@ -160,3 +160,90 @@ pub struct ChannelCategory {
 	pub created_at: String,
 	pub updated_at: String,
 }
+
+// ── Input shapes (request bodies) ───────────────────────────────────
+
+/// Body for `POST /api/servers`.
+#[derive(Clone, Debug, Default, Serialize, Deserialize, ZodSchema)]
+#[cfg_attr(target_arch = "wasm32", derive(Tsify))]
+#[cfg_attr(target_arch = "wasm32", tsify(into_wasm_abi, from_wasm_abi))]
+pub struct CreateServerInput {
+	pub name: String,
+	#[serde(skip_serializing_if = "Option::is_none", default)]
+	pub icon_url: Option<String>,
+	#[serde(skip_serializing_if = "Option::is_none", default)]
+	pub banner_url: Option<String>,
+	#[serde(skip_serializing_if = "Option::is_none", default)]
+	pub invite_background_url: Option<String>,
+	#[serde(skip_serializing_if = "Option::is_none", default)]
+	pub description: Option<String>,
+}
+
+/// Body for `PATCH /api/servers/:id`.
+#[derive(Clone, Debug, Default, Serialize, Deserialize, ZodSchema)]
+#[cfg_attr(target_arch = "wasm32", derive(Tsify))]
+#[cfg_attr(target_arch = "wasm32", tsify(into_wasm_abi, from_wasm_abi))]
+pub struct UpdateServerInput {
+	#[serde(skip_serializing_if = "Option::is_none", default)]
+	pub name: Option<String>,
+	#[serde(skip_serializing_if = "Option::is_none", default)]
+	pub description: Option<String>,
+	#[serde(skip_serializing_if = "Option::is_none", default)]
+	pub icon_url: Option<String>,
+	#[serde(skip_serializing_if = "Option::is_none", default)]
+	pub banner_url: Option<String>,
+	#[serde(skip_serializing_if = "Option::is_none", default)]
+	pub invite_background_url: Option<String>,
+}
+
+/// Body for `POST /api/servers/:id/transfer-ownership`.
+#[derive(Clone, Debug, Serialize, Deserialize, ZodSchema)]
+#[cfg_attr(target_arch = "wasm32", derive(Tsify))]
+#[cfg_attr(target_arch = "wasm32", tsify(into_wasm_abi, from_wasm_abi))]
+pub struct TransferOwnershipInput {
+	pub new_owner_id: String,
+}
+
+/// Body for `POST /api/servers/:id/roles`.
+#[derive(Clone, Debug, Default, Serialize, Deserialize, ZodSchema)]
+#[cfg_attr(target_arch = "wasm32", derive(Tsify))]
+#[cfg_attr(target_arch = "wasm32", tsify(into_wasm_abi, from_wasm_abi))]
+pub struct CreateRoleInput {
+	pub name: String,
+	#[serde(skip_serializing_if = "Option::is_none", default)]
+	pub color: Option<String>,
+	#[serde(skip_serializing_if = "Option::is_none", default)]
+	pub permissions: Option<String>,
+	#[serde(skip_serializing_if = "Option::is_none", default)]
+	pub permissions_allow: Option<String>,
+	#[serde(skip_serializing_if = "Option::is_none", default)]
+	pub permissions_deny: Option<String>,
+}
+
+/// Body for `PATCH /api/roles/:id`.
+#[derive(Clone, Debug, Default, Serialize, Deserialize, ZodSchema)]
+#[cfg_attr(target_arch = "wasm32", derive(Tsify))]
+#[cfg_attr(target_arch = "wasm32", tsify(into_wasm_abi, from_wasm_abi))]
+pub struct UpdateRoleInput {
+	#[serde(skip_serializing_if = "Option::is_none", default)]
+	pub name: Option<String>,
+	#[serde(skip_serializing_if = "Option::is_none", default)]
+	pub color: Option<String>,
+	#[serde(skip_serializing_if = "Option::is_none", default)]
+	pub permissions: Option<String>,
+	#[serde(skip_serializing_if = "Option::is_none", default)]
+	pub permissions_allow: Option<String>,
+	#[serde(skip_serializing_if = "Option::is_none", default)]
+	pub permissions_deny: Option<String>,
+	#[serde(skip_serializing_if = "Option::is_none", default)]
+	pub position: Option<u32>,
+}
+
+/// Body for `POST /api/servers/:id/roles/reorder`.
+#[derive(Clone, Debug, Serialize, Deserialize, ZodSchema)]
+#[cfg_attr(target_arch = "wasm32", derive(Tsify))]
+#[cfg_attr(target_arch = "wasm32", tsify(into_wasm_abi, from_wasm_abi))]
+pub struct RoleReorderInput {
+	#[serde(rename = "roleIds")]
+	pub role_ids: Vec<String>,
+}

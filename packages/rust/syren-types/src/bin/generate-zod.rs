@@ -12,11 +12,15 @@
 //!
 //! Two post-processing passes run on top of zod_gen's raw output:
 //!
-//! - `.nullable()` → `.nullable().optional()`. Rust `Option<T>` paired
-//!   with `#[serde(skip_serializing_if = "Option::is_none", default)]`
-//!   is sent over the wire as a missing key, *not* an explicit null.
-//!   Zod's `.nullable()` alone rejects missing keys; chaining
-//!   `.optional()` makes the schema accept missing, undefined, and null.
+//! - `.nullable()` → `.optional()`. Rust `Option<T>` paired with
+//!   `#[serde(skip_serializing_if = "Option::is_none", default)]` is
+//!   sent over the wire as a missing key, *not* an explicit null. We
+//!   emit `.optional()` (accepts missing / undefined) rather than
+//!   `.nullable()` (accepts the value or explicit null) because every
+//!   downstream service signature is typed `T | undefined`, and the
+//!   inferred Zod type lines up. Clients that send `field: null`
+//!   instead of omitting the key get a 400 — by design; the wire
+//!   contract is "omit, don't null".
 //! - `z.union([z.literal('a'), z.literal('b')])` → `z.enum(['a','b'])`
 //!   when every member is a bare string literal. Consumers depend on
 //!   `AuditActionSchema.options` (etc.) to enumerate values; that
@@ -62,6 +66,12 @@ fn main() -> ExitCode {
 	g.add_schema::<ServerBan>("ServerBan");
 	g.add_schema::<ChannelCategory>("ChannelCategory");
 	g.add_schema::<InviteTargetKind>("InviteTargetKind");
+	g.add_schema::<CreateServerInput>("CreateServerInput");
+	g.add_schema::<UpdateServerInput>("UpdateServerInput");
+	g.add_schema::<TransferOwnershipInput>("TransferOwnershipInput");
+	g.add_schema::<CreateRoleInput>("CreateRoleInput");
+	g.add_schema::<UpdateRoleInput>("UpdateRoleInput");
+	g.add_schema::<RoleReorderInput>("RoleReorderInput");
 
 	// Channel
 	g.add_schema::<Channel>("Channel");
@@ -70,6 +80,13 @@ fn main() -> ExitCode {
 	g.add_schema::<ParticipantRole>("ParticipantRole");
 	g.add_schema::<DmChannelSummary>("DmChannelSummary");
 	g.add_schema::<ChannelReorderInput>("ChannelReorderInput");
+	g.add_schema::<CreateChannelInput>("CreateChannelInput");
+	g.add_schema::<UpdateChannelInput>("UpdateChannelInput");
+	g.add_schema::<CreateDmInput>("CreateDmInput");
+	g.add_schema::<MarkChannelReadInput>("MarkChannelReadInput");
+	g.add_schema::<CreateCategoryInput>("CreateCategoryInput");
+	g.add_schema::<UpdateCategoryInput>("UpdateCategoryInput");
+	g.add_schema::<CategoryReorderInput>("CategoryReorderInput");
 
 	// Message
 	g.add_schema::<Message>("Message");
@@ -78,6 +95,10 @@ fn main() -> ExitCode {
 	g.add_schema::<Embed>("Embed");
 	g.add_schema::<ReactionSummary>("ReactionSummary");
 	g.add_schema::<SendMessageInput>("SendMessageInput");
+	g.add_schema::<EditMessageInput>("EditMessageInput");
+	g.add_schema::<AddReactionInput>("AddReactionInput");
+	g.add_schema::<RemoveReactionInput>("RemoveReactionInput");
+	g.add_schema::<PinMessageInput>("PinMessageInput");
 
 	// User / resolve
 	g.add_schema::<User>("User");
@@ -96,6 +117,9 @@ fn main() -> ExitCode {
 	g.add_schema::<FriendshipRow>("FriendshipRow");
 	g.add_schema::<BlockedRow>("BlockedRow");
 	g.add_schema::<IgnoredRow>("IgnoredRow");
+	g.add_schema::<FriendSendInput>("FriendSendInput");
+	g.add_schema::<UserIdInput>("UserIdInput");
+	g.add_schema::<UpdateMyselfPolicyInput>("UpdateMyselfPolicyInput");
 
 	// Permission
 	g.add_schema::<PermissionScopeType>("PermissionScopeType");
@@ -124,6 +148,7 @@ fn main() -> ExitCode {
 	// Voice
 	g.add_schema::<VoiceTokenResponse>("VoiceTokenResponse");
 	g.add_schema::<VoiceState>("VoiceState");
+	g.add_schema::<VoiceTokenInput>("VoiceTokenInput");
 
 	// Upload
 	g.add_schema::<UploadPresignInput>("UploadPresignInput");
@@ -208,7 +233,7 @@ fn main() -> ExitCode {
 }
 
 fn postprocess(input: &str) -> String {
-	let mut s = input.replace(".nullable()", ".nullable().optional()");
+	let mut s = input.replace(".nullable()", ".optional()");
 	s = unit_union_to_enum(&s);
 	s
 }
