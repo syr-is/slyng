@@ -17,7 +17,8 @@ import {
 	RemoteTrack,
 	RemoteTrackPublication,
 	RemoteParticipant,
-	Participant
+	Participant,
+	type TrackPublication
 } from 'livekit-client';
 import { SvelteMap } from 'svelte/reactivity';
 import { WsOp } from '@syren/types';
@@ -237,6 +238,16 @@ export function isScreenSharing(): boolean {
 	return !!pub && !pub.isMuted;
 }
 
+/**
+ * `getDisplayMedia` is desktop-browser-only — Android WebView, iOS
+ * WKWebView, macOS WKWebView, and the WebKitGTK Tauri builds without
+ * media-stream features all return `undefined` for it. The voice
+ * controls hide the screen-share button when this returns false.
+ */
+export function isScreenShareSupported(): boolean {
+	return typeof navigator.mediaDevices?.getDisplayMedia === 'function';
+}
+
 function notifyVideoState() {
 	if (!currentChannelId) return;
 	send({ op: WsOp.VOICE_STATE_UPDATE, d: { channel_id: currentChannelId, has_camera: isCameraOn(), has_screen: isScreenSharing() } });
@@ -308,22 +319,26 @@ function getLocalVideoStream(): MediaStream | null {
 	if (!room) return null;
 	// Prefer camera for the local video preview (self-tile in voice room).
 	// Screen share renders in the separate screen-share overlay.
+	// Treat muted publications as "no stream" so toggling the camera
+	// off restores the avatar fallback in the voice tile.
 	const camPub = room.localParticipant.getTrackPublication(Track.Source.Camera);
-	if (camPub?.track?.mediaStream) return camPub.track.mediaStream;
+	if (camPub && !camPub.isMuted && camPub.track?.mediaStream) return camPub.track.mediaStream;
 	const screenPub = room.localParticipant.getTrackPublication(Track.Source.ScreenShare);
-	if (screenPub?.track?.mediaStream) return screenPub.track.mediaStream;
+	if (screenPub && !screenPub.isMuted && screenPub.track?.mediaStream) return screenPub.track.mediaStream;
 	return null;
 }
 
 export function getLocalScreenStream(): MediaStream | null {
 	if (!room) return null;
 	const pub = room.localParticipant.getTrackPublication(Track.Source.ScreenShare);
+	if (pub?.isMuted) return null;
 	return pub?.track?.mediaStream ?? null;
 }
 
 export function getLocalCameraStream(): MediaStream | null {
 	if (!room) return null;
 	const pub = room.localParticipant.getTrackPublication(Track.Source.Camera);
+	if (pub?.isMuted) return null;
 	return pub?.track?.mediaStream ?? null;
 }
 
@@ -405,6 +420,33 @@ function wireRoomEvents(r: Room) {
 
 	r.on(RoomEvent.LocalTrackUnpublished, () => {
 		dispatchLocalVideo();
+	});
+
+	// `setCameraEnabled(false)` (and the equivalent for screen share)
+	// MUTES the publication on the LiveKit side instead of unpublishing
+	// it, so peers — and our own self-tile — don't see a fresh
+	// TrackUnsubscribed event. We have to listen for `TrackMuted` /
+	// `TrackUnmuted` and clear the dispatched stream so the voice tile
+	// falls back to the avatar (and re-shows the video on unmute).
+	r.on(RoomEvent.TrackMuted, (publication: TrackPublication, participant: Participant) => {
+		if (publication.kind !== Track.Kind.Video) return;
+		if (participant.isLocal) {
+			dispatchLocalVideo();
+			return;
+		}
+		const source: VideoSource = publication.source === Track.Source.ScreenShare ? 'screen' : 'camera';
+		dispatchRemoteVideo(participant.identity, source, null);
+	});
+
+	r.on(RoomEvent.TrackUnmuted, (publication: TrackPublication, participant: Participant) => {
+		if (publication.kind !== Track.Kind.Video) return;
+		if (participant.isLocal) {
+			dispatchLocalVideo();
+			return;
+		}
+		const source: VideoSource = publication.source === Track.Source.ScreenShare ? 'screen' : 'camera';
+		const stream = publication.track?.mediaStream ?? null;
+		dispatchRemoteVideo(participant.identity, source, stream);
 	});
 
 	r.on(RoomEvent.ActiveSpeakersChanged, (speakers: Participant[]) => {

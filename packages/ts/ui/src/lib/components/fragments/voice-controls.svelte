@@ -9,6 +9,7 @@
 		startScreenShare,
 		stopScreenShare,
 		isScreenSharing,
+		isScreenShareSupported,
 		startCamera,
 		stopCamera,
 		isCameraOn,
@@ -129,18 +130,20 @@
 				{/if}
 			</button>
 
-			<button
-				onclick={handleScreenShare}
-				class="rounded-full p-2 transition-colors
-					{sharing ? 'bg-primary/20 text-primary' : 'text-muted-foreground hover:bg-accent hover:text-foreground'}"
-				title={sharing ? 'Stop sharing' : 'Share screen'}
-			>
-				{#if sharing}
-					<Monitor class="h-4 w-4" />
-				{:else}
-					<MonitorOff class="h-4 w-4" />
-				{/if}
-			</button>
+			{#if isScreenShareSupported()}
+				<button
+					onclick={handleScreenShare}
+					class="rounded-full p-2 transition-colors
+						{sharing ? 'bg-primary/20 text-primary' : 'text-muted-foreground hover:bg-accent hover:text-foreground'}"
+					title={sharing ? 'Stop sharing' : 'Share screen'}
+				>
+					{#if sharing}
+						<Monitor class="h-4 w-4" />
+					{:else}
+						<MonitorOff class="h-4 w-4" />
+					{/if}
+				</button>
+			{/if}
 
 			<button
 				onclick={handleDisconnect}
