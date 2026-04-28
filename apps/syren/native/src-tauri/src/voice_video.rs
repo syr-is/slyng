@@ -26,17 +26,13 @@ use livekit::webrtc::{
 };
 use nokhwa::pixel_format::RgbFormat;
 use nokhwa::utils::{
-	ApiBackend, CameraIndex, FrameFormat, RequestedFormat, RequestedFormatType, Resolution,
+	ApiBackend, CameraIndex, FrameFormat, RequestedFormat, RequestedFormatType,
 };
 use nokhwa::{query, Camera};
 use parking_lot::Mutex;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Instant;
-
-const CAPTURE_WIDTH: u32 = 1280;
-const CAPTURE_HEIGHT: u32 = 720;
-const TARGET_FPS: u32 = 30;
 
 /// Maps a `device_enum` camera id (the nokhwa index serialised as a
 /// string) back to a `CameraIndex`. Falls back to index 0 on parse
@@ -131,13 +127,17 @@ fn run_capture_loop(
 	preview: Option<LocalPreviewSink>,
 	is_running: Arc<AtomicBool>,
 ) {
-	let requested = RequestedFormat::new::<RgbFormat>(RequestedFormatType::Closest(
-		nokhwa::utils::CameraFormat::new(
-			Resolution::new(CAPTURE_WIDTH, CAPTURE_HEIGHT),
-			FrameFormat::MJPEG,
-			TARGET_FPS,
-		),
-	));
+	// `Closest(MJPEG, …)` filters to MJPEG-supporting formats first;
+	// macOS AVFoundation cameras don't surface MJPEG, so the request
+	// fails outright. `AbsoluteHighestResolution` ranges over every
+	// format in `RgbFormat::FORMATS` (MJPEG, YUYV, NV12, RAWRGB,
+	// RAWBGR) and picks whichever shape the camera natively supports
+	// at its top resolution — `convert_to_i420` handles the actual
+	// pixel layout. We deliberately don't force a target framerate;
+	// macOS hands back ~30 fps for built-in cameras either way, and
+	// asking for an exact rate brings the same "cannot fulfill"
+	// failure mode back.
+	let requested = RequestedFormat::new::<RgbFormat>(RequestedFormatType::AbsoluteHighestResolution);
 
 	let mut camera = match Camera::new(camera_index.clone(), requested) {
 		Ok(c) => c,
@@ -496,13 +496,12 @@ fn run_preview_loop(
 	emit: Box<dyn Fn(RemoteFrame) + Send + Sync>,
 	is_running: Arc<AtomicBool>,
 ) {
-	let requested = RequestedFormat::new::<RgbFormat>(RequestedFormatType::Closest(
-		nokhwa::utils::CameraFormat::new(
-			Resolution::new(640, 360), // smaller than capture; the preview tile is tiny
-			FrameFormat::MJPEG,
-			15,
-		),
-	));
+	// Same reasoning as `run_capture_loop` — let nokhwa pick whatever
+	// the camera natively offers; macOS AVFoundation rejects MJPEG-
+	// targeted requests and `convert_to_i420` handles whichever shape
+	// the buffer arrives in. Preview just renders into a small tile,
+	// so any resolution is fine; we down-encode to JPEG anyway.
+	let requested = RequestedFormat::new::<RgbFormat>(RequestedFormatType::AbsoluteHighestResolution);
 	let mut camera = match Camera::new(camera_index.clone(), requested) {
 		Ok(c) => c,
 		Err(e) => {
