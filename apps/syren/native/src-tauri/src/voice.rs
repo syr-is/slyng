@@ -1,25 +1,45 @@
 //! Voice (LiveKit) Tauri surface.
 //!
 //! Wraps the Rust LiveKit SDK so the WebView can drive a voice room
-//! via `invoke('voice_join', …)` / `voice-event` Tauri events instead
-//! of running `livekit-client` (the JS SDK) inside the WebView. The
-//! room lifecycle is identical to LiveKit's `examples/wgpu_room`
-//! pattern — command channel in, event channel out — but the UI side
-//! lives in the WebView, so audio I/O attaches to platform-native
-//! capture / playback (cpal on desktop, JNI / FFI on mobile) and
-//! video frames are streamed to the WebView for `<canvas>` rendering.
+//! via `invoke('voice_join', …)` instead of running `livekit-client`
+//! (the JS SDK) inside the WebView. Lifecycle pattern is from
+//! `livekit/rust-sdks/examples/local_audio` — `Room::connect`, publish
+//! a `LocalAudioTrack` backed by a `NativeAudioSource` that cpal feeds
+//! mic samples into, and on every `RoomEvent::TrackSubscribed` spawn a
+//! `NativeAudioStream` task that drains remote PCM into a shared
+//! `AudioMixer` cpal pulls for playback.
 //!
-//! This is the **Phase 10 step 1 scaffold** — Tauri commands compile
-//! and round-trip; the actual `Room::connect`, audio I/O, and
-//! video-frame plumbing land in follow-up commits so we can verify
-//! the libwebrtc build + linker setup before committing to the bigger
-//! integration.
+//! Only desktop (macOS / Linux / Windows) here. Mobile gets the same
+//! `Room::connect` core in a follow-up — audio capture / playback
+//! moves to JNI (Android `AudioRecord` / `AudioTrack`) and FFI
+//! (iOS `AVAudioEngine`) instead of cpal, but the room control flow
+//! stays identical.
 
+use futures::StreamExt;
+use livekit::{
+	options::TrackPublishOptions,
+	track::{LocalAudioTrack, LocalTrack, RemoteTrack, TrackSource},
+	webrtc::{
+		audio_frame::AudioFrame,
+		audio_source::native::NativeAudioSource,
+		audio_stream::native::NativeAudioStream,
+		prelude::{AudioSourceOptions, RtcAudioSource},
+	},
+	Room, RoomEvent, RoomOptions,
+};
 use parking_lot::Mutex;
 use serde::Serialize;
 use std::sync::Arc;
 use tauri::{AppHandle, Emitter, Runtime, State};
 use tokio::sync::mpsc;
+
+#[cfg(not(any(target_os = "ios", target_os = "android")))]
+use crate::voice_audio::{AudioCapture, AudioMixer, AudioPlayback, NUM_CHANNELS, SAMPLE_RATE};
+
+#[cfg(any(target_os = "ios", target_os = "android"))]
+const SAMPLE_RATE: u32 = 48000;
+#[cfg(any(target_os = "ios", target_os = "android"))]
+const NUM_CHANNELS: u32 = 1;
 
 #[derive(Debug)]
 pub enum VoiceCommand {
@@ -51,6 +71,18 @@ pub enum VoiceEvent {
 	Error { message: String },
 }
 
+/// Per-app voice state. Holds the active room (if any) plus the audio
+/// pipeline so they all live for the room's lifetime and drop together
+/// on leave / disconnect.
+struct ActiveRoom {
+	room: Arc<Room>,
+	local_track: LocalAudioTrack,
+	#[cfg(not(any(target_os = "ios", target_os = "android")))]
+	_capture: AudioCapture,
+	#[cfg(not(any(target_os = "ios", target_os = "android")))]
+	_playback: AudioPlayback,
+}
+
 pub struct VoiceHandle {
 	cmd_tx: Mutex<Option<mpsc::UnboundedSender<VoiceCommand>>>,
 }
@@ -60,9 +92,15 @@ impl VoiceHandle {
 		Self { cmd_tx: Mutex::new(None) }
 	}
 
-	/// Lazily spin up the voice service task on first use. Reuses the
-	/// existing service across calls so a single `Room` instance owns
-	/// the libwebrtc connection for the app's lifetime.
+	/// Lazily spin up the voice service task on first use. Single
+	/// service across the app's lifetime so a single `Room` instance
+	/// owns the libwebrtc connection and audio pipeline.
+	///
+	/// Runs on a dedicated OS thread with a `current_thread` tokio
+	/// runtime — cpal's `Stream` is `!Send` on this build, so the
+	/// service can't sit on the multi-threaded tokio runtime Tauri
+	/// uses. Locality is fine here: there's exactly one voice service
+	/// per app and it's not in the request hot path.
 	fn ensure<R: Runtime>(&self, app: &AppHandle<R>) -> mpsc::UnboundedSender<VoiceCommand> {
 		let mut guard = self.cmd_tx.lock();
 		if let Some(tx) = guard.as_ref() {
@@ -70,7 +108,16 @@ impl VoiceHandle {
 		}
 		let (cmd_tx, cmd_rx) = mpsc::unbounded_channel::<VoiceCommand>();
 		let app_clone = app.clone();
-		tokio::spawn(service_task(app_clone, cmd_rx));
+		std::thread::Builder::new()
+			.name("syren-voice".into())
+			.spawn(move || {
+				let rt = tokio::runtime::Builder::new_current_thread()
+					.enable_all()
+					.build()
+					.expect("voice runtime");
+				rt.block_on(service_task(app_clone, cmd_rx));
+			})
+			.expect("spawn voice thread");
 		*guard = Some(cmd_tx.clone());
 		cmd_tx
 	}
@@ -83,51 +130,260 @@ impl Default for VoiceHandle {
 }
 
 /// The voice service task. Owns the LiveKit `Room` for the app
-/// lifetime, multiplexes commands from JS and events back to JS via
-/// `voice-event` Tauri events.
-///
-/// **Scaffold version**: handles the command stream and forwards
-/// events. Actual `Room::connect` + audio / video pipelines land in
-/// the follow-up commit.
+/// lifetime, multiplexes commands from JS and pushes events back via
+/// `voice-event` Tauri broadcasts.
 async fn service_task<R: Runtime>(
 	app: AppHandle<R>,
 	mut cmd_rx: mpsc::UnboundedReceiver<VoiceCommand>,
 ) {
-	let _connected: Arc<Mutex<Option<String>>> = Arc::new(Mutex::new(None));
+	let mut active: Option<ActiveRoom> = None;
 
 	while let Some(cmd) = cmd_rx.recv().await {
 		match cmd {
-			VoiceCommand::Join { url: _, token: _, channel_id } => {
-				#[cfg(debug_assertions)]
-				eprintln!("[voice] join requested for channel {channel_id}");
-				let _ = app.emit("voice-event", VoiceEvent::Connecting { channel_id: channel_id.clone() });
-				// TODO(phase-10/step-2): construct livekit::Room::connect,
-				// publish a NativeAudioSource backed by cpal (desktop) or
-				// platform-pushed PCM (mobile), forward `RoomEvent`s here
-				// as the matching VoiceEvent variants.
+			VoiceCommand::Join { url, token, channel_id } => {
+				if active.is_some() {
+					active = leave_active(&app, active).await;
+				}
 				let _ = app.emit(
 					"voice-event",
-					VoiceEvent::Error {
-						message: "voice not implemented yet (Phase 10 step 1 scaffold)".into(),
-					},
+					VoiceEvent::Connecting { channel_id: channel_id.clone() },
 				);
+				match handle_join(&app, &url, &token, &channel_id).await {
+					Ok(state) => {
+						let _ = app.emit(
+							"voice-event",
+							VoiceEvent::Connected { channel_id: channel_id.clone() },
+						);
+						active = Some(state);
+					}
+					Err(e) => {
+						#[cfg(debug_assertions)]
+						eprintln!("[voice] join failed: {e}");
+						let _ = app.emit("voice-event", VoiceEvent::Error { message: e });
+					}
+				}
 			}
 			VoiceCommand::Leave => {
-				#[cfg(debug_assertions)]
-				eprintln!("[voice] leave requested");
-				let _ = app.emit("voice-event", VoiceEvent::Disconnected { reason: None });
+				active = leave_active(&app, active).await;
 			}
 			VoiceCommand::SetMicEnabled(enabled) => {
-				#[cfg(debug_assertions)]
-				eprintln!("[voice] set mic enabled = {enabled}");
+				if let Some(state) = &active {
+					if enabled {
+						state.local_track.unmute();
+					} else {
+						state.local_track.mute();
+					}
+				}
 			}
 			VoiceCommand::SetCameraEnabled(enabled) => {
 				#[cfg(debug_assertions)]
-				eprintln!("[voice] set camera enabled = {enabled}");
+				eprintln!("[voice] set_camera_enabled = {enabled} (TODO: video pipeline)");
+				let _ = enabled;
 			}
 			VoiceCommand::SetSpeakerEnabled(enabled) => {
 				#[cfg(debug_assertions)]
-				eprintln!("[voice] set speaker enabled = {enabled}");
+				eprintln!("[voice] set_speaker_enabled = {enabled} (handled by mixer volume; not wired)");
+				let _ = enabled;
+			}
+		}
+	}
+
+	if active.is_some() {
+		let _ = leave_active(&app, active).await;
+	}
+}
+
+#[cfg(not(any(target_os = "ios", target_os = "android")))]
+async fn handle_join<R: Runtime>(
+	app: &AppHandle<R>,
+	url: &str,
+	token: &str,
+	_channel_id: &str,
+) -> Result<ActiveRoom, String> {
+	// `RoomOptions` is `#[non_exhaustive]`; construct then mutate.
+	let mut opts = RoomOptions::default();
+	opts.auto_subscribe = true;
+	let (room, room_events) = Room::connect(url, token, opts)
+		.await
+		.map_err(|e| format!("Room::connect: {e}"))?;
+	let room = Arc::new(room);
+
+	// Mic source — cpal pushes 10ms PCM chunks into this. We pre-create
+	// the source so the local track has something published immediately
+	// even if the mic stream takes a moment to spin up.
+	let source = NativeAudioSource::new(
+		AudioSourceOptions {
+			echo_cancellation: true,
+			noise_suppression: true,
+			auto_gain_control: true,
+		},
+		SAMPLE_RATE,
+		NUM_CHANNELS,
+		1000, // 1 second internal buffer
+	);
+
+	// Mic capture: cpal callback → mpsc → 10ms framing → NativeAudioSource.
+	let (mic_tx, mic_rx) = mpsc::unbounded_channel::<Vec<i16>>();
+	let capture = AudioCapture::new(mic_tx).map_err(|e| format!("audio capture: {e}"))?;
+	tokio::spawn(forward_mic_to_livekit(mic_rx, source.clone()));
+
+	// Mixer + playback: each remote audio track will append into this.
+	let mixer = AudioMixer::new(1.0);
+	let playback = AudioPlayback::new(mixer.clone()).map_err(|e| format!("audio playback: {e}"))?;
+
+	// Publish the local mic track.
+	let track =
+		LocalAudioTrack::create_audio_track("microphone", RtcAudioSource::Native(source));
+	room.local_participant()
+		.publish_track(
+			LocalTrack::Audio(track.clone()),
+			TrackPublishOptions { source: TrackSource::Microphone, ..Default::default() },
+		)
+		.await
+		.map_err(|e| format!("publish mic: {e}"))?;
+
+	// Forward `RoomEvent`s to the JS side and feed remote audio into
+	// the mixer.
+	let app_for_events = app.clone();
+	let mixer_for_events = mixer.clone();
+	tokio::spawn(forward_room_events(
+		room.clone(),
+		room_events,
+		app_for_events,
+		mixer_for_events,
+	));
+
+	Ok(ActiveRoom {
+		room,
+		local_track: track,
+		_capture: capture,
+		_playback: playback,
+	})
+}
+
+#[cfg(any(target_os = "ios", target_os = "android"))]
+async fn handle_join<R: Runtime>(
+	_app: &AppHandle<R>,
+	_url: &str,
+	_token: &str,
+	_channel_id: &str,
+) -> Result<ActiveRoom, String> {
+	Err("voice not implemented on this platform yet".into())
+}
+
+async fn leave_active<R: Runtime>(
+	app: &AppHandle<R>,
+	active: Option<ActiveRoom>,
+) -> Option<ActiveRoom> {
+	if let Some(state) = active {
+		// Closing the room ends the SDK's internal task, which closes
+		// the event stream that `forward_room_events` is reading; that
+		// task exits and its captured mixer/etc. drop. The local track
+		// + capture/playback drop with `state` going out of scope.
+		let _ = state.room.close().await;
+		let _ = app.emit(
+			"voice-event",
+			VoiceEvent::Disconnected { reason: Some("user_left".into()) },
+		);
+		drop(state);
+	}
+	None
+}
+
+/// Pulls 10ms-aligned PCM out of the cpal capture mpsc and pushes it
+/// into LiveKit's `NativeAudioSource`. cpal callbacks land
+/// device-buffer-sized chunks (often not multiples of 10ms), so we
+/// buffer + slice here to match the source's expected frame size.
+async fn forward_mic_to_livekit(
+	mut rx: mpsc::UnboundedReceiver<Vec<i16>>,
+	source: NativeAudioSource,
+) {
+	let samples_per_10ms = (SAMPLE_RATE / 100) as usize;
+	let mut buffer: Vec<i16> = Vec::with_capacity(samples_per_10ms * 4);
+	while let Some(chunk) = rx.recv().await {
+		buffer.extend_from_slice(&chunk);
+		while buffer.len() >= samples_per_10ms {
+			let frame: Vec<i16> = buffer.drain(..samples_per_10ms).collect();
+			let af = AudioFrame {
+				data: frame.into(),
+				sample_rate: SAMPLE_RATE,
+				num_channels: NUM_CHANNELS,
+				samples_per_channel: samples_per_10ms as u32,
+			};
+			if let Err(e) = source.capture_frame(&af).await {
+				#[cfg(debug_assertions)]
+				eprintln!("[voice] capture_frame failed: {e}");
+				let _ = e;
+				break;
+			}
+		}
+	}
+}
+
+#[cfg(not(any(target_os = "ios", target_os = "android")))]
+async fn forward_room_events<R: Runtime>(
+	_room: Arc<Room>,
+	mut events: tokio::sync::mpsc::UnboundedReceiver<RoomEvent>,
+	app: AppHandle<R>,
+	mixer: AudioMixer,
+) {
+	while let Some(event) = events.recv().await {
+		match event {
+			RoomEvent::ParticipantConnected(p) => {
+				let _ = app.emit(
+					"voice-event",
+					VoiceEvent::ParticipantJoined { identity: p.identity().to_string() },
+				);
+			}
+			RoomEvent::ParticipantDisconnected(p) => {
+				let _ = app.emit(
+					"voice-event",
+					VoiceEvent::ParticipantLeft { identity: p.identity().to_string() },
+				);
+			}
+			RoomEvent::TrackSubscribed { track, participant, .. } => {
+				let kind = format!("{:?}", track.kind()).to_lowercase();
+				let _ = app.emit(
+					"voice-event",
+					VoiceEvent::TrackSubscribed {
+						participant: participant.identity().to_string(),
+						track_kind: kind,
+					},
+				);
+				if let RemoteTrack::Audio(audio_track) = track {
+					let mixer_clone = mixer.clone();
+					let mut stream = NativeAudioStream::new(
+						audio_track.rtc_track(),
+						SAMPLE_RATE as i32,
+						NUM_CHANNELS as i32,
+					);
+					tokio::spawn(async move {
+						while let Some(frame) = stream.next().await {
+							mixer_clone.add_audio_data(frame.data.as_ref());
+						}
+					});
+				}
+			}
+			RoomEvent::TrackUnsubscribed { track, participant, .. } => {
+				let kind = format!("{:?}", track.kind()).to_lowercase();
+				let _ = app.emit(
+					"voice-event",
+					VoiceEvent::TrackUnsubscribed {
+						participant: participant.identity().to_string(),
+						track_kind: kind,
+					},
+				);
+			}
+			RoomEvent::Disconnected { reason } => {
+				let _ = app.emit(
+					"voice-event",
+					VoiceEvent::Disconnected { reason: Some(format!("{reason:?}")) },
+				);
+				break;
+			}
+			_ => {
+				// Other events (TrackPublished, ConnectionQuality, etc.) — not
+				// surfaced yet; add as the UI grows.
 			}
 		}
 	}
