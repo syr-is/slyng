@@ -2,6 +2,7 @@ import { Controller, Get, Post, Patch, Param, Body, Req, Res, HttpException } fr
 import { ApiTags, ApiOperation } from '@nestjs/swagger';
 import type { Response } from 'express';
 import { UploadService } from './upload.service';
+import { UploadFinalizeDto, UploadPresignDto } from '../dto';
 
 @ApiTags('uploads')
 @Controller('uploads')
@@ -11,7 +12,7 @@ export class UploadController {
 	@Post('presign')
 	@ApiOperation({ summary: 'Request a presigned URL for a direct S3 PUT upload' })
 	async presign(
-		@Body() body: { filename: string; mime_type: string; size: number; channel_id?: string; sha256?: string },
+		@Body() body: UploadPresignDto,
 		@Req() req: any
 	) {
 		const userId = req.user?.id;
@@ -27,7 +28,7 @@ export class UploadController {
 	@ApiOperation({ summary: 'Finalize a pending upload after the PUT completes' })
 	async finalize(
 		@Param('uploadId') uploadId: string,
-		@Body() body: { sha256?: string; width?: number; height?: number },
+		@Body() body: UploadFinalizeDto,
 		@Req() req: any,
 		@Res({ passthrough: true }) res: Response
 	) {

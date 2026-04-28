@@ -4,6 +4,7 @@ import { MemberService } from './member.service';
 import { MessageService } from '../message/message.service';
 import { RequirePermission } from '../auth/require-permission.decorator';
 import { PaginatedQuery, type PaginationOptions } from '../common/pagination';
+import { BanMemberDto, MarkChannelReadDto, PurgeMessagesDto } from '../dto';
 
 @ApiTags('members')
 @Controller()
@@ -79,15 +80,15 @@ export class MemberController {
 	@ApiOperation({ summary: 'Ban a user (with optional message purge)' })
 	async ban(
 		@Param('serverId') serverId: string,
-		@Body() body: { user_id: string; reason?: string; delete_seconds?: number },
+		@Body() body: BanMemberDto,
 		@Req() req: any
 	) {
 		const actor = req.user?.id;
 		if (!actor) throw new HttpException('Unauthorized', 401);
 		try {
 			await this.memberService.ban(serverId, body.user_id, actor, {
-				reason: body.reason,
-				deleteMessageSeconds: body.delete_seconds
+				reason: body.reason ?? undefined,
+				deleteMessageSeconds: body.delete_seconds ?? undefined
 			});
 			return { success: true };
 		} catch (err) {
@@ -137,7 +138,7 @@ export class MemberController {
 	@ApiOperation({ summary: 'Mark channel as read' })
 	async markRead(
 		@Param('channelId') channelId: string,
-		@Body() body: { last_message_id: string },
+		@Body() body: MarkChannelReadDto,
 		@Req() req: any
 	) {
 		const userId = req.user?.id;
@@ -182,7 +183,7 @@ export class MemberController {
 	async purgeMember(
 		@Param('serverId') serverId: string,
 		@Param('userId') targetUserId: string,
-		@Body() body: { delete_seconds: number },
+		@Body() body: PurgeMessagesDto,
 		@Req() req: any
 	) {
 		await this.memberService.purgeMessagesPublic(serverId, targetUserId, body.delete_seconds, req.user?.id);

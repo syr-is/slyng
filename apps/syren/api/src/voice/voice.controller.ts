@@ -3,6 +3,7 @@ import { ApiTags, ApiOperation } from '@nestjs/swagger';
 import { VoiceService } from './voice.service';
 import { LiveKitService } from './livekit.service';
 import { SkipServerAccess } from '../auth/server-access.decorator';
+import { VoiceTokenDto } from '../dto';
 
 @ApiTags('voice')
 @Controller()
@@ -22,10 +23,9 @@ export class VoiceController {
 	@Post('voice/token')
 	@SkipServerAccess()
 	@ApiOperation({ summary: 'Get a LiveKit room token for a voice channel' })
-	async getToken(@Body() body: { channel_id: string }, @Req() req: any) {
+	async getToken(@Body() body: VoiceTokenDto, @Req() req: any) {
 		const userId = req.user?.id;
 		if (!userId) throw new HttpException('Unauthorized', 401);
-		if (!body?.channel_id) throw new HttpException('channel_id required', 400);
 
 		const roomName = this.livekit.roomNameForChannel(body.channel_id);
 		const metadata = JSON.stringify({ did: userId });

@@ -4,9 +4,7 @@ import { SkipServerAccess } from '../auth/server-access.decorator';
 import { UserRepository } from '../auth/user.repository';
 import { WsOp, type AllowDms, type AllowFriendRequests } from '@syren/types';
 import { ChatGateway } from '../gateway/chat.gateway';
-
-const ALLOW_DMS_VALUES: AllowDms[] = ['open', 'friends_only', 'closed'];
-const ALLOW_FRIEND_REQUEST_VALUES: AllowFriendRequests[] = ['open', 'mutual', 'closed'];
+import { UpdateMyselfDto } from '../dto';
 
 @Controller('users')
 @UseGuards(AuthGuard)
@@ -103,15 +101,7 @@ export class UserController {
 	}
 
 	@Patch('@me')
-	async updateMe(
-		@Req() req: any,
-		@Body()
-		body: {
-			trusted_domains?: string[];
-			allow_dms?: AllowDms;
-			allow_friend_requests?: AllowFriendRequests;
-		}
-	) {
+	async updateMe(@Req() req: any, @Body() body: UpdateMyselfDto) {
 		const did = req.user?.did;
 		if (!did) throw new HttpException('Unauthorized', 401);
 
@@ -119,32 +109,15 @@ export class UserController {
 		let policyChanged = false;
 
 		if (body.trusted_domains !== undefined) {
-			if (!Array.isArray(body.trusted_domains)) {
-				throw new HttpException('trusted_domains must be an array', 400);
-			}
-			// Validate: only valid hostnames, max 200 entries
-			const cleaned = [...new Set(body.trusted_domains.filter((d) => typeof d === 'string' && d.length > 0))];
-			if (cleaned.length > 200) {
-				throw new HttpException('Too many trusted domains (max 200)', 400);
-			}
-			merge.trusted_domains = cleaned;
+			merge.trusted_domains = [...new Set(body.trusted_domains.filter((d) => d.length > 0))];
 		}
 
 		if (body.allow_dms !== undefined) {
-			if (!ALLOW_DMS_VALUES.includes(body.allow_dms)) {
-				throw new HttpException('allow_dms must be open | friends_only | closed', 400);
-			}
 			merge.allow_dms = body.allow_dms;
 			policyChanged = true;
 		}
 
 		if (body.allow_friend_requests !== undefined) {
-			if (!ALLOW_FRIEND_REQUEST_VALUES.includes(body.allow_friend_requests)) {
-				throw new HttpException(
-					'allow_friend_requests must be open | mutual | closed',
-					400
-				);
-			}
 			merge.allow_friend_requests = body.allow_friend_requests;
 			policyChanged = true;
 		}

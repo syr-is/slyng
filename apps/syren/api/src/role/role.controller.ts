@@ -2,6 +2,7 @@ import { Controller, Get, Post, Patch, Delete, Param, Body, Req, HttpException }
 import { ApiTags, ApiOperation } from '@nestjs/swagger';
 import { RoleService } from './role.service';
 import { RequirePermission } from '../auth/require-permission.decorator';
+import { CreateRoleDto, RoleReorderDto, UpdateRoleDto } from '../dto';
 
 @ApiTags('roles')
 @Controller()
@@ -19,14 +20,7 @@ export class RoleController {
 	@ApiOperation({ summary: 'Create a role' })
 	async create(
 		@Param('serverId') serverId: string,
-		@Body()
-		body: {
-			name: string;
-			color?: string | null;
-			permissions?: string;
-			permissions_allow?: string;
-			permissions_deny?: string;
-		},
+		@Body() body: CreateRoleDto,
 		@Req() req: any
 	) {
 		const userId = req.user?.id;
@@ -43,15 +37,7 @@ export class RoleController {
 	@ApiOperation({ summary: 'Update a role' })
 	async update(
 		@Param('roleId') roleId: string,
-		@Body()
-		body: {
-			name?: string;
-			color?: string | null;
-			permissions?: string;
-			permissions_allow?: string;
-			permissions_deny?: string;
-			position?: number;
-		},
+		@Body() body: UpdateRoleDto,
 		@Req() req: any
 	) {
 		const userId = req.user?.id;
@@ -85,14 +71,11 @@ export class RoleController {
 	@ApiOperation({ summary: 'Bulk reorder roles by position (drag-and-drop)' })
 	async reorder(
 		@Param('serverId') serverId: string,
-		@Body() body: { roleIds: string[] },
+		@Body() body: RoleReorderDto,
 		@Req() req: any
 	) {
 		const userId = req.user?.id;
 		if (!userId) throw new HttpException('Unauthorized', 401);
-		if (!Array.isArray(body.roleIds) || body.roleIds.length < 2) {
-			throw new HttpException('roleIds must be an array of at least 2 IDs', 400);
-		}
 		try {
 			return await this.roles.reorder(serverId, body.roleIds, userId);
 		} catch (err) {

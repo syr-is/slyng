@@ -2,6 +2,13 @@ import { Controller, Get, Post, Patch, Delete, Param, Body, Query, Req, HttpExce
 import { ApiTags, ApiOperation } from '@nestjs/swagger';
 import { MessageService } from './message.service';
 import { RequirePermission } from '../auth/require-permission.decorator';
+import {
+	AddReactionDto,
+	EditMessageDto,
+	PinMessageDto,
+	RemoveReactionDto,
+	SendMessageDto
+} from '../dto';
 
 @ApiTags('messages')
 @Controller('channels/:channelId')
@@ -34,19 +41,7 @@ export class MessageController {
 	@ApiOperation({ summary: 'Send a message' })
 	async create(
 		@Param('channelId') channelId: string,
-		@Body()
-		body: {
-			content?: string;
-			reply_to?: string | string[];
-			attachments?: Array<{
-				url: string;
-				filename: string;
-				mime_type: string;
-				size: number;
-				width?: number;
-				height?: number;
-			}>;
-		},
+		@Body() body: SendMessageDto,
 		@Req() req: any
 	) {
 		const userId = req.user?.id;
@@ -73,7 +68,7 @@ export class MessageController {
 	@ApiOperation({ summary: 'Edit a message' })
 	async update(
 		@Param('messageId') messageId: string,
-		@Body() body: { content: string },
+		@Body() body: EditMessageDto,
 		@Req() req: any
 	) {
 		const userId = req.user?.id;
@@ -143,7 +138,7 @@ export class MessageController {
 	async addReaction(
 		@Param('channelId') channelId: string,
 		@Param('messageId') messageId: string,
-		@Body() body: { kind: string; value: string; image_url?: string },
+		@Body() body: AddReactionDto,
 		@Req() req: any
 	) {
 		const userId = req.user?.id;
@@ -158,7 +153,7 @@ export class MessageController {
 	async removeReaction(
 		@Param('channelId') channelId: string,
 		@Param('messageId') messageId: string,
-		@Body() body: { value: string },
+		@Body() body: RemoveReactionDto,
 		@Req() req: any
 	) {
 		const userId = req.user?.id;
@@ -187,7 +182,7 @@ export class MessageController {
 	@ApiOperation({ summary: 'Pin a message' })
 	async pin(
 		@Param('channelId') channelId: string,
-		@Body() body: { message_id: string },
+		@Body() body: PinMessageDto,
 		@Req() req: any
 	) {
 		const userId = req.user?.id;

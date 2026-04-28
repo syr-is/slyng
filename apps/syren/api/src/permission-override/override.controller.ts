@@ -2,7 +2,7 @@ import { Controller, Get, Put, Delete, Param, Body, Req, HttpException } from '@
 import { ApiTags, ApiOperation } from '@nestjs/swagger';
 import { RequirePermission } from '../auth/require-permission.decorator';
 import { OverrideService } from './override.service';
-import type { PermissionScopeType, PermissionTargetType } from '@syren/types';
+import { UpsertOverrideDto } from '../dto';
 
 @ApiTags('permission-overrides')
 @Controller()
@@ -41,24 +41,16 @@ export class OverrideController {
 	@ApiOperation({ summary: 'Upsert a permission override' })
 	async upsert(
 		@Param('serverId') serverId: string,
-		@Body()
-		body: {
-			scope_type: PermissionScopeType;
-			scope_id: string | null;
-			target_type: PermissionTargetType;
-			target_id: string;
-			allow: string;
-			deny: string;
-		},
+		@Body() body: UpsertOverrideDto,
 		@Req() req: any
 	) {
 		const actor = req.user?.id;
 		if (!actor) throw new HttpException('Unauthorized', 401);
-		if (!body?.target_type || !body?.target_id) {
-			throw new HttpException('target_type and target_id required', 400);
-		}
 		try {
-			return await this.overrides.upsert(serverId, actor, body);
+			return await this.overrides.upsert(serverId, actor, {
+				...body,
+				scope_id: body.scope_id ?? null
+			});
 		} catch (err) {
 			throw new HttpException(err instanceof Error ? err.message : 'Failed', 400);
 		}

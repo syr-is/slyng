@@ -5,6 +5,13 @@ import { Public } from '../auth/public.decorator';
 import { SkipServerAccess } from '../auth/server-access.decorator';
 import { RequirePermission } from '../auth/require-permission.decorator';
 import { PaginatedQuery, type PaginationOptions } from '../common/pagination';
+import {
+	CreateInviteDto,
+	CreateServerDto,
+	TransferOwnershipDto,
+	UpdateInviteDto,
+	UpdateServerDto
+} from '../dto';
 
 @ApiTags('servers')
 @Controller('servers')
@@ -24,14 +31,7 @@ export class ServerController {
 	@SkipServerAccess()
 	@ApiOperation({ summary: 'Create a new server' })
 	async create(
-		@Body()
-		body: {
-			name: string;
-			icon_url?: string;
-			banner_url?: string;
-			invite_background_url?: string;
-			description?: string;
-		},
+		@Body() body: CreateServerDto,
 		@Req() req: any
 	) {
 		const userId = req.user?.id;
@@ -57,14 +57,7 @@ export class ServerController {
 	@ApiOperation({ summary: 'Update server' })
 	async update(
 		@Param('serverId') serverId: string,
-		@Body()
-		body: {
-			name?: string;
-			description?: string;
-			icon_url?: string | null;
-			banner_url?: string | null;
-			invite_background_url?: string | null;
-		},
+		@Body() body: UpdateServerDto,
 		@Req() req: any
 	) {
 		const userId = req.user?.id;
@@ -80,12 +73,11 @@ export class ServerController {
 	@ApiOperation({ summary: 'Transfer server ownership to another member (owner only)' })
 	async transferOwnership(
 		@Param('serverId') serverId: string,
-		@Body() body: { new_owner_id: string },
+		@Body() body: TransferOwnershipDto,
 		@Req() req: any
 	) {
 		const userId = req.user?.id;
 		if (!userId) throw new HttpException('Unauthorized', 401);
-		if (!body?.new_owner_id) throw new HttpException('new_owner_id required', 400);
 		try {
 			return await this.serverService.transferOwnership(serverId, userId, body.new_owner_id);
 		} catch (err) {
@@ -111,14 +103,7 @@ export class ServerController {
 	@ApiOperation({ summary: 'Create server invite' })
 	async createInvite(
 		@Param('serverId') serverId: string,
-		@Body()
-		body: {
-			max_uses?: number;
-			expires_in?: number;
-			target_kind?: 'open' | 'instance' | 'did';
-			target_value?: string;
-			label?: string;
-		},
+		@Body() body: CreateInviteDto,
 		@Req() req: any
 	) {
 		const userId = req.user?.id;
@@ -155,7 +140,7 @@ export class ServerController {
 	async updateInvite(
 		@Param('serverId') serverId: string,
 		@Param('code') code: string,
-		@Body() body: { label?: string | null },
+		@Body() body: UpdateInviteDto,
 		@Req() req: any
 	) {
 		const userId = req.user?.id;

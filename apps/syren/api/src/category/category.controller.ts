@@ -2,6 +2,7 @@ import { Controller, Get, Post, Patch, Delete, Param, Body, Req, HttpException }
 import { ApiTags, ApiOperation } from '@nestjs/swagger';
 import { RequirePermission } from '../auth/require-permission.decorator';
 import { CategoryService } from './category.service';
+import { CategoryReorderDto, CreateCategoryDto, UpdateCategoryDto } from '../dto';
 
 @ApiTags('categories')
 @Controller()
@@ -19,12 +20,11 @@ export class CategoryController {
 	@ApiOperation({ summary: 'Create a category' })
 	async create(
 		@Param('serverId') serverId: string,
-		@Body() body: { name: string },
+		@Body() body: CreateCategoryDto,
 		@Req() req: any
 	) {
 		const userId = req.user?.id;
 		if (!userId) throw new HttpException('Unauthorized', 401);
-		if (!body?.name?.trim()) throw new HttpException('name required', 400);
 		try {
 			return await this.categories.create(serverId, userId, body.name.trim());
 		} catch (err) {
@@ -37,7 +37,7 @@ export class CategoryController {
 	@ApiOperation({ summary: 'Update a category' })
 	async update(
 		@Param('categoryId') categoryId: string,
-		@Body() body: { name?: string },
+		@Body() body: UpdateCategoryDto,
 		@Req() req: any
 	) {
 		const userId = req.user?.id;
@@ -68,14 +68,11 @@ export class CategoryController {
 	@ApiOperation({ summary: 'Bulk reorder categories by position (drag-and-drop)' })
 	async reorder(
 		@Param('serverId') serverId: string,
-		@Body() body: { categoryIds: string[] },
+		@Body() body: CategoryReorderDto,
 		@Req() req: any
 	) {
 		const userId = req.user?.id;
 		if (!userId) throw new HttpException('Unauthorized', 401);
-		if (!Array.isArray(body.categoryIds) || body.categoryIds.length < 2) {
-			throw new HttpException('categoryIds must be an array of at least 2 IDs', 400);
-		}
 		try {
 			return await this.categories.reorder(serverId, body.categoryIds, userId);
 		} catch (err) {

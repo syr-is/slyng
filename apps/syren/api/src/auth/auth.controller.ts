@@ -2,6 +2,7 @@ import { Controller, Get, Post, Body, Query, Req, Res, HttpException, Logger } f
 import { ApiTags, ApiOperation } from '@nestjs/swagger';
 import { AuthService } from './auth.service';
 import { Public } from './public.decorator';
+import { ExchangeDto, LoginDto } from '../dto';
 import type { Request, Response } from 'express';
 
 const SESSION_COOKIE = 'syren_session';
@@ -58,7 +59,7 @@ export class AuthController {
 	@Post('login')
 	@ApiOperation({ summary: 'Initiate syr instance login — returns consent redirect URL' })
 	async login(
-		@Body() body: { instance_url: string; redirect?: string },
+		@Body() body: LoginDto,
 		@Res({ passthrough: true }) res: Response
 	) {
 		let instanceUrl = body.instance_url?.trim();
@@ -304,7 +305,7 @@ p{margin:0 0 16px;font-size:14px;color:#a1a1aa;line-height:1.5}
 	@Public()
 	@Post('exchange')
 	@ApiOperation({ summary: 'Exchange a one-shot bridge code for a session id' })
-	async exchange(@Body() body: { code: string }) {
+	async exchange(@Body() body: ExchangeDto) {
 		if (!body?.code) throw new HttpException('Missing code', 400);
 		const sessionId = this.authService.consumeBridgeToken(body.code);
 		if (!sessionId) throw new HttpException('Invalid or expired bridge code', 400);

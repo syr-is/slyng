@@ -5,6 +5,7 @@ import { MessageService } from '../message/message.service';
 import { RequirePermission } from '../auth/require-permission.decorator';
 import { SkipServerAccess } from '../auth/server-access.decorator';
 import { PaginatedQuery, type DateRangeOptions } from '../common/pagination';
+import { ChannelReorderDto, CreateChannelDto, CreateDmDto, UpdateChannelDto } from '../dto';
 
 @ApiTags('channels')
 @Controller()
@@ -27,7 +28,7 @@ export class ChannelController {
 	@ApiOperation({ summary: 'Create a channel in a server' })
 	async create(
 		@Param('serverId') serverId: string,
-		@Body() body: { name: string; type?: string; category_id?: string },
+		@Body() body: CreateChannelDto,
 		@Req() req: any
 	) {
 		const userId = req.user?.id;
@@ -44,7 +45,7 @@ export class ChannelController {
 	@ApiOperation({ summary: 'Update a channel' })
 	async update(
 		@Param('channelId') channelId: string,
-		@Body() body: { name?: string; topic?: string; category_id?: string | null },
+		@Body() body: UpdateChannelDto,
 		@Req() req: any
 	) {
 		const userId = req.user?.id;
@@ -61,7 +62,7 @@ export class ChannelController {
 	@ApiOperation({ summary: 'Bulk reorder channels by position (drag-and-drop)' })
 	async reorder(
 		@Param('serverId') serverId: string,
-		@Body() body: { channelIds: string[]; categoryId?: string | null },
+		@Body() body: ChannelReorderDto,
 		@Req() req: any
 	) {
 		const userId = req.user?.id;
@@ -154,7 +155,7 @@ export class ChannelController {
 	@Post('users/@me/channels')
 	@SkipServerAccess()
 	@ApiOperation({ summary: 'Create or get DM channel' })
-	async createDM(@Body() body: { recipient_id: string; syr_instance_url?: string }, @Req() req: any) {
+	async createDM(@Body() body: CreateDmDto, @Req() req: any) {
 		const userId = req.user?.id;
 		if (!userId) throw new HttpException('Unauthorized', 401);
 		return this.channelService.createDM(userId, body.recipient_id, body.syr_instance_url);

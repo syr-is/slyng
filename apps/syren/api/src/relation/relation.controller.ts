@@ -3,6 +3,7 @@ import { ApiTags, ApiOperation } from '@nestjs/swagger';
 import { RelationService } from './relation.service';
 import { SkipServerAccess } from '../auth/server-access.decorator';
 import { PaginatedQuery, type PaginationOptions } from '../common/pagination';
+import { BlockUserDto, FriendSendDto, IgnoreUserDto } from '../dto';
 
 @ApiTags('relations')
 @Controller('users/@me')
@@ -30,7 +31,7 @@ export class RelationController {
 
 	@Post('friends')
 	@ApiOperation({ summary: 'Send a friend request' })
-	async sendRequest(@Body() body: { user_id: string; syr_instance_url?: string }, @Req() req: any) {
+	async sendRequest(@Body() body: FriendSendDto, @Req() req: any) {
 		const userId = req.user?.id;
 		if (!userId) throw new HttpException('Unauthorized', 401);
 		if (!body?.user_id) throw new HttpException('user_id required', 400);
@@ -97,7 +98,7 @@ export class RelationController {
 
 	@Post('blocklist')
 	@ApiOperation({ summary: 'Block a user (auto-unfriends + strips ignore)' })
-	async block(@Body() body: { user_id: string }, @Req() req: any) {
+	async block(@Body() body: BlockUserDto, @Req() req: any) {
 		const userId = req.user?.id;
 		if (!userId) throw new HttpException('Unauthorized', 401);
 		if (!body?.user_id) throw new HttpException('user_id required', 400);
@@ -133,7 +134,7 @@ export class RelationController {
 
 	@Post('ignorelist')
 	@ApiOperation({ summary: 'Ignore a user' })
-	async ignore(@Body() body: { user_id: string }, @Req() req: any) {
+	async ignore(@Body() body: IgnoreUserDto, @Req() req: any) {
 		const userId = req.user?.id;
 		if (!userId) throw new HttpException('Unauthorized', 401);
 		if (!body?.user_id) throw new HttpException('user_id required', 400);
