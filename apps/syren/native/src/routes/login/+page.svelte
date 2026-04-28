@@ -5,8 +5,11 @@
 	import { listen } from '@tauri-apps/api/event';
 	import { Button } from '@syren/ui/button';
 	import { Input } from '@syren/ui/input';
-	import { Label } from '@syren/ui/label';
+	import * as Form from '@syren/ui/form';
 	import { invoke } from '@tauri-apps/api/core';
+	import { superForm, defaults } from 'sveltekit-superforms';
+	import { zod4, zod4Client } from 'sveltekit-superforms/adapters';
+	import { z } from 'zod';
 	import { getStoredHostSync } from '$lib/host-store';
 	import { api } from '@syren/app-core/api';
 	import { normalizeHost, isValidHost } from '@syren/app-core/normalize-host';
@@ -24,11 +27,10 @@
 		started_at: number;
 	}
 
-	let instanceUrl = $state('');
-	let loading = $state(false);
 	/** True from the moment the system browser opens until the OAuth
 	 *  round-trip resolves (auth-changed / auth-error) or times out. */
 	let signingIn = $state(false);
+	let displayInstanceUrl = $state('');
 	let errorMsg = $state<string | null>(null);
 
 	const urlError = page.url.searchParams.get('error');
@@ -146,6 +148,76 @@
 		errorMsg = null;
 	}
 
+	// ── Form ──
+	// Hand-written rather than reusing a Rust struct: the API's
+	// `LoginRequestSchema` is what the *server* expects; this is the
+	// pre-server, client-side instance-URL parsing step (`syr.example.com`
+	// → `https://syr.example.com`). The actual `instance_url` we POST to
+	// the API is the normalized output of this schema's transform.
+	const LoginFormSchema = z
+		.object({
+			instance_url: z.string().min(1, 'Enter a syr instance URL')
+		})
+		.superRefine((data, ctx) => {
+			const normalized = normalizeHost(data.instance_url);
+			if (!normalized || !isValidHost(normalized)) {
+				ctx.addIssue({
+					code: 'custom',
+					path: ['instance_url'],
+					message: "That doesn't look like a valid URL."
+				});
+			}
+		});
+
+	const form = superForm(defaults(zod4(LoginFormSchema)), {
+		SPA: true,
+		validators: zod4Client(LoginFormSchema),
+		onUpdate: async ({ form: f }) => {
+			if (!f.valid) return;
+			const normalized = normalizeHost(f.data.instance_url)!;
+			f.data.instance_url = normalized;
+
+			const apiHost = getStoredHostSync();
+			if (!apiHost) {
+				errorMsg = 'API host not configured.';
+				return;
+			}
+			errorMsg = null;
+			try {
+				// Persist OAuth-in-flight state BEFORE opening the browser so
+				// that if the OS kills our WebView while the user is in the
+				// system browser, the next mount can restore the
+				// "Completing sign-in…" state instead of showing an empty form.
+				if (typeof localStorage !== 'undefined') {
+					const state: OAuthState = {
+						instance_url: normalized,
+						started_at: Date.now()
+					};
+					localStorage.setItem(OAUTH_STATE_KEY, JSON.stringify(state));
+				}
+				// Rust opens the consent URL in the system browser. After the
+				// user completes consent, syr.is redirects to our API
+				// callback, which bounces to `syren://auth/callback?syren_bridge=...`.
+				// The OS routes that into Tauri; the deep-link handler calls
+				// `syren-client::login_complete`, which fetches `/auth/me` and
+				// emits `auth-changed`. The listener above handles the
+				// navigation into the app.
+				await invoke('start_login', { apiHost, instanceUrl: normalized });
+				displayInstanceUrl = normalized;
+				signingIn = true;
+				// Poll `/auth/me` while the user is in the system browser.
+				// If `auth-changed` is missed (event not buffered, fired
+				// before our listener attached, etc.) the next poll catches
+				// the persisted session and routes us into the app anyway.
+				startPolling();
+			} catch (err) {
+				errorMsg = err instanceof Error ? err.message : 'Connection failed';
+				clearPendingOAuth();
+			}
+		}
+	});
+	const { form: formData, enhance, submitting } = form;
+
 	onMount(() => {
 		// Restore in-flight OAuth state if the WebView was killed while
 		// the user was in the system browser. Without this, returning to
@@ -153,7 +225,8 @@
 		// polling discovers the session — looks like the app hung.
 		const pending = readPendingOAuth();
 		if (pending) {
-			instanceUrl = pending.instance_url;
+			$formData.instance_url = pending.instance_url;
+			displayInstanceUrl = pending.instance_url;
 			signingIn = true;
 			startPolling();
 		}
@@ -178,7 +251,6 @@
 						: 'Sign-in did not complete';
 				errorMsg = msg;
 				signingIn = false;
-				loading = false;
 				stopPolling();
 				clearPendingOAuth();
 			});
@@ -198,57 +270,6 @@
 		window.removeEventListener('focus', onFocus);
 		stopPolling();
 	});
-
-	async function handleSyrLogin(e: SubmitEvent) {
-		e.preventDefault();
-		const normalized = normalizeHost(instanceUrl);
-		if (!normalized) return;
-		if (!isValidHost(normalized)) {
-			errorMsg = "That doesn't look like a valid URL.";
-			return;
-		}
-		instanceUrl = normalized;
-
-		const apiHost = getStoredHostSync();
-		if (!apiHost) {
-			errorMsg = 'API host not configured.';
-			return;
-		}
-		loading = true;
-		errorMsg = null;
-		try {
-			// Persist OAuth-in-flight state BEFORE opening the browser so
-			// that if the OS kills our WebView while the user is in the
-			// system browser, the next mount can restore the
-			// "Completing sign-in…" state instead of showing an empty form.
-			if (typeof localStorage !== 'undefined') {
-				const state: OAuthState = {
-					instance_url: normalized,
-					started_at: Date.now()
-				};
-				localStorage.setItem(OAUTH_STATE_KEY, JSON.stringify(state));
-			}
-			// Rust opens the consent URL in the system browser. After the
-			// user completes consent, syr.is redirects to our API
-			// callback, which bounces to `syren://auth/callback?syren_bridge=...`.
-			// The OS routes that into Tauri; the deep-link handler calls
-			// `syren-client::login_complete`, which fetches `/auth/me` and
-			// emits `auth-changed`. The listener above handles the
-			// navigation into the app.
-			await invoke('start_login', { apiHost, instanceUrl: normalized });
-			signingIn = true;
-			// Poll `/auth/me` while the user is in the system browser.
-			// If `auth-changed` is missed (event not buffered, fired
-			// before our listener attached, etc.) the next poll catches
-			// the persisted session and routes us into the app anyway.
-			startPolling();
-		} catch (err) {
-			errorMsg = err instanceof Error ? err.message : 'Connection failed';
-			clearPendingOAuth();
-		} finally {
-			loading = false;
-		}
-	}
 </script>
 
 <div class="flex min-h-0 flex-1 items-center justify-center bg-background p-6">
@@ -256,9 +277,7 @@
 		<!-- Persistent "completing sign-in" UI. Stays visible while the
 		     user is in the system browser AND while we're waiting for
 		     either the auth-changed deep-link callback or the polling
-		     fallback to land. Without this, returning to the app showed
-		     a fresh empty form for several seconds — felt like the app
-		     had hung. -->
+		     fallback to land. -->
 		<div class="w-full max-w-md space-y-4 rounded-lg border border-border bg-card p-6 text-center shadow-sm">
 			<div class="flex justify-center">
 				<Loader2 class="size-8 animate-spin text-primary" />
@@ -269,8 +288,8 @@
 					Finish authorising in your browser. We'll bring you back automatically.
 				</p>
 			</div>
-			{#if instanceUrl}
-				<p class="font-mono text-xs text-muted-foreground">{instanceUrl}</p>
+			{#if displayInstanceUrl}
+				<p class="font-mono text-xs text-muted-foreground">{displayInstanceUrl}</p>
 			{/if}
 			{#if errorMsg}
 				<p class="text-sm text-destructive">{errorMsg}</p>
@@ -281,7 +300,8 @@
 		</div>
 	{:else}
 		<form
-			onsubmit={handleSyrLogin}
+			method="POST"
+			use:enhance
 			class="w-full max-w-md space-y-4 rounded-lg border border-border bg-card p-6 shadow-sm"
 		>
 			<div class="space-y-1">
@@ -290,32 +310,40 @@
 					Enter your syr instance to continue. You'll be redirected for consent.
 				</p>
 			</div>
-			<div class="space-y-2">
-				<Label for="instance">Instance URL</Label>
-				<Input
-					id="instance"
-					type="text"
-					inputmode="url"
-					placeholder="syr.example.com"
-					bind:value={instanceUrl}
-					autocomplete="off"
-					autocorrect="off"
-					autocapitalize="off"
-					spellcheck={false}
-					disabled={loading}
-				/>
-				<p class="text-xs text-muted-foreground">
+
+			<Form.Field {form} name="instance_url">
+				<Form.Control>
+					{#snippet children({ props })}
+						<Form.Label>Instance URL</Form.Label>
+						<Input
+							{...props}
+							type="text"
+							inputmode="url"
+							placeholder="syr.example.com"
+							bind:value={$formData.instance_url}
+							autocomplete="off"
+							autocorrect="off"
+							autocapitalize="off"
+							spellcheck={false}
+							disabled={$submitting}
+						/>
+					{/snippet}
+				</Form.Control>
+				<Form.Description>
 					Just the host. <span class="font-mono">https://</span> is added automatically (or
 					<span class="font-mono">http://</span> for <span class="font-mono">localhost</span> / LAN).
 					To force one, type the protocol yourself.
-				</p>
-				{#if errorMsg}
-					<p class="text-sm text-destructive">{errorMsg}</p>
-				{/if}
-			</div>
-			<Button type="submit" class="w-full" disabled={loading}>
-				{#if loading}<Loader2 class="mr-2 size-4 animate-spin" />Opening browser…{:else}Continue{/if}
-			</Button>
+				</Form.Description>
+				<Form.FieldErrors />
+			</Form.Field>
+
+			{#if errorMsg}
+				<p class="text-sm text-destructive">{errorMsg}</p>
+			{/if}
+
+			<Form.Button class="w-full" disabled={$submitting}>
+				{#if $submitting}<Loader2 class="mr-2 size-4 animate-spin" />Opening browser…{:else}Continue{/if}
+			</Form.Button>
 			<button
 				type="button"
 				class="w-full text-xs text-muted-foreground hover:text-foreground"

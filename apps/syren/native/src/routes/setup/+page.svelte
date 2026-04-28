@@ -3,57 +3,72 @@
 	import { page } from '$app/state';
 	import { Button } from '@syren/ui/button';
 	import { Input } from '@syren/ui/input';
-	import { Label } from '@syren/ui/label';
+	import * as Form from '@syren/ui/form';
 	import { Loader2 } from '@lucide/svelte';
+	import { superForm, defaults } from 'sveltekit-superforms';
+	import { zod4, zod4Client } from 'sveltekit-superforms/adapters';
+	import { z } from 'zod';
 	import { setStoredHost } from '$lib/host-store';
 	import { normalizeHost, isValidHost } from '@syren/app-core/normalize-host';
 	import { setHost } from '@syren/app-core/host';
 
-	let url = $state('');
-	let testing = $state(false);
-	let error = $state<string | null>(null);
-
-	async function testAndSave(e: SubmitEvent) {
-		e.preventDefault();
-		const trimmed = normalizeHost(url);
-		if (!trimmed) {
-			error = 'Enter your API host URL';
-			return;
-		}
-		if (!isValidHost(trimmed)) {
-			error = "That doesn't look like a valid URL.";
-			return;
-		}
-		url = trimmed; // reflect the normalized value back into the field
-		testing = true;
-		error = null;
-		try {
-			setHost(trimmed);
-			// `/api/auth/me` always exists. 200 → already signed in,
-			// 401 → reachable but unauthed (expected first run). Any other
-			// status (5xx, network error) means the URL is wrong.
-			const res = await fetch(`${trimmed}/api/auth/me`, {
-				method: 'GET',
-				credentials: 'include'
-			});
-			if (res.status >= 500 || (res.status !== 200 && res.status !== 401)) {
-				error = `Host responded ${res.status}. Double-check the URL.`;
-				return;
+	// Hand-written rather than reusing a Rust struct: this is a setup
+	// flow that doesn't hit the API at all (it just probes /api/auth/me
+	// to confirm the host responds), so there's nothing to centralize
+	// against. The schema enforces the same shape `normalizeHost` /
+	// `isValidHost` already check, plus the live-probe in `superRefine`.
+	const SetupSchema = z
+		.object({
+			url: z.string().min(1, 'Enter your API host URL')
+		})
+		.superRefine((data, ctx) => {
+			const trimmed = normalizeHost(data.url);
+			if (!trimmed || !isValidHost(trimmed)) {
+				ctx.addIssue({
+					code: 'custom',
+					path: ['url'],
+					message: "That doesn't look like a valid URL."
+				});
 			}
-			await setStoredHost(trimmed);
-			const ret = page.url.searchParams.get('return') || '/';
-			goto(ret, { replaceState: true });
-		} catch (err) {
-			error = err instanceof Error ? err.message : 'Could not reach the host';
-		} finally {
-			testing = false;
+		});
+
+	const form = superForm(defaults(zod4(SetupSchema)), {
+		SPA: true,
+		validators: zod4Client(SetupSchema),
+		onUpdate: async ({ form: f }) => {
+			if (!f.valid) return;
+			const trimmed = normalizeHost(f.data.url)!;
+			f.data.url = trimmed;
+			try {
+				setHost(trimmed);
+				// `/api/auth/me` always exists. 200 → already signed in,
+				// 401 → reachable but unauthed (expected first run). Any other
+				// status means the URL is wrong.
+				const res = await fetch(`${trimmed}/api/auth/me`, {
+					method: 'GET',
+					credentials: 'include'
+				});
+				if (res.status >= 500 || (res.status !== 200 && res.status !== 401)) {
+					f.errors.url = [`Host responded ${res.status}. Double-check the URL.`];
+					f.valid = false;
+					return;
+				}
+				await setStoredHost(trimmed);
+				const ret = page.url.searchParams.get('return') || '/';
+				goto(ret, { replaceState: true });
+			} catch (err) {
+				f.errors.url = [err instanceof Error ? err.message : 'Could not reach the host'];
+				f.valid = false;
+			}
 		}
-	}
+	});
+	const { form: formData, enhance, submitting } = form;
 </script>
 
 <div class="flex min-h-0 flex-1 items-center justify-center bg-background p-6">
 	<form
-		onsubmit={testAndSave}
+		method="POST"
+		use:enhance
 		class="w-full max-w-md space-y-4 rounded-lg border border-border bg-card p-6 shadow-sm"
 	>
 		<div class="space-y-1">
@@ -64,38 +79,40 @@
 			</p>
 		</div>
 
-		<div class="space-y-2">
-			<Label for="host">API host URL</Label>
-			<Input
-				id="host"
-				type="text"
-				inputmode="url"
-				placeholder="syren.example.com"
-				bind:value={url}
-				autocomplete="off"
-				autocorrect="off"
-				autocapitalize="off"
-				spellcheck={false}
-				disabled={testing}
-			/>
-			<p class="text-xs text-muted-foreground">
+		<Form.Field {form} name="url">
+			<Form.Control>
+				{#snippet children({ props })}
+					<Form.Label>API host URL</Form.Label>
+					<Input
+						{...props}
+						type="text"
+						inputmode="url"
+						placeholder="syren.example.com"
+						bind:value={$formData.url}
+						autocomplete="off"
+						autocorrect="off"
+						autocapitalize="off"
+						spellcheck={false}
+						disabled={$submitting}
+					/>
+				{/snippet}
+			</Form.Control>
+			<Form.Description>
 				Enter the host. <span class="font-mono">https://</span> is added automatically (or
 				<span class="font-mono">http://</span> for <span class="font-mono">localhost</span> / LAN
 				addresses). To force one, type <span class="font-mono">http://</span> or
 				<span class="font-mono">https://</span> yourself.
-			</p>
-			{#if error}
-				<p class="text-sm text-destructive">{error}</p>
-			{/if}
-		</div>
+			</Form.Description>
+			<Form.FieldErrors />
+		</Form.Field>
 
-		<Button type="submit" class="w-full" disabled={testing}>
-			{#if testing}
+		<Form.Button class="w-full" disabled={$submitting}>
+			{#if $submitting}
 				<Loader2 class="mr-2 size-4 animate-spin" />
 				Testing connection…
 			{:else}
 				Test &amp; continue
 			{/if}
-		</Button>
+		</Form.Button>
 	</form>
 </div>

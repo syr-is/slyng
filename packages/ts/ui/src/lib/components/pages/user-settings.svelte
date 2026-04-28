@@ -18,7 +18,11 @@
 	import * as Avatar from '@syren/ui/avatar';
 	import { Button } from '@syren/ui/button';
 	import { Input } from '@syren/ui/input';
+	import * as Form from '@syren/ui/form';
 	import { Separator } from '@syren/ui/separator';
+	import { superForm, defaults } from 'sveltekit-superforms';
+	import { zod4, zod4Client } from 'sveltekit-superforms/adapters';
+	import { z } from 'zod';
 	import { getAuth } from '@syren/app-core/stores/auth.svelte';
 	import { resolveProfile, displayName, federatedHandle } from '@syren/app-core/stores/profiles.svelte';
 	import { getVoiceState } from '@syren/app-core/voice/voice-state.svelte';
@@ -74,7 +78,37 @@
 	let micTestStream = $state<MediaStream | null>(null);
 	let camPreviewStream = $state<MediaStream | null>(null);
 
-	let newDomain = $state('');
+	// `UpdateMyselfPolicyInputSchema.trusted_domains` is a `string[]`;
+	// this form adds one host at a time, so the local schema models a
+	// single hostname entry. The hostname rule is frontend-only — there's
+	// no Rust struct for "one trusted-domain entry".
+	const TrustedDomainSchema = z.object({
+		host: z
+			.string()
+			.min(1, 'Enter a hostname')
+			.regex(/^[a-z0-9.-]+(:\d+)?$/i, 'Looks malformed — use a bare hostname like example.com')
+	});
+	const trustedDomainForm = superForm(defaults(zod4(TrustedDomainSchema)), {
+		SPA: true,
+		validators: zod4Client(TrustedDomainSchema),
+		onUpdate: async ({ form: f }) => {
+			if (!f.valid) return;
+			let cleaned = f.data.host.trim().toLowerCase();
+			try {
+				cleaned = new URL(cleaned.startsWith('http') ? cleaned : `https://${cleaned}`).host;
+			} catch {
+				/* keep raw — regex above already passed */
+			}
+			try {
+				await addTrustedDomain(cleaned);
+				f.data.host = '';
+			} catch (err) {
+				toast.error(err instanceof Error ? err.message : 'Failed to add trusted domain');
+			}
+		}
+	});
+	const { form: trustedDomainData, enhance: trustedDomainEnhance, submitting: trustedDomainSubmitting } =
+		trustedDomainForm;
 
 	const profile = $derived(resolveProfile(auth.identity?.did ?? '', auth.identity?.syr_instance_url));
 	const profileName = $derived(displayName(profile, auth.identity?.did ?? ''));
@@ -218,20 +252,6 @@
 		const permission = await Notification.requestPermission();
 		setDesktopNotifications(permission === 'granted');
 		if (permission === 'denied') toast.error('Permission denied. Enable in browser settings.');
-	}
-
-	async function handleAddDomain() {
-		const host = newDomain.trim().toLowerCase();
-		if (!host) return;
-		// Strip protocol/path if user pasted a URL
-		let cleaned = host;
-		try { cleaned = new URL(host.startsWith('http') ? host : `https://${host}`).host; } catch { /* keep raw */ }
-		try {
-			await addTrustedDomain(cleaned);
-			newDomain = '';
-		} catch (err) {
-			toast.error(err instanceof Error ? err.message : 'Failed to add trusted domain');
-		}
 	}
 
 	const tabs: { id: Tab; label: string; icon: typeof User }[] = [
@@ -484,17 +504,25 @@
 					Links to these domains skip the "Leaving syren" confirmation.
 				</p>
 
-				<form
-					onsubmit={(e) => { e.preventDefault(); void handleAddDomain(); }}
-					class="mb-4 flex gap-2"
-				>
-					<Input
-						bind:value={newDomain}
-						placeholder="example.com"
-					/>
-					<Button type="submit" disabled={!newDomain.trim()}>
-						<Plus class="mr-1 h-4 w-4" /> Add
-					</Button>
+				<form method="POST" use:trustedDomainEnhance class="mb-4">
+					<Form.Field form={trustedDomainForm} name="host">
+						<div class="flex gap-2">
+							<Form.Control>
+								{#snippet children({ props })}
+									<Input
+										{...props}
+										bind:value={$trustedDomainData.host}
+										placeholder="example.com"
+										class="flex-1"
+									/>
+								{/snippet}
+							</Form.Control>
+							<Form.Button disabled={$trustedDomainSubmitting}>
+								<Plus class="mr-1 h-4 w-4" /> Add
+							</Form.Button>
+						</div>
+						<Form.FieldErrors />
+					</Form.Field>
 				</form>
 
 				<div class="space-y-1">

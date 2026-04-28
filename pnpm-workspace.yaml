@@ -4,7 +4,7 @@ packages:
 # Rust packages live under packages/rust/ but are managed by Cargo, not pnpm.
 
 catalog:
-  zod: 4.1.12
+  zod: 4.3.6
   prettier: 3.6.2
   prettier-plugin-svelte: 3.4.0
   prettier-plugin-tailwindcss: 0.6.14

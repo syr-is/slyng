@@ -4,6 +4,11 @@
 	import { Button } from '@syren/ui/button';
 	import { Input } from '@syren/ui/input';
 	import * as Dialog from '@syren/ui/dialog';
+	import * as Form from '@syren/ui/form';
+	import { superForm, defaults } from 'sveltekit-superforms';
+	import { zod4, zod4Client } from 'sveltekit-superforms/adapters';
+	import { z } from 'zod';
+	import { CreateCategoryInputSchema } from '@syren/types';
 	import { api } from '@syren/app-core/api';
 	import {
 		getServerState,
@@ -38,9 +43,29 @@
 	let showCreateChannel = $state(false);
 	let createChannelCategoryId = $state<string | undefined>(undefined);
 	let showCreateCategory = $state(false);
-	let newCategoryName = $state('');
 	let permEditor = $state<{ scopeType: 'channel' | 'category'; scopeId: string; scopeName: string; channelType?: 'text' | 'voice' } | null>(null);
 	let collapsed = $state<Set<string>>(new Set());
+
+	// Generated `CreateCategoryInputSchema` is `{ name: string }`; layer
+	// the same `min(1).max(100)` ceiling we apply to channel/server names.
+	const CategorySchema = CreateCategoryInputSchema.extend({
+		name: z.string().min(1, 'Category name is required').max(100)
+	});
+	const categoryForm = superForm(defaults(zod4(CategorySchema)), {
+		SPA: true,
+		validators: zod4Client(CategorySchema),
+		onUpdate: async ({ form: f }) => {
+			if (!f.valid) return;
+			try {
+				await api.categories.create(serverId, { name: f.data.name.trim() });
+				f.data.name = '';
+				showCreateCategory = false;
+			} catch (err) {
+				toast.error(err instanceof Error ? err.message : 'Failed to create category');
+			}
+		}
+	});
+	const { form: categoryFormData, enhance: categoryEnhance, submitting: categorySubmitting } = categoryForm;
 
 	function toggleCollapse(catId: string) {
 		const next = new Set(collapsed);
@@ -66,17 +91,6 @@
 			await refreshChannels();
 		} catch {
 			toast.error('Failed to create channel');
-		}
-	}
-
-	async function createCategory() {
-		if (!newCategoryName.trim()) return;
-		try {
-			await api.categories.create(serverId, { name: newCategoryName.trim() });
-			newCategoryName = '';
-			showCreateCategory = false;
-		} catch (err) {
-			toast.error(err instanceof Error ? err.message : 'Failed to create category');
 		}
 	}
 
@@ -479,22 +493,42 @@
 	/>
 {/if}
 
-<Dialog.Root open={showCreateCategory} onOpenChange={(v) => { if (!v) { showCreateCategory = false; newCategoryName = ''; } }}>
+<Dialog.Root
+	open={showCreateCategory}
+	onOpenChange={(v) => {
+		if (!v) {
+			showCreateCategory = false;
+			$categoryFormData.name = '';
+		}
+	}}
+>
 	<Dialog.Content class="sm:max-w-sm">
 		<Dialog.Header>
 			<Dialog.Title>Create Category</Dialog.Title>
 		</Dialog.Header>
-		<form onsubmit={(e) => { e.preventDefault(); createCategory(); }} class="space-y-4 py-4">
-			<Input
-				bind:value={newCategoryName}
-				placeholder="Category name"
-				onkeydown={(e) => { if (e.key === 'Enter') { e.preventDefault(); createCategory(); } }}
-			/>
+		<form method="POST" use:categoryEnhance class="space-y-4 py-4">
+			<Form.Field form={categoryForm} name="name">
+				<Form.Control>
+					{#snippet children({ props })}
+						<Input {...props} bind:value={$categoryFormData.name} placeholder="Category name" />
+					{/snippet}
+				</Form.Control>
+				<Form.FieldErrors />
+			</Form.Field>
+			<Dialog.Footer>
+				<Button
+					type="button"
+					variant="outline"
+					onclick={() => {
+						showCreateCategory = false;
+						$categoryFormData.name = '';
+					}}
+				>
+					Cancel
+				</Button>
+				<Form.Button disabled={$categorySubmitting}>Create</Form.Button>
+			</Dialog.Footer>
 		</form>
-		<Dialog.Footer>
-			<Button variant="outline" onclick={() => { showCreateCategory = false; newCategoryName = ''; }}>Cancel</Button>
-			<Button onclick={createCategory} disabled={!newCategoryName.trim()}>Create</Button>
-		</Dialog.Footer>
 	</Dialog.Content>
 </Dialog.Root>
 

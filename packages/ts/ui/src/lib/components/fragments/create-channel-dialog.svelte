@@ -2,6 +2,11 @@
 	import * as Dialog from '@syren/ui/dialog';
 	import { Button } from '@syren/ui/button';
 	import { Input } from '@syren/ui/input';
+	import * as Form from '@syren/ui/form';
+	import { superForm, defaults } from 'sveltekit-superforms';
+	import { zod4, zod4Client } from 'sveltekit-superforms/adapters';
+	import { z } from 'zod';
+	import { CreateChannelInputSchema } from '@syren/types';
 
 	const {
 		open,
@@ -13,16 +18,28 @@
 		onCreate: (name: string, type: string) => void;
 	} = $props();
 
-	let name = $state('');
-	let type = $state<'text' | 'voice'>('text');
+	// Generated `CreateChannelInputSchema` covers `{ name, type?, category_id? }`.
+	// Layer a `name.min(1).max(100)` constraint on top of the generated
+	// shape — Rust models the field as `String` (no length cap), and a
+	// 100-char ceiling matches the Server / Channel name caps used
+	// elsewhere in the codebase.
+	const Schema = CreateChannelInputSchema.extend({
+		name: z.string().min(1, 'Channel name is required').max(100),
+		type: z.enum(['text', 'voice']).default('text')
+	});
 
-	function submit() {
-		if (!name.trim()) return;
-		onCreate(name.trim(), type);
-		name = '';
-		type = 'text';
-		onClose();
-	}
+	const form = superForm(defaults({ type: 'text' as const }, zod4(Schema)), {
+		SPA: true,
+		validators: zod4Client(Schema),
+		onUpdate: ({ form: f }) => {
+			if (!f.valid) return;
+			onCreate(f.data.name.trim(), f.data.type);
+			f.data.name = '';
+			f.data.type = 'text';
+			onClose();
+		}
+	});
+	const { form: formData, enhance } = form;
 </script>
 
 <Dialog.Root {open} onOpenChange={(v) => { if (!v) onClose(); }}>
@@ -30,36 +47,42 @@
 		<Dialog.Header>
 			<Dialog.Title>Create Channel</Dialog.Title>
 		</Dialog.Header>
-		<div class="space-y-4 py-4">
+		<form method="POST" use:enhance class="space-y-4 py-4">
 			<div class="flex gap-2">
 				<button
-					onclick={() => (type = 'text')}
+					type="button"
+					onclick={() => ($formData.type = 'text')}
 					class="flex-1 rounded-md border px-3 py-2 text-sm transition-colors
-						{type === 'text' ? 'border-primary bg-primary/10 text-primary' : 'border-border text-muted-foreground'}"
+						{$formData.type === 'text' ? 'border-primary bg-primary/10 text-primary' : 'border-border text-muted-foreground'}"
 				>
 					# Text
 				</button>
 				<button
-					onclick={() => (type = 'voice')}
+					type="button"
+					onclick={() => ($formData.type = 'voice')}
 					class="flex-1 rounded-md border px-3 py-2 text-sm transition-colors
-						{type === 'voice' ? 'border-primary bg-primary/10 text-primary' : 'border-border text-muted-foreground'}"
+						{$formData.type === 'voice' ? 'border-primary bg-primary/10 text-primary' : 'border-border text-muted-foreground'}"
 				>
 					🔊 Voice
 				</button>
 			</div>
-			<div class="space-y-2">
-				<label for="channel-name" class="text-sm font-medium">Channel Name</label>
-				<Input
-					id="channel-name"
-					bind:value={name}
-					placeholder={type === 'text' ? 'general' : 'voice-chat'}
-					onkeydown={(e) => { if (e.key === 'Enter') submit(); }}
-				/>
-			</div>
-		</div>
-		<Dialog.Footer>
-			<Button variant="outline" onclick={onClose}>Cancel</Button>
-			<Button onclick={submit} disabled={!name.trim()}>Create</Button>
-		</Dialog.Footer>
+			<Form.Field {form} name="name">
+				<Form.Control>
+					{#snippet children({ props })}
+						<Form.Label>Channel Name</Form.Label>
+						<Input
+							{...props}
+							bind:value={$formData.name}
+							placeholder={$formData.type === 'text' ? 'general' : 'voice-chat'}
+						/>
+					{/snippet}
+				</Form.Control>
+				<Form.FieldErrors />
+			</Form.Field>
+			<Dialog.Footer>
+				<Button type="button" variant="outline" onclick={onClose}>Cancel</Button>
+				<Form.Button>Create</Form.Button>
+			</Dialog.Footer>
+		</form>
 	</Dialog.Content>
 </Dialog.Root>

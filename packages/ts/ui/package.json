@@ -98,6 +98,11 @@
 			"import": "./dist/utils.js",
 			"default": "./dist/utils.js"
 		},
+		"./form": {
+			"types": "./dist/components/ui/form/index.d.ts",
+			"svelte": "./dist/components/ui/form/index.js",
+			"default": "./dist/components/ui/form/index.js"
+		},
 		"./fragments/swipe-layout": {
 			"types": "./dist/components/fragments/swipe-layout/index.d.ts",
 			"svelte": "./dist/components/fragments/swipe-layout/index.js",
@@ -114,7 +119,11 @@
 			"default": "./dist/components/pages/*.svelte"
 		}
 	},
-	"files": ["dist", "src", "!dist/**/*.test.*"],
+	"files": [
+		"dist",
+		"src",
+		"!dist/**/*.test.*"
+	],
 	"scripts": {
 		"dev": "chokidar \"src/**/*\" -c \"pnpm build\" --initial",
 		"build": "svelte-kit sync && svelte-package",
@@ -133,17 +142,21 @@
 		"@lucide/svelte": "^0.564.0",
 		"@syren/app-core": "workspace:*",
 		"@syren/types": "workspace:*",
-		"bits-ui": "^2.15.4",
+		"bits-ui": "^2.16.3",
 		"clsx": "^2.1.1",
+		"formsnap": "^2.0.1",
 		"mode-watcher": "^1.1.0",
 		"svelte-gestures": "^5.1.3",
 		"svelte-sonner": "^1.0.5",
+		"sveltekit-superforms": "^2.30.0",
 		"tailwind-merge": "^3.3.1",
-		"tailwind-variants": "^3.2.2"
+		"tailwind-variants": "^3.2.2",
+		"zod": "catalog:"
 	},
 	"devDependencies": {
 		"@eslint/compat": "catalog:",
 		"@eslint/js": "catalog:",
+		"@internationalized/date": "^3.12.0",
 		"@lucide/svelte": "^0.564.0",
 		"@sveltejs/kit": "^2.43.2",
 		"@sveltejs/package": "^2.3.10",
