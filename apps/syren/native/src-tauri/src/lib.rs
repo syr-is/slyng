@@ -1,17 +1,15 @@
 mod auth;
 mod commands;
-mod device_enum;
 mod realtime;
 mod session_store;
-mod voice;
-#[cfg(not(any(target_os = "ios", target_os = "android")))]
-mod voice_audio;
-#[cfg(not(any(target_os = "ios", target_os = "android")))]
-mod voice_video;
+#[cfg(target_os = "macos")]
+mod macos_webview;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
 	#[cfg(any(target_os = "ios", target_os = "android"))]
+	use tauri::Manager;
+	#[cfg(target_os = "macos")]
 	use tauri::Manager;
 
 	let builder = tauri::Builder::default()
@@ -27,12 +25,25 @@ pub fn run() {
 	let builder = builder
 		.manage(auth::ClientHandle::new())
 		.manage(realtime::RealtimeHandle::new())
-		.manage(std::sync::Arc::new(voice::VoiceHandle::new()))
 		.setup(|_app| {
 			#[cfg(target_os = "ios")]
 			{
 				if let Some(window) = _app.get_webview_window("main") {
 					ios::install_safe_area(&window);
+				}
+			}
+
+			#[cfg(target_os = "macos")]
+			{
+				// WKWebView refuses `navigator.mediaDevices` for two
+				// independent reasons by default — Tauri's `tauri://`
+				// custom scheme isn't treated as a secure context, and
+				// the `WKUIDelegate` permission callback is unset so
+				// every getUserMedia request is silently denied. Both
+				// hooks below are private-API but mirror what every
+				// Cordova / Capacitor / Ionic app ships in production.
+				if let Some(window) = _app.get_webview_window("main") {
+					macos_webview::enable_media_capture(&window);
 				}
 			}
 
@@ -168,25 +179,6 @@ pub fn run() {
 			realtime::realtime_subscribe_channels,
 			realtime::realtime_unsubscribe_channels,
 			realtime::realtime_send_typing,
-			// Voice (LiveKit).
-			voice::voice_join,
-			voice::voice_leave,
-			voice::voice_set_mic,
-			voice::voice_set_camera,
-			voice::voice_set_speaker,
-			voice::voice_set_input_device,
-			voice::voice_set_output_device,
-			voice::voice_set_camera_device,
-			voice::voice_set_camera_fps,
-			voice::voice_camera_max_fps,
-			voice::voice_preview_start,
-			voice::voice_preview_stop,
-			// Device enumeration (audio + camera). On mobile these
-			// return empty lists — the platform shell will provide
-			// real device lists in a follow-up.
-			device_enum::audio_list_inputs,
-			device_enum::audio_list_outputs,
-			device_enum::video_list_cameras,
 		]);
 
 	builder

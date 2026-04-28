@@ -26,17 +26,11 @@
 	import { getAuth } from '@syren/app-core/stores/auth.svelte';
 	import { resolveProfile, displayName, federatedHandle } from '@syren/app-core/stores/profiles.svelte';
 	import { getVoiceState } from '@syren/app-core/voice/voice-state.svelte';
-	import {
-		setMicDevice,
-		setCameraDevice,
-		setCameraFramerate,
-		setSpeakerDevice
-	} from '@syren/app-core/voice/livekit-engine';
+	import { setMicDevice, setCameraDevice } from '@syren/app-core/voice/livekit-engine';
 	import {
 		getMediaSettings,
 		setMicDeviceId,
 		setCameraDeviceId,
-		setCameraFps,
 		setSpeakerDeviceId,
 		setEchoCancellation,
 		setNoiseSuppression,
@@ -51,18 +45,9 @@
 		onDeviceChange,
 		setAudioOutput,
 		supportsSinkId,
-		supportsOutputDeviceSelection,
 		MediaUnavailableError,
 		type DeviceLists
 	} from '@syren/app-core/utils/media-devices';
-	import {
-		isTauri,
-		nativeCameraMaxFps,
-		nativePreviewStart,
-		nativePreviewStop,
-		onVoiceVideoFrame,
-		NATIVE_PREVIEW_PARTICIPANT
-	} from '@syren/app-core/voice/native-voice-bridge';
 	import {
 		loadTrustedDomains,
 		addTrustedDomain,
@@ -160,7 +145,6 @@
 
 	onDestroy(() => {
 		unsubDevices();
-		unsubNativePreview();
 		stopMicTest();
 		stopCamPreview();
 		if (speakerTimeout) {
@@ -177,16 +161,6 @@
 		// Release test streams when leaving the tab they belong to
 		if (activeTab !== 'audio') stopMicTest();
 		if (activeTab !== 'video') stopCamPreview();
-	});
-
-	// Probe the camera's max fps when the Video tab opens (and again
-	// any time the device selection changes — handled in
-	// `handleCameraChange`). Open+drop is cheap relative to the rest
-	// of the camera lifecycle.
-	$effect(() => {
-		if (activeTab === 'video' && isTauri()) {
-			void refreshCameraMaxFps(settings.cameraDeviceId);
-		}
 	});
 
 	async function startMicTest() {
@@ -208,15 +182,6 @@
 
 	async function startCamPreview() {
 		stopCamPreview();
-		if (isTauri()) {
-			try {
-				await nativePreviewStart(settings.cameraDeviceId ?? null);
-				nativePreviewActive = true;
-			} catch (err) {
-				toast.error((err as Error).message || 'Could not open camera');
-			}
-			return;
-		}
 		try {
 			camPreviewStream = await navigator.mediaDevices.getUserMedia({
 				audio: false,
@@ -228,110 +193,28 @@
 	}
 
 	function stopCamPreview() {
-		if (isTauri()) {
-			if (nativePreviewActive) {
-				void nativePreviewStop().catch(() => {});
-				nativePreviewActive = false;
-			}
-			if (nativePreviewCanvas) {
-				const ctx = nativePreviewCanvas.getContext('2d');
-				ctx?.clearRect(0, 0, nativePreviewCanvas.width, nativePreviewCanvas.height);
-			}
-			return;
-		}
 		camPreviewStream?.getTracks().forEach((t) => t.stop());
 		camPreviewStream = null;
 	}
 
-	let nativePreviewActive = $state(false);
-	let nativePreviewCanvas = $state<HTMLCanvasElement | null>(null);
-	let nativePreviewDecoding = false;
-	const unsubNativePreview = isTauri()
-		? onVoiceVideoFrame((f) => {
-			if (f.participant !== NATIVE_PREVIEW_PARTICIPANT) return;
-			if (!nativePreviewCanvas) return;
-			// Drop frames while a previous decode is still in flight —
-			// otherwise bursty input queues up `createImageBitmap` calls
-			// and the canvas drifts seconds behind realtime.
-			if (nativePreviewDecoding) return;
-			if (nativePreviewCanvas.width !== f.width) nativePreviewCanvas.width = f.width;
-			if (nativePreviewCanvas.height !== f.height) nativePreviewCanvas.height = f.height;
-			const ctx = nativePreviewCanvas.getContext('2d');
-			if (!ctx) return;
-			nativePreviewDecoding = true;
-			// `createImageBitmap` decodes off the main thread; the old
-			// `new Image()` + `data:image/jpeg;base64,…` src path
-			// blocked layout while WebKit decoded the image inline.
-			const binary = atob(f.jpeg_b64);
-			const bytes = new Uint8Array(binary.length);
-			for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
-			const blob = new Blob([bytes], { type: 'image/jpeg' });
-			void createImageBitmap(blob)
-				.then((bmp) => {
-					ctx.drawImage(bmp, 0, 0, f.width, f.height);
-					bmp.close();
-				})
-				.catch(() => { /* drop bad frame */ })
-				.finally(() => { nativePreviewDecoding = false; });
-		})
-		: () => {};
-
 	async function handleMicChange(id: string | undefined) {
 		setMicDeviceId(id);
 		if (micTestStream) await startMicTest(); // rebind to new device
-		// On native, push the choice to Rust unconditionally so the
-		// preference is stashed for the next join even outside a call.
-		if (isTauri() || voice.inVoice) {
+		if (voice.inVoice) {
 			try { await setMicDevice(); } catch (err) { toast.error((err as Error).message); }
 		}
 	}
 
 	async function handleCameraChange(id: string | undefined) {
 		setCameraDeviceId(id);
-		// Restart whichever preview is currently active so it
-		// re-opens against the newly selected camera.
-		if (camPreviewStream || nativePreviewActive) await startCamPreview();
-		if (isTauri() || voice.inVoice) {
+		if (camPreviewStream) await startCamPreview();
+		if (voice.inVoice) {
 			try { await setCameraDevice(); } catch { /* not camera-on; ignored */ }
 		}
-		if (isTauri()) await refreshCameraMaxFps(id);
-	}
-
-	// ── Native framerate control ────────────────────────────────────
-	//
-	// The Settings dropdown shows [12, 24, 30, 60] capped at whatever
-	// the camera's `compatible_camera_formats` reports as the highest
-	// fps for its top resolution. Probing the camera opens + drops it,
-	// so we do it lazily when the Video tab activates and the user
-	// switches devices, not on every render.
-	const FPS_OPTIONS = [12, 24, 30, 60];
-	let cameraMaxFps = $state<number>(60);
-	const availableFps = $derived(FPS_OPTIONS.filter((f) => f <= cameraMaxFps));
-
-	async function refreshCameraMaxFps(deviceId: string | undefined) {
-		if (!isTauri()) return;
-		try {
-			cameraMaxFps = await nativeCameraMaxFps(deviceId ?? null);
-		} catch (err) {
-			console.warn('[settings] camera max fps probe failed', err);
-			cameraMaxFps = 60;
-		}
-	}
-
-	async function handleCameraFpsChange(value: string) {
-		const fps = value === 'auto' ? undefined : Number.parseInt(value, 10);
-		setCameraFps(fps);
-		try { await setCameraFramerate(fps ?? null); } catch (err) {
-			toast.error((err as Error).message || 'Could not change framerate');
-		}
-		if (nativePreviewActive) await startCamPreview();
 	}
 
 	async function handleSpeakerChange(id: string | undefined) {
 		setSpeakerDeviceId(id);
-		if (isTauri()) {
-			try { await setSpeakerDevice(id ?? null); } catch (err) { toast.error((err as Error).message); }
-		}
 	}
 
 	async function testSpeakers() {
@@ -484,19 +367,17 @@
 						value={settings.micDeviceId}
 						onSelect={handleMicChange}
 					/>
-					{#if !isTauri()}
-						<div class="mt-3 space-y-2">
-							<div class="flex items-center justify-between">
-								<span class="text-xs text-muted-foreground">Input level</span>
-								{#if micTestStream}
-									<Button size="sm" variant="outline" onclick={stopMicTest}>Stop</Button>
-								{:else}
-									<Button size="sm" variant="outline" onclick={startMicTest}>Test microphone</Button>
-								{/if}
-							</div>
-							<AudioLevelMeter stream={micTestStream} />
+					<div class="mt-3 space-y-2">
+						<div class="flex items-center justify-between">
+							<span class="text-xs text-muted-foreground">Input level</span>
+							{#if micTestStream}
+								<Button size="sm" variant="outline" onclick={stopMicTest}>Stop</Button>
+							{:else}
+								<Button size="sm" variant="outline" onclick={startMicTest}>Test microphone</Button>
+							{/if}
 						</div>
-					{/if}
+						<AudioLevelMeter stream={micTestStream} />
+					</div>
 				</section>
 
 				<Separator class="my-6" />
@@ -506,17 +387,15 @@
 						<Volume2 class="h-4 w-4 text-muted-foreground" />
 						<label class="text-sm font-medium">Output device</label>
 					</div>
-					{#if supportsOutputDeviceSelection()}
+					{#if supportsSinkId()}
 						<DeviceSelect
 							devices={devices.speakers}
 							value={settings.speakerDeviceId}
 							onSelect={handleSpeakerChange}
 						/>
-						{#if supportsSinkId()}
-							<Button size="sm" variant="outline" class="mt-2" onclick={testSpeakers}>
-								Test speakers
-							</Button>
-						{/if}
+						<Button size="sm" variant="outline" class="mt-2" onclick={testSpeakers}>
+							Test speakers
+						</Button>
 					{:else}
 						<p class="text-xs text-muted-foreground">
 							Output device selection is not supported in this browser. Your system default is used.
@@ -562,13 +441,6 @@
 			{#if activeTab === 'video'}
 				<h1 class="mb-4 text-xl font-semibold">Video</h1>
 
-				{#if isTauri()}
-					<div class="mb-4 rounded-md border border-border bg-muted/40 p-3 text-sm text-muted-foreground">
-						Screen sharing isn't wired through the native pipeline yet — use the web client to
-						share a screen. Camera capture works.
-					</div>
-				{/if}
-
 				<section class="space-y-3">
 					<div class="flex items-center gap-2">
 						<Video class="h-4 w-4 text-muted-foreground" />
@@ -580,48 +452,19 @@
 						onSelect={handleCameraChange}
 					/>
 
-					{#if isTauri()}
-						<div class="space-y-1">
-							<label class="text-xs text-muted-foreground">Framerate</label>
-							<select
-								class="w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
-								value={settings.cameraFps == null ? 'auto' : String(settings.cameraFps)}
-								onchange={(e) => handleCameraFpsChange((e.currentTarget as HTMLSelectElement).value)}
-							>
-								<option value="auto">Auto (camera default)</option>
-								{#each availableFps as fps (fps)}
-									<option value={String(fps)}>{fps} fps</option>
-								{/each}
-							</select>
-							<p class="text-xs text-muted-foreground">
-								Camera reports {cameraMaxFps} fps as its highest available rate.
-							</p>
-						</div>
-					{/if}
-
 					<div class="space-y-2">
 						<div class="flex items-center justify-between">
 							<span class="text-xs text-muted-foreground">Preview</span>
-							{#if isTauri() ? nativePreviewActive : camPreviewStream}
+							{#if camPreviewStream}
 								<Button size="sm" variant="outline" onclick={stopCamPreview}>Stop</Button>
 							{:else}
 								<Button size="sm" variant="outline" onclick={startCamPreview}>Start preview</Button>
 							{/if}
 						</div>
-						{#if isTauri()}
-							<div class="aspect-video w-full overflow-hidden rounded-md border border-border bg-muted/40">
-								<canvas
-									bind:this={nativePreviewCanvas}
-									class="h-full w-full object-contain"
-								></canvas>
-							</div>
-						{:else}
-							<CameraPreview stream={camPreviewStream} />
-						{/if}
+						<CameraPreview stream={camPreviewStream} />
 					</div>
 					<p class="text-xs text-muted-foreground">
 						This preview is local. Turn the camera on in a voice channel to share it.
-						{#if isTauri()}Stop the preview before joining voice — the camera can only be opened in one place at a time.{/if}
 					</p>
 				</section>
 			{/if}

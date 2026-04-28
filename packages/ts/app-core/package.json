@@ -72,7 +72,6 @@
 	"dependencies": {
 		"@syren/client": "workspace:*",
 		"@syren/types": "workspace:*",
-		"@tauri-apps/api": "^2.5.0",
 		"livekit-client": "^2.18.3"
 	},
 	"devDependencies": {
