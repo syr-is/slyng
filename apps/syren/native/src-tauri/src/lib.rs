@@ -1,5 +1,6 @@
 mod auth;
 mod commands;
+mod device_enum;
 mod realtime;
 mod session_store;
 mod voice;
@@ -24,7 +25,7 @@ pub fn run() {
 	let builder = builder
 		.manage(auth::ClientHandle::new())
 		.manage(realtime::RealtimeHandle::new())
-		.manage(voice::VoiceHandle::new())
+		.manage(std::sync::Arc::new(voice::VoiceHandle::new()))
 		.setup(|_app| {
 			#[cfg(target_os = "ios")]
 			{
@@ -171,6 +172,15 @@ pub fn run() {
 			voice::voice_set_mic,
 			voice::voice_set_camera,
 			voice::voice_set_speaker,
+			voice::voice_set_input_device,
+			voice::voice_set_output_device,
+			voice::voice_set_camera_device,
+			// Device enumeration (audio + camera). On mobile these
+			// return empty lists — the platform shell will provide
+			// real device lists in a follow-up.
+			device_enum::audio_list_inputs,
+			device_enum::audio_list_outputs,
+			device_enum::video_list_cameras,
 		]);
 
 	builder

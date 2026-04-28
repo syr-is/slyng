@@ -48,6 +48,12 @@ pub enum VoiceCommand {
 	SetMicEnabled(bool),
 	SetCameraEnabled(bool),
 	SetSpeakerEnabled(bool),
+	/// `None` falls back to the cpal default device. The chosen device
+	/// also gets persisted on `VoiceHandle::pref_input` so the next
+	/// `Join` builds capture against it from the start.
+	SetInputDevice(Option<String>),
+	SetOutputDevice(Option<String>),
+	SetCameraDevice(Option<String>),
 }
 
 /// One serialised event payload for the JS side. Each variant maps to
@@ -78,18 +84,38 @@ struct ActiveRoom {
 	room: Arc<Room>,
 	local_track: LocalAudioTrack,
 	#[cfg(not(any(target_os = "ios", target_os = "android")))]
-	_capture: AudioCapture,
+	source: NativeAudioSource,
 	#[cfg(not(any(target_os = "ios", target_os = "android")))]
-	_playback: AudioPlayback,
+	mixer: AudioMixer,
+	#[cfg(not(any(target_os = "ios", target_os = "android")))]
+	capture: Option<AudioCapture>,
+	#[cfg(not(any(target_os = "ios", target_os = "android")))]
+	playback: Option<AudioPlayback>,
+	#[cfg(not(any(target_os = "ios", target_os = "android")))]
+	mic_forward: Option<tokio::task::JoinHandle<()>>,
 }
 
 pub struct VoiceHandle {
 	cmd_tx: Mutex<Option<mpsc::UnboundedSender<VoiceCommand>>>,
+	/// User's selected devices, persisted across calls. The
+	/// service-task reads these on `Join` so the cpal pipeline starts
+	/// against the user's pick instead of the system default. JS can
+	/// also flip them outside a call (settings tab) and the next join
+	/// honours it.
+	pref_input: Mutex<Option<String>>,
+	pref_output: Mutex<Option<String>>,
+	#[allow(dead_code)] // Camera publish pipeline lands later.
+	pref_camera: Mutex<Option<String>>,
 }
 
 impl VoiceHandle {
 	pub fn new() -> Self {
-		Self { cmd_tx: Mutex::new(None) }
+		Self {
+			cmd_tx: Mutex::new(None),
+			pref_input: Mutex::new(None),
+			pref_output: Mutex::new(None),
+			pref_camera: Mutex::new(None),
+		}
 	}
 
 	/// Lazily spin up the voice service task on first use. Single
@@ -101,13 +127,17 @@ impl VoiceHandle {
 	/// service can't sit on the multi-threaded tokio runtime Tauri
 	/// uses. Locality is fine here: there's exactly one voice service
 	/// per app and it's not in the request hot path.
-	fn ensure<R: Runtime>(&self, app: &AppHandle<R>) -> mpsc::UnboundedSender<VoiceCommand> {
+	fn ensure<R: Runtime>(
+		self: &Arc<Self>,
+		app: &AppHandle<R>,
+	) -> mpsc::UnboundedSender<VoiceCommand> {
 		let mut guard = self.cmd_tx.lock();
 		if let Some(tx) = guard.as_ref() {
 			return tx.clone();
 		}
 		let (cmd_tx, cmd_rx) = mpsc::unbounded_channel::<VoiceCommand>();
 		let app_clone = app.clone();
+		let handle_clone = Arc::clone(self);
 		std::thread::Builder::new()
 			.name("syren-voice".into())
 			.spawn(move || {
@@ -115,11 +145,28 @@ impl VoiceHandle {
 					.enable_all()
 					.build()
 					.expect("voice runtime");
-				rt.block_on(service_task(app_clone, cmd_rx));
+				rt.block_on(service_task(app_clone, handle_clone, cmd_rx));
 			})
 			.expect("spawn voice thread");
 		*guard = Some(cmd_tx.clone());
 		cmd_tx
+	}
+
+	pub fn set_pref_input(&self, id: Option<String>) {
+		*self.pref_input.lock() = id;
+	}
+	pub fn set_pref_output(&self, id: Option<String>) {
+		*self.pref_output.lock() = id;
+	}
+	#[allow(dead_code)]
+	pub fn set_pref_camera(&self, id: Option<String>) {
+		*self.pref_camera.lock() = id;
+	}
+	pub fn pref_input(&self) -> Option<String> {
+		self.pref_input.lock().clone()
+	}
+	pub fn pref_output(&self) -> Option<String> {
+		self.pref_output.lock().clone()
 	}
 }
 
@@ -134,6 +181,7 @@ impl Default for VoiceHandle {
 /// `voice-event` Tauri broadcasts.
 async fn service_task<R: Runtime>(
 	app: AppHandle<R>,
+	handle: Arc<VoiceHandle>,
 	mut cmd_rx: mpsc::UnboundedReceiver<VoiceCommand>,
 ) {
 	let mut active: Option<ActiveRoom> = None;
@@ -148,7 +196,9 @@ async fn service_task<R: Runtime>(
 					"voice-event",
 					VoiceEvent::Connecting { channel_id: channel_id.clone() },
 				);
-				match handle_join(&app, &url, &token, &channel_id).await {
+				let pref_in = handle.pref_input();
+				let pref_out = handle.pref_output();
+				match handle_join(&app, &url, &token, &channel_id, pref_in.as_deref(), pref_out.as_deref()).await {
 					Ok(state) => {
 						let _ = app.emit(
 							"voice-event",
@@ -185,6 +235,29 @@ async fn service_task<R: Runtime>(
 				eprintln!("[voice] set_speaker_enabled = {enabled} (handled by mixer volume; not wired)");
 				let _ = enabled;
 			}
+			VoiceCommand::SetInputDevice(id) => {
+				handle.set_pref_input(id.clone());
+				#[cfg(not(any(target_os = "ios", target_os = "android")))]
+				if let Some(state) = active.as_mut() {
+					if let Err(e) = swap_input(state, id.as_deref()) {
+						let _ = app.emit("voice-event", VoiceEvent::Error { message: e });
+					}
+				}
+			}
+			VoiceCommand::SetOutputDevice(id) => {
+				handle.set_pref_output(id.clone());
+				#[cfg(not(any(target_os = "ios", target_os = "android")))]
+				if let Some(state) = active.as_mut() {
+					if let Err(e) = swap_output(state, id.as_deref()) {
+						let _ = app.emit("voice-event", VoiceEvent::Error { message: e });
+					}
+				}
+			}
+			VoiceCommand::SetCameraDevice(id) => {
+				handle.set_pref_camera(id);
+				// Camera publishing pipeline isn't wired yet — selection is
+				// just stashed for when it lands.
+			}
 		}
 	}
 
@@ -194,11 +267,37 @@ async fn service_task<R: Runtime>(
 }
 
 #[cfg(not(any(target_os = "ios", target_os = "android")))]
+fn swap_input(state: &mut ActiveRoom, id: Option<&str>) -> Result<(), String> {
+	// Drop the existing capture + forward task before building the new
+	// stream so cpal can release the previous device cleanly.
+	state.capture.take();
+	if let Some(h) = state.mic_forward.take() {
+		h.abort();
+	}
+	let (tx, rx) = mpsc::unbounded_channel::<Vec<i16>>();
+	let capture = AudioCapture::new(tx, id)?;
+	let forward = tokio::spawn(forward_mic_to_livekit(rx, state.source.clone()));
+	state.capture = Some(capture);
+	state.mic_forward = Some(forward);
+	Ok(())
+}
+
+#[cfg(not(any(target_os = "ios", target_os = "android")))]
+fn swap_output(state: &mut ActiveRoom, id: Option<&str>) -> Result<(), String> {
+	state.playback.take();
+	let playback = AudioPlayback::new(state.mixer.clone(), id)?;
+	state.playback = Some(playback);
+	Ok(())
+}
+
+#[cfg(not(any(target_os = "ios", target_os = "android")))]
 async fn handle_join<R: Runtime>(
 	app: &AppHandle<R>,
 	url: &str,
 	token: &str,
 	_channel_id: &str,
+	pref_input: Option<&str>,
+	pref_output: Option<&str>,
 ) -> Result<ActiveRoom, String> {
 	// `RoomOptions` is `#[non_exhaustive]`; construct then mutate.
 	let mut opts = RoomOptions::default();
@@ -224,16 +323,18 @@ async fn handle_join<R: Runtime>(
 
 	// Mic capture: cpal callback → mpsc → 10ms framing → NativeAudioSource.
 	let (mic_tx, mic_rx) = mpsc::unbounded_channel::<Vec<i16>>();
-	let capture = AudioCapture::new(mic_tx).map_err(|e| format!("audio capture: {e}"))?;
-	tokio::spawn(forward_mic_to_livekit(mic_rx, source.clone()));
+	let capture = AudioCapture::new(mic_tx, pref_input)
+		.map_err(|e| format!("audio capture: {e}"))?;
+	let mic_forward = tokio::spawn(forward_mic_to_livekit(mic_rx, source.clone()));
 
 	// Mixer + playback: each remote audio track will append into this.
 	let mixer = AudioMixer::new(1.0);
-	let playback = AudioPlayback::new(mixer.clone()).map_err(|e| format!("audio playback: {e}"))?;
+	let playback = AudioPlayback::new(mixer.clone(), pref_output)
+		.map_err(|e| format!("audio playback: {e}"))?;
 
 	// Publish the local mic track.
 	let track =
-		LocalAudioTrack::create_audio_track("microphone", RtcAudioSource::Native(source));
+		LocalAudioTrack::create_audio_track("microphone", RtcAudioSource::Native(source.clone()));
 	room.local_participant()
 		.publish_track(
 			LocalTrack::Audio(track.clone()),
@@ -256,8 +357,11 @@ async fn handle_join<R: Runtime>(
 	Ok(ActiveRoom {
 		room,
 		local_track: track,
-		_capture: capture,
-		_playback: playback,
+		source,
+		mixer,
+		capture: Some(capture),
+		playback: Some(playback),
+		mic_forward: Some(mic_forward),
 	})
 }
 
@@ -267,6 +371,8 @@ async fn handle_join<R: Runtime>(
 	_url: &str,
 	_token: &str,
 	_channel_id: &str,
+	_pref_input: Option<&str>,
+	_pref_output: Option<&str>,
 ) -> Result<ActiveRoom, String> {
 	Err("voice not implemented on this platform yet".into())
 }
@@ -275,7 +381,13 @@ async fn leave_active<R: Runtime>(
 	app: &AppHandle<R>,
 	active: Option<ActiveRoom>,
 ) -> Option<ActiveRoom> {
-	if let Some(state) = active {
+	if let Some(mut state) = active {
+		#[cfg(not(any(target_os = "ios", target_os = "android")))]
+		{
+			if let Some(h) = state.mic_forward.take() {
+				h.abort();
+			}
+		}
 		// Closing the room ends the SDK's internal task, which closes
 		// the event stream that `forward_room_events` is reading; that
 		// task exits and its captured mixer/etc. drop. The local track
@@ -394,7 +506,7 @@ async fn forward_room_events<R: Runtime>(
 #[tauri::command]
 pub async fn voice_join<R: Runtime>(
 	app: AppHandle<R>,
-	state: State<'_, VoiceHandle>,
+	state: State<'_, Arc<VoiceHandle>>,
 	url: String,
 	token: String,
 	channel_id: String,
@@ -407,7 +519,7 @@ pub async fn voice_join<R: Runtime>(
 #[tauri::command]
 pub async fn voice_leave<R: Runtime>(
 	app: AppHandle<R>,
-	state: State<'_, VoiceHandle>,
+	state: State<'_, Arc<VoiceHandle>>,
 ) -> Result<(), String> {
 	let tx = state.ensure(&app);
 	tx.send(VoiceCommand::Leave).map_err(|e| e.to_string())
@@ -416,7 +528,7 @@ pub async fn voice_leave<R: Runtime>(
 #[tauri::command]
 pub async fn voice_set_mic<R: Runtime>(
 	app: AppHandle<R>,
-	state: State<'_, VoiceHandle>,
+	state: State<'_, Arc<VoiceHandle>>,
 	enabled: bool,
 ) -> Result<(), String> {
 	let tx = state.ensure(&app);
@@ -427,7 +539,7 @@ pub async fn voice_set_mic<R: Runtime>(
 #[tauri::command]
 pub async fn voice_set_camera<R: Runtime>(
 	app: AppHandle<R>,
-	state: State<'_, VoiceHandle>,
+	state: State<'_, Arc<VoiceHandle>>,
 	enabled: bool,
 ) -> Result<(), String> {
 	let tx = state.ensure(&app);
@@ -438,10 +550,43 @@ pub async fn voice_set_camera<R: Runtime>(
 #[tauri::command]
 pub async fn voice_set_speaker<R: Runtime>(
 	app: AppHandle<R>,
-	state: State<'_, VoiceHandle>,
+	state: State<'_, Arc<VoiceHandle>>,
 	enabled: bool,
 ) -> Result<(), String> {
 	let tx = state.ensure(&app);
 	tx.send(VoiceCommand::SetSpeakerEnabled(enabled))
+		.map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn voice_set_input_device<R: Runtime>(
+	app: AppHandle<R>,
+	state: State<'_, Arc<VoiceHandle>>,
+	device_id: Option<String>,
+) -> Result<(), String> {
+	let tx = state.ensure(&app);
+	tx.send(VoiceCommand::SetInputDevice(device_id))
+		.map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn voice_set_output_device<R: Runtime>(
+	app: AppHandle<R>,
+	state: State<'_, Arc<VoiceHandle>>,
+	device_id: Option<String>,
+) -> Result<(), String> {
+	let tx = state.ensure(&app);
+	tx.send(VoiceCommand::SetOutputDevice(device_id))
+		.map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn voice_set_camera_device<R: Runtime>(
+	app: AppHandle<R>,
+	state: State<'_, Arc<VoiceHandle>>,
+	device_id: Option<String>,
+) -> Result<(), String> {
+	let tx = state.ensure(&app);
+	tx.send(VoiceCommand::SetCameraDevice(device_id))
 		.map_err(|e| e.to_string())
 }

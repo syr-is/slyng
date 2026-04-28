@@ -26,7 +26,10 @@ import {
 	isTauri,
 	nativeJoin,
 	nativeLeave,
+	nativeSetCameraDevice,
+	nativeSetInputDevice,
 	nativeSetMic,
+	nativeSetOutputDevice,
 	nativeSetSpeaker,
 	onVoiceEvent
 } from './native-voice-bridge';
@@ -360,19 +363,41 @@ function notifyVideoState() {
 // ── Device switching ──
 
 export async function setMicDevice(): Promise<void> {
-	if (isTauri()) return; // Rust picks the cpal default input for now.
-	if (!room) return;
 	const settings = audioConstraints();
-	const deviceId = (settings as any).deviceId?.exact ?? (settings as any).deviceId;
+	const deviceId = (settings as any).deviceId?.exact ?? (settings as any).deviceId ?? null;
+	if (isTauri()) {
+		// Persists in the Rust voice handle; if a call is active, the
+		// service rebuilds the cpal capture stream against the new
+		// device without disconnecting from the room.
+		await nativeSetInputDevice(deviceId);
+		return;
+	}
+	if (!room) return;
 	if (deviceId) await room.switchActiveDevice('audioinput', deviceId);
 }
 
 export async function setCameraDevice(): Promise<void> {
-	if (isTauri()) return; // No camera path on native yet.
-	if (!room) return;
 	const settings = videoConstraints();
-	const deviceId = (settings as any).deviceId?.exact ?? (settings as any).deviceId;
+	const deviceId = (settings as any).deviceId?.exact ?? (settings as any).deviceId ?? null;
+	if (isTauri()) {
+		// Stores the preference; camera publishing pipeline isn't wired
+		// yet so the selection takes effect when video lands.
+		await nativeSetCameraDevice(deviceId);
+		return;
+	}
+	if (!room) return;
 	if (deviceId) await room.switchActiveDevice('videoinput', deviceId);
+}
+
+/**
+ * Picks the audio output device. Native routes playback through cpal
+ * so we tell Rust which device to use; web wires per-element via
+ * `setSinkId` (handled by the consumer).
+ */
+export async function setSpeakerDevice(deviceId: string | null): Promise<void> {
+	if (isTauri()) {
+		await nativeSetOutputDevice(deviceId);
+	}
 }
 
 // ── Stream dispatchers ──

@@ -59,6 +59,26 @@ tauri-plugin-deep-link = "2"
 tauri-plugin-oauth = "2"
 cpal = "0.15"
 
+# Camera enumeration on desktop. Each platform pulls a different
+# nokhwa backend so we can ask the OS for its real cameras instead of
+# pretending the device list is empty (the WebView has no
+# `navigator.mediaDevices`). `default-features = false` skips the
+# image-decoding deps we don't need for enumeration.
+[target.'cfg(target_os = "macos")'.dependencies.nokhwa]
+version = "0.10"
+default-features = false
+features = ["input-avfoundation"]
+
+[target.'cfg(target_os = "linux")'.dependencies.nokhwa]
+version = "0.10"
+default-features = false
+features = ["input-v4l"]
+
+[target.'cfg(target_os = "windows")'.dependencies.nokhwa]
+version = "0.10"
+default-features = false
+features = ["input-msmf"]
+
 # iOS-only: lets us configure WKWebView via objc2 so `env(safe-area-inset-*)`
 # returns non-zero values inside the webview.
 [target.'cfg(target_os = "ios")'.dependencies]

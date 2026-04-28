@@ -26,7 +26,7 @@
 	import { getAuth } from '@syren/app-core/stores/auth.svelte';
 	import { resolveProfile, displayName, federatedHandle } from '@syren/app-core/stores/profiles.svelte';
 	import { getVoiceState } from '@syren/app-core/voice/voice-state.svelte';
-	import { setMicDevice, setCameraDevice } from '@syren/app-core/voice/livekit-engine';
+	import { setMicDevice, setCameraDevice, setSpeakerDevice } from '@syren/app-core/voice/livekit-engine';
 	import {
 		getMediaSettings,
 		setMicDeviceId,
@@ -45,10 +45,11 @@
 		onDeviceChange,
 		setAudioOutput,
 		supportsSinkId,
-		isMediaPickingSupported,
+		supportsOutputDeviceSelection,
 		MediaUnavailableError,
 		type DeviceLists
 	} from '@syren/app-core/utils/media-devices';
+	import { isTauri } from '@syren/app-core/voice/native-voice-bridge';
 	import {
 		loadTrustedDomains,
 		addTrustedDomain,
@@ -201,8 +202,9 @@
 	async function handleMicChange(id: string | undefined) {
 		setMicDeviceId(id);
 		if (micTestStream) await startMicTest(); // rebind to new device
-		// If user is in a call, swap live
-		if (voice.inVoice) {
+		// On native, push the choice to Rust unconditionally so the
+		// preference is stashed for the next join even outside a call.
+		if (isTauri() || voice.inVoice) {
 			try { await setMicDevice(); } catch (err) { toast.error((err as Error).message); }
 		}
 	}
@@ -210,13 +212,16 @@
 	async function handleCameraChange(id: string | undefined) {
 		setCameraDeviceId(id);
 		if (camPreviewStream) await startCamPreview();
-		if (voice.inVoice) {
+		if (isTauri() || voice.inVoice) {
 			try { await setCameraDevice(); } catch { /* not camera-on; ignored */ }
 		}
 	}
 
 	async function handleSpeakerChange(id: string | undefined) {
 		setSpeakerDeviceId(id);
+		if (isTauri()) {
+			try { await setSpeakerDevice(id ?? null); } catch (err) { toast.error((err as Error).message); }
+		}
 	}
 
 	async function testSpeakers() {
@@ -359,13 +364,6 @@
 			{#if activeTab === 'audio'}
 				<h1 class="mb-4 text-xl font-semibold">Audio</h1>
 
-				{#if !isMediaPickingSupported()}
-					<div class="mb-4 rounded-md border border-border bg-muted/40 p-3 text-sm text-muted-foreground">
-						The native client uses your system's default audio devices. Pick your input and
-						output in your OS sound settings.
-					</div>
-				{/if}
-
 				<section class="mb-6 space-y-2">
 					<div class="flex items-center gap-2">
 						<Mic class="h-4 w-4 text-muted-foreground" />
@@ -376,17 +374,19 @@
 						value={settings.micDeviceId}
 						onSelect={handleMicChange}
 					/>
-					<div class="mt-3 space-y-2">
-						<div class="flex items-center justify-between">
-							<span class="text-xs text-muted-foreground">Input level</span>
-							{#if micTestStream}
-								<Button size="sm" variant="outline" onclick={stopMicTest}>Stop</Button>
-							{:else}
-								<Button size="sm" variant="outline" onclick={startMicTest}>Test microphone</Button>
-							{/if}
+					{#if !isTauri()}
+						<div class="mt-3 space-y-2">
+							<div class="flex items-center justify-between">
+								<span class="text-xs text-muted-foreground">Input level</span>
+								{#if micTestStream}
+									<Button size="sm" variant="outline" onclick={stopMicTest}>Stop</Button>
+								{:else}
+									<Button size="sm" variant="outline" onclick={startMicTest}>Test microphone</Button>
+								{/if}
+							</div>
+							<AudioLevelMeter stream={micTestStream} />
 						</div>
-						<AudioLevelMeter stream={micTestStream} />
-					</div>
+					{/if}
 				</section>
 
 				<Separator class="my-6" />
@@ -396,15 +396,17 @@
 						<Volume2 class="h-4 w-4 text-muted-foreground" />
 						<label class="text-sm font-medium">Output device</label>
 					</div>
-					{#if supportsSinkId()}
+					{#if supportsOutputDeviceSelection()}
 						<DeviceSelect
 							devices={devices.speakers}
 							value={settings.speakerDeviceId}
 							onSelect={handleSpeakerChange}
 						/>
-						<Button size="sm" variant="outline" class="mt-2" onclick={testSpeakers}>
-							Test speakers
-						</Button>
+						{#if supportsSinkId()}
+							<Button size="sm" variant="outline" class="mt-2" onclick={testSpeakers}>
+								Test speakers
+							</Button>
+						{/if}
 					{:else}
 						<p class="text-xs text-muted-foreground">
 							Output device selection is not supported in this browser. Your system default is used.
@@ -450,10 +452,11 @@
 			{#if activeTab === 'video'}
 				<h1 class="mb-4 text-xl font-semibold">Video</h1>
 
-				{#if !isMediaPickingSupported()}
+				{#if isTauri()}
 					<div class="mb-4 rounded-md border border-border bg-muted/40 p-3 text-sm text-muted-foreground">
-						Video isn't available on the native client yet — only audio is wired through the
-						native voice pipeline. Use the web client to camera or screen share.
+						Camera publishing isn't wired through the native voice pipeline yet — your selection
+						is stored and will take effect when video lands. Preview and screen share still
+						need the web client for now.
 					</div>
 				{/if}
 
@@ -468,20 +471,22 @@
 						onSelect={handleCameraChange}
 					/>
 
-					<div class="space-y-2">
-						<div class="flex items-center justify-between">
-							<span class="text-xs text-muted-foreground">Preview</span>
-							{#if camPreviewStream}
-								<Button size="sm" variant="outline" onclick={stopCamPreview}>Stop</Button>
-							{:else}
-								<Button size="sm" variant="outline" onclick={startCamPreview}>Start preview</Button>
-							{/if}
+					{#if !isTauri()}
+						<div class="space-y-2">
+							<div class="flex items-center justify-between">
+								<span class="text-xs text-muted-foreground">Preview</span>
+								{#if camPreviewStream}
+									<Button size="sm" variant="outline" onclick={stopCamPreview}>Stop</Button>
+								{:else}
+									<Button size="sm" variant="outline" onclick={startCamPreview}>Start preview</Button>
+								{/if}
+							</div>
+							<CameraPreview stream={camPreviewStream} />
 						</div>
-						<CameraPreview stream={camPreviewStream} />
-					</div>
-					<p class="text-xs text-muted-foreground">
-						This preview is local. Turn the camera on in a voice channel to share it.
-					</p>
+						<p class="text-xs text-muted-foreground">
+							This preview is local. Turn the camera on in a voice channel to share it.
+						</p>
+					{/if}
 				</section>
 			{/if}
 

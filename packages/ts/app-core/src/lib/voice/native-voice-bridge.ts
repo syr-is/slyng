@@ -69,3 +69,46 @@ export async function nativeSetSpeaker(enabled: boolean): Promise<void> {
 export async function nativeSetCamera(enabled: boolean): Promise<void> {
 	await invoke('voice_set_camera', { enabled });
 }
+
+// ── Device enumeration / picking ────────────────────────────────────
+//
+// Tauri WebView has no `navigator.mediaDevices`, so the Settings UI
+// asks Rust for the device list directly. cpal does the audio side
+// (CoreAudio / WASAPI / ALSA-PulseAudio), nokhwa does cameras
+// (AVFoundation / Media Foundation / V4L2). The chosen device is
+// persisted in the Rust voice handle so the next `voice_join` builds
+// the cpal pipeline against it; mid-call switches rebuild only the
+// affected stream without dropping the room.
+
+export interface NativeDevice {
+	id: string;
+	label: string;
+	is_default: boolean;
+}
+
+export async function nativeListAudioInputs(): Promise<NativeDevice[]> {
+	if (!isTauri()) return [];
+	return invoke<NativeDevice[]>('audio_list_inputs');
+}
+
+export async function nativeListAudioOutputs(): Promise<NativeDevice[]> {
+	if (!isTauri()) return [];
+	return invoke<NativeDevice[]>('audio_list_outputs');
+}
+
+export async function nativeListCameras(): Promise<NativeDevice[]> {
+	if (!isTauri()) return [];
+	return invoke<NativeDevice[]>('video_list_cameras');
+}
+
+export async function nativeSetInputDevice(deviceId: string | null): Promise<void> {
+	await invoke('voice_set_input_device', { deviceId });
+}
+
+export async function nativeSetOutputDevice(deviceId: string | null): Promise<void> {
+	await invoke('voice_set_output_device', { deviceId });
+}
+
+export async function nativeSetCameraDevice(deviceId: string | null): Promise<void> {
+	await invoke('voice_set_camera_device', { deviceId });
+}

@@ -79,11 +79,19 @@ pub struct AudioCapture {
 }
 
 impl AudioCapture {
-	pub fn new(audio_tx: mpsc::UnboundedSender<Vec<i16>>) -> Result<Self, String> {
+	pub fn new(
+		audio_tx: mpsc::UnboundedSender<Vec<i16>>,
+		device_id: Option<&str>,
+	) -> Result<Self, String> {
 		let host = cpal::default_host();
-		let device = host
-			.default_input_device()
-			.ok_or_else(|| "no default input device".to_string())?;
+		let device = match device_id {
+			Some(name) => find_input_by_name(&host, name)
+				.or_else(|| host.default_input_device())
+				.ok_or_else(|| "no input device matched the requested id".to_string())?,
+			None => host
+				.default_input_device()
+				.ok_or_else(|| "no default input device".to_string())?,
+		};
 		let supported = device
 			.default_input_config()
 			.map_err(|e| format!("input config: {e}"))?;
@@ -163,11 +171,16 @@ pub struct AudioPlayback {
 }
 
 impl AudioPlayback {
-	pub fn new(mixer: AudioMixer) -> Result<Self, String> {
+	pub fn new(mixer: AudioMixer, device_id: Option<&str>) -> Result<Self, String> {
 		let host = cpal::default_host();
-		let device = host
-			.default_output_device()
-			.ok_or_else(|| "no default output device".to_string())?;
+		let device = match device_id {
+			Some(name) => find_output_by_name(&host, name)
+				.or_else(|| host.default_output_device())
+				.ok_or_else(|| "no output device matched the requested id".to_string())?,
+			None => host
+				.default_output_device()
+				.ok_or_else(|| "no default output device".to_string())?,
+		};
 		let supported = device
 			.default_output_config()
 			.map_err(|e| format!("output config: {e}"))?;
@@ -235,6 +248,25 @@ impl Drop for AudioPlayback {
 	fn drop(&mut self) {
 		self.is_running.store(false, Ordering::Relaxed);
 	}
+}
+
+// ── Device lookup ───────────────────────────────────────────────────
+//
+// cpal devices are matched by `device.name()` — that's the same id the
+// Settings UI receives back from `audio_list_inputs / outputs`. Names
+// that fail to read are skipped; if nothing matches the caller falls
+// back to the system default.
+
+fn find_input_by_name(host: &cpal::Host, name: &str) -> Option<Device> {
+	host.input_devices()
+		.ok()?
+		.find(|d| d.name().ok().as_deref() == Some(name))
+}
+
+fn find_output_by_name(host: &cpal::Host, name: &str) -> Option<Device> {
+	host.output_devices()
+		.ok()?
+		.find(|d| d.name().ok().as_deref() == Some(name))
 }
 
 // ── Sample conversion ───────────────────────────────────────────────
