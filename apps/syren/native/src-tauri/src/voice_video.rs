@@ -67,6 +67,78 @@ pub struct VideoCapture {
 	join: Mutex<Option<std::thread::JoinHandle<()>>>,
 }
 
+/// Tries to re-request the camera at the user's chosen framerate
+/// while preserving the resolution + pixel format `Camera::new` just
+/// negotiated. nokhwa expects an `Exact(CameraFormat)` and only
+/// honours rates the camera advertises for that res+format pair, so
+/// we skip when the user picked something the camera doesn't list
+/// (rather than letting the request error and leave the camera
+/// closed). `target_fps == None` means "leave whatever
+/// `AbsoluteHighestResolution` already chose alone."
+fn apply_fps_preference(camera: &mut Camera, target_fps: Option<u32>) {
+	let Some(target) = target_fps else { return };
+	let current = camera.camera_format();
+	if current.frame_rate() == target {
+		return;
+	}
+
+	let supports = camera
+		.compatible_camera_formats()
+		.map(|formats| {
+			formats.into_iter().any(|f| {
+				f.resolution() == current.resolution()
+					&& f.format() == current.format()
+					&& f.frame_rate() == target
+			})
+		})
+		.unwrap_or(false);
+
+	if !supports {
+		eprintln!(
+			"[voice/video] camera doesn't support {} fps at {}x{} {:?}; keeping {} fps",
+			target,
+			current.resolution().width_x,
+			current.resolution().height_y,
+			current.format(),
+			current.frame_rate()
+		);
+		return;
+	}
+
+	let wanted = nokhwa::utils::CameraFormat::new(current.resolution(), current.format(), target);
+	if let Err(e) =
+		camera.set_camera_requset(RequestedFormat::new::<RgbFormat>(RequestedFormatType::Exact(wanted)))
+	{
+		eprintln!("[voice/video] set fps={target} failed: {e}");
+	}
+}
+
+/// Inspects the camera's `compatible_camera_formats()` and reports the
+/// highest fps supported at the highest resolution it offers — that's
+/// the ceiling we expose in the Settings UI's framerate dropdown.
+/// Opens + drops the camera handle in the process; if the camera is
+/// already in use elsewhere this errors out, which is fine because
+/// the only call sites are pre-call (Settings tab opens before voice
+/// join) where nothing else holds the device.
+pub fn camera_max_fps(device_id: Option<&str>) -> Result<u32, String> {
+	let camera_index = resolve_index(device_id);
+	let requested =
+		RequestedFormat::new::<RgbFormat>(RequestedFormatType::AbsoluteHighestResolution);
+	let mut camera = Camera::new(camera_index, requested)
+		.map_err(|e| format!("open camera for capability probe: {e}"))?;
+	let target_res = camera.camera_format().resolution();
+	let formats = camera
+		.compatible_camera_formats()
+		.map_err(|e| format!("query camera formats: {e}"))?;
+	let max = formats
+		.into_iter()
+		.filter(|f| f.resolution() == target_res)
+		.map(|f| f.frame_rate())
+		.max()
+		.unwrap_or(30);
+	Ok(max)
+}
+
 /// Optional local-preview side-channel — the capture thread JPEG-
 /// encodes a downsampled frame periodically and pushes it through
 /// `emit` so the JS layer can paint the user's own camera into a
@@ -91,6 +163,7 @@ impl LocalPreviewSink {
 impl VideoCapture {
 	pub fn new(
 		device_id: Option<&str>,
+		fps: Option<u32>,
 		source: NativeVideoSource,
 		preview: Option<LocalPreviewSink>,
 	) -> Result<Self, String> {
@@ -105,7 +178,7 @@ impl VideoCapture {
 		// etc.). Threading also matches our cpal pattern.
 		let join = std::thread::Builder::new()
 			.name(format!("syren-video-{}", camera_index))
-			.spawn(move || run_capture_loop(camera_index, source, preview, stop))
+			.spawn(move || run_capture_loop(camera_index, source, preview, fps, stop))
 			.map_err(|e| format!("spawn capture thread: {e}"))?;
 
 		Ok(Self { is_running, join: Mutex::new(Some(join)) })
@@ -125,6 +198,7 @@ fn run_capture_loop(
 	camera_index: CameraIndex,
 	source: NativeVideoSource,
 	preview: Option<LocalPreviewSink>,
+	target_fps: Option<u32>,
 	is_running: Arc<AtomicBool>,
 ) {
 	// `Closest(MJPEG, …)` filters to MJPEG-supporting formats first;
@@ -133,10 +207,7 @@ fn run_capture_loop(
 	// format in `RgbFormat::FORMATS` (MJPEG, YUYV, NV12, RAWRGB,
 	// RAWBGR) and picks whichever shape the camera natively supports
 	// at its top resolution — `convert_to_i420` handles the actual
-	// pixel layout. We deliberately don't force a target framerate;
-	// macOS hands back ~30 fps for built-in cameras either way, and
-	// asking for an exact rate brings the same "cannot fulfill"
-	// failure mode back.
+	// pixel layout.
 	let requested = RequestedFormat::new::<RgbFormat>(RequestedFormatType::AbsoluteHighestResolution);
 
 	let mut camera = match Camera::new(camera_index.clone(), requested) {
@@ -146,6 +217,8 @@ fn run_capture_loop(
 			return;
 		}
 	};
+
+	apply_fps_preference(&mut camera, target_fps);
 
 	let fmt = camera.camera_format();
 	let width = fmt.resolution().width_x;
@@ -469,6 +542,7 @@ pub struct PreviewCapture {
 impl PreviewCapture {
 	pub fn new(
 		device_id: Option<&str>,
+		fps: Option<u32>,
 		emit: Box<dyn Fn(RemoteFrame) + Send + Sync>,
 	) -> Result<Self, String> {
 		let camera_index = resolve_index(device_id);
@@ -476,7 +550,7 @@ impl PreviewCapture {
 		let stop = is_running.clone();
 		let join = std::thread::Builder::new()
 			.name(format!("syren-video-preview-{}", camera_index))
-			.spawn(move || run_preview_loop(camera_index, emit, stop))
+			.spawn(move || run_preview_loop(camera_index, emit, fps, stop))
 			.map_err(|e| format!("spawn preview thread: {e}"))?;
 		Ok(Self { is_running, join: Mutex::new(Some(join)) })
 	}
@@ -494,6 +568,7 @@ impl Drop for PreviewCapture {
 fn run_preview_loop(
 	camera_index: CameraIndex,
 	emit: Box<dyn Fn(RemoteFrame) + Send + Sync>,
+	target_fps: Option<u32>,
 	is_running: Arc<AtomicBool>,
 ) {
 	// Same reasoning as `run_capture_loop` — let nokhwa pick whatever
@@ -509,6 +584,8 @@ fn run_preview_loop(
 			return;
 		}
 	};
+
+	apply_fps_preference(&mut camera, target_fps);
 	let fmt = camera.camera_format();
 	let width = fmt.resolution().width_x;
 	let height = fmt.resolution().height_y;

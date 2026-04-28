@@ -28,6 +28,7 @@ import {
 	nativeLeave,
 	nativeSetCamera,
 	nativeSetCameraDevice,
+	nativeSetCameraFps,
 	nativeSetInputDevice,
 	nativeSetMic,
 	nativeSetOutputDevice,
@@ -490,6 +491,18 @@ export async function setSpeakerDevice(deviceId: string | null): Promise<void> {
 	if (isTauri()) {
 		await nativeSetOutputDevice(deviceId);
 	}
+}
+
+/**
+ * Persists the user's preferred camera frame rate on the Rust side.
+ * Applies live to any active capture / preview by tearing down and
+ * rebuilding against the new fps. `null` resets to the camera's
+ * default. Web ignores this — `livekit-client`'s `frameRate`
+ * constraint is set per-publish via existing constraints helpers.
+ */
+export async function setCameraFramerate(fps: number | null): Promise<void> {
+	if (!isTauri()) return;
+	await nativeSetCameraFps(fps);
 }
 
 // ── Stream dispatchers ──

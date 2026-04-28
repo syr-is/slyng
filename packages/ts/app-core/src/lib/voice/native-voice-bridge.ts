@@ -118,6 +118,21 @@ export async function nativeSetCameraDevice(deviceId: string | null): Promise<vo
 	await invoke('voice_set_camera_device', { deviceId });
 }
 
+/**
+ * `null` resets to "use whatever the camera negotiates by default".
+ * `Some(n)` re-requests the camera at that exact frame rate (preview
+ * + in-call), falling back to the camera's chosen rate if the camera
+ * doesn't list that fps for the current resolution.
+ */
+export async function nativeSetCameraFps(fps: number | null): Promise<void> {
+	await invoke('voice_set_camera_fps', { fps });
+}
+
+/** Highest fps the camera advertises at its highest resolution. */
+export async function nativeCameraMaxFps(deviceId: string | null): Promise<number> {
+	return invoke<number>('voice_camera_max_fps', { deviceId });
+}
+
 /** Participant id Rust uses for the standalone Settings preview frames. */
 export const NATIVE_PREVIEW_PARTICIPANT = '__preview__';
 

@@ -7,6 +7,7 @@
 
 const KEY_MIC = 'syren:mic_device_id';
 const KEY_CAMERA = 'syren:camera_device_id';
+const KEY_CAMERA_FPS = 'syren:camera_fps';
 const KEY_SPEAKER = 'syren:speaker_device_id';
 const KEY_ECHO = 'syren:echo_cancellation';
 const KEY_NOISE = 'syren:noise_suppression';
@@ -32,6 +33,20 @@ function readBool(key: string, fallback: boolean): boolean {
 	return v === 'true';
 }
 
+function readNumber(key: string): number | undefined {
+	if (typeof localStorage === 'undefined') return undefined;
+	const v = localStorage.getItem(key);
+	if (v == null) return undefined;
+	const n = Number.parseInt(v, 10);
+	return Number.isFinite(n) ? n : undefined;
+}
+
+function writeNumber(key: string, value: number | undefined) {
+	if (typeof localStorage === 'undefined') return;
+	if (value == null) localStorage.removeItem(key);
+	else localStorage.setItem(key, String(value));
+}
+
 function writeBool(key: string, value: boolean) {
 	if (typeof localStorage === 'undefined') return;
 	localStorage.setItem(key, value ? 'true' : 'false');
@@ -39,6 +54,7 @@ function writeBool(key: string, value: boolean) {
 
 let micDeviceId = $state<string | undefined>(readString(KEY_MIC));
 let cameraDeviceId = $state<string | undefined>(readString(KEY_CAMERA));
+let cameraFps = $state<number | undefined>(readNumber(KEY_CAMERA_FPS));
 let speakerDeviceId = $state<string | undefined>(readString(KEY_SPEAKER));
 let echoCancellation = $state<boolean>(readBool(KEY_ECHO, true));
 let noiseSuppression = $state<boolean>(readBool(KEY_NOISE, true));
@@ -49,6 +65,7 @@ export function getMediaSettings() {
 	return {
 		get micDeviceId() { return micDeviceId; },
 		get cameraDeviceId() { return cameraDeviceId; },
+		get cameraFps() { return cameraFps; },
 		get speakerDeviceId() { return speakerDeviceId; },
 		get echoCancellation() { return echoCancellation; },
 		get noiseSuppression() { return noiseSuppression; },
@@ -65,6 +82,11 @@ export function setMicDeviceId(id: string | undefined) {
 export function setCameraDeviceId(id: string | undefined) {
 	cameraDeviceId = id;
 	writeString(KEY_CAMERA, id);
+}
+
+export function setCameraFps(fps: number | undefined) {
+	cameraFps = fps;
+	writeNumber(KEY_CAMERA_FPS, fps);
 }
 
 export function setSpeakerDeviceId(id: string | undefined) {

@@ -177,6 +177,8 @@ pub fn run() {
 			voice::voice_set_input_device,
 			voice::voice_set_output_device,
 			voice::voice_set_camera_device,
+			voice::voice_set_camera_fps,
+			voice::voice_camera_max_fps,
 			voice::voice_preview_start,
 			voice::voice_preview_stop,
 			// Device enumeration (audio + camera). On mobile these

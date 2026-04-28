@@ -58,6 +58,10 @@ pub enum VoiceCommand {
 	SetInputDevice(Option<String>),
 	SetOutputDevice(Option<String>),
 	SetCameraDevice(Option<String>),
+	/// `None` means "use whatever the camera negotiates by default";
+	/// `Some(n)` re-requests the camera at that exact frame rate (if
+	/// supported — see `apply_fps_preference`).
+	SetCameraFps(Option<u32>),
 }
 
 /// One serialised event payload for the JS side. Each variant maps to
@@ -130,6 +134,7 @@ pub struct VoiceHandle {
 	pref_input: Mutex<Option<String>>,
 	pref_output: Mutex<Option<String>>,
 	pref_camera: Mutex<Option<String>>,
+	pref_camera_fps: Mutex<Option<u32>>,
 	/// Standalone Settings preview capture. Lives outside the voice
 	/// service-task because the preview is meaningful pre-call only —
 	/// it's torn down before `voice_join` opens the camera for
@@ -146,6 +151,7 @@ impl VoiceHandle {
 			pref_input: Mutex::new(None),
 			pref_output: Mutex::new(None),
 			pref_camera: Mutex::new(None),
+			pref_camera_fps: Mutex::new(None),
 			#[cfg(not(any(target_os = "ios", target_os = "android")))]
 			preview: Mutex::new(None),
 		}
@@ -202,6 +208,12 @@ impl VoiceHandle {
 	}
 	pub fn pref_camera(&self) -> Option<String> {
 		self.pref_camera.lock().clone()
+	}
+	pub fn set_pref_camera_fps(&self, fps: Option<u32>) {
+		*self.pref_camera_fps.lock() = fps;
+	}
+	pub fn pref_camera_fps(&self) -> Option<u32> {
+		*self.pref_camera_fps.lock()
 	}
 }
 
@@ -273,7 +285,15 @@ async fn service_task<R: Runtime>(
 			VoiceCommand::SetCameraEnabled(enabled) => {
 				#[cfg(not(any(target_os = "ios", target_os = "android")))]
 				if let Some(state) = active.as_mut() {
-					if let Err(e) = set_camera_enabled(&app, state, enabled, handle.pref_camera()).await {
+					if let Err(e) = set_camera_enabled(
+						&app,
+						state,
+						enabled,
+						handle.pref_camera(),
+						handle.pref_camera_fps(),
+					)
+					.await
+					{
 						let _ = app.emit("voice-event", VoiceEvent::Error { message: e });
 					}
 				}
@@ -308,7 +328,20 @@ async fn service_task<R: Runtime>(
 				#[cfg(not(any(target_os = "ios", target_os = "android")))]
 				if let Some(state) = active.as_mut() {
 					if state.video_capture.is_some() {
-						if let Err(e) = swap_camera(&app, state, id.as_deref()) {
+						if let Err(e) = swap_camera(&app, state, id.as_deref(), handle.pref_camera_fps()) {
+							let _ = app.emit("voice-event", VoiceEvent::Error { message: e });
+						}
+					}
+				}
+			}
+			VoiceCommand::SetCameraFps(fps) => {
+				handle.set_pref_camera_fps(fps);
+				#[cfg(not(any(target_os = "ios", target_os = "android")))]
+				if let Some(state) = active.as_mut() {
+					if state.video_capture.is_some() {
+						if let Err(e) =
+							swap_camera(&app, state, handle.pref_camera().as_deref(), fps)
+						{
 							let _ = app.emit("voice-event", VoiceEvent::Error { message: e });
 						}
 					}
@@ -352,6 +385,7 @@ async fn set_camera_enabled<R: Runtime>(
 	state: &mut ActiveRoom,
 	enabled: bool,
 	pref: Option<String>,
+	fps: Option<u32>,
 ) -> Result<(), String> {
 	if enabled {
 		// Lazy-publish on first enable so room participants don't see a
@@ -373,6 +407,7 @@ async fn set_camera_enabled<R: Runtime>(
 			let preview = build_preview_sink(app, &state.self_identity);
 			state.video_capture = Some(VideoCapture::new(
 				pref.as_deref(),
+				fps,
 				state.video_source.clone(),
 				Some(preview),
 			)?);
@@ -389,11 +424,13 @@ fn swap_camera<R: Runtime>(
 	app: &AppHandle<R>,
 	state: &mut ActiveRoom,
 	id: Option<&str>,
+	fps: Option<u32>,
 ) -> Result<(), String> {
 	state.video_capture.take();
 	let preview = build_preview_sink(app, &state.self_identity);
 	state.video_capture = Some(VideoCapture::new(
 		id,
+		fps,
 		state.video_source.clone(),
 		Some(preview),
 	)?);
@@ -755,6 +792,29 @@ pub async fn voice_set_camera_device<R: Runtime>(
 		.map_err(|e| e.to_string())
 }
 
+#[tauri::command]
+pub async fn voice_set_camera_fps<R: Runtime>(
+	app: AppHandle<R>,
+	state: State<'_, Arc<VoiceHandle>>,
+	fps: Option<u32>,
+) -> Result<(), String> {
+	let tx = state.ensure(&app);
+	tx.send(VoiceCommand::SetCameraFps(fps))
+		.map_err(|e| e.to_string())
+}
+
+#[cfg(not(any(target_os = "ios", target_os = "android")))]
+#[tauri::command]
+pub async fn voice_camera_max_fps(device_id: Option<String>) -> Result<u32, String> {
+	crate::voice_video::camera_max_fps(device_id.as_deref())
+}
+
+#[cfg(any(target_os = "ios", target_os = "android"))]
+#[tauri::command]
+pub async fn voice_camera_max_fps(_device_id: Option<String>) -> Result<u32, String> {
+	Ok(30)
+}
+
 #[cfg(not(any(target_os = "ios", target_os = "android")))]
 #[tauri::command]
 pub async fn voice_preview_start<R: Runtime>(
@@ -762,6 +822,7 @@ pub async fn voice_preview_start<R: Runtime>(
 	state: State<'_, Arc<VoiceHandle>>,
 	device_id: Option<String>,
 ) -> Result<(), String> {
+	let fps = state.pref_camera_fps();
 	let mut guard = state.preview.lock();
 	guard.take(); // tear down any existing capture first
 	let app_clone = app.clone();
@@ -770,6 +831,7 @@ pub async fn voice_preview_start<R: Runtime>(
 	});
 	*guard = Some(crate::voice_video::PreviewCapture::new(
 		device_id.as_deref(),
+		fps,
 		emit,
 	)?);
 	Ok(())

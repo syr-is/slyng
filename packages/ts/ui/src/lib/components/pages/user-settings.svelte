@@ -26,11 +26,17 @@
 	import { getAuth } from '@syren/app-core/stores/auth.svelte';
 	import { resolveProfile, displayName, federatedHandle } from '@syren/app-core/stores/profiles.svelte';
 	import { getVoiceState } from '@syren/app-core/voice/voice-state.svelte';
-	import { setMicDevice, setCameraDevice, setSpeakerDevice } from '@syren/app-core/voice/livekit-engine';
+	import {
+		setMicDevice,
+		setCameraDevice,
+		setCameraFramerate,
+		setSpeakerDevice
+	} from '@syren/app-core/voice/livekit-engine';
 	import {
 		getMediaSettings,
 		setMicDeviceId,
 		setCameraDeviceId,
+		setCameraFps,
 		setSpeakerDeviceId,
 		setEchoCancellation,
 		setNoiseSuppression,
@@ -51,6 +57,7 @@
 	} from '@syren/app-core/utils/media-devices';
 	import {
 		isTauri,
+		nativeCameraMaxFps,
 		nativePreviewStart,
 		nativePreviewStop,
 		onVoiceVideoFrame,
@@ -172,6 +179,16 @@
 		if (activeTab !== 'video') stopCamPreview();
 	});
 
+	// Probe the camera's max fps when the Video tab opens (and again
+	// any time the device selection changes — handled in
+	// `handleCameraChange`). Open+drop is cheap relative to the rest
+	// of the camera lifecycle.
+	$effect(() => {
+		if (activeTab === 'video' && isTauri()) {
+			void refreshCameraMaxFps(settings.cameraDeviceId);
+		}
+	});
+
 	async function startMicTest() {
 		stopMicTest();
 		try {
@@ -260,6 +277,37 @@
 		if (isTauri() || voice.inVoice) {
 			try { await setCameraDevice(); } catch { /* not camera-on; ignored */ }
 		}
+		if (isTauri()) await refreshCameraMaxFps(id);
+	}
+
+	// ── Native framerate control ────────────────────────────────────
+	//
+	// The Settings dropdown shows [12, 24, 30, 60] capped at whatever
+	// the camera's `compatible_camera_formats` reports as the highest
+	// fps for its top resolution. Probing the camera opens + drops it,
+	// so we do it lazily when the Video tab activates and the user
+	// switches devices, not on every render.
+	const FPS_OPTIONS = [12, 24, 30, 60];
+	let cameraMaxFps = $state<number>(60);
+	const availableFps = $derived(FPS_OPTIONS.filter((f) => f <= cameraMaxFps));
+
+	async function refreshCameraMaxFps(deviceId: string | undefined) {
+		if (!isTauri()) return;
+		try {
+			cameraMaxFps = await nativeCameraMaxFps(deviceId ?? null);
+		} catch (err) {
+			console.warn('[settings] camera max fps probe failed', err);
+			cameraMaxFps = 60;
+		}
+	}
+
+	async function handleCameraFpsChange(value: string) {
+		const fps = value === 'auto' ? undefined : Number.parseInt(value, 10);
+		setCameraFps(fps);
+		try { await setCameraFramerate(fps ?? null); } catch (err) {
+			toast.error((err as Error).message || 'Could not change framerate');
+		}
+		if (nativePreviewActive) await startCamPreview();
 	}
 
 	async function handleSpeakerChange(id: string | undefined) {
@@ -514,6 +562,25 @@
 						value={settings.cameraDeviceId}
 						onSelect={handleCameraChange}
 					/>
+
+					{#if isTauri()}
+						<div class="space-y-1">
+							<label class="text-xs text-muted-foreground">Framerate</label>
+							<select
+								class="w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
+								value={settings.cameraFps == null ? 'auto' : String(settings.cameraFps)}
+								onchange={(e) => handleCameraFpsChange((e.currentTarget as HTMLSelectElement).value)}
+							>
+								<option value="auto">Auto (camera default)</option>
+								{#each availableFps as fps (fps)}
+									<option value={String(fps)}>{fps} fps</option>
+								{/each}
+							</select>
+							<p class="text-xs text-muted-foreground">
+								Camera reports {cameraMaxFps} fps as its highest available rate.
+							</p>
+						</div>
+					{/if}
 
 					<div class="space-y-2">
 						<div class="flex items-center justify-between">
