@@ -6,12 +6,25 @@
  * mics is just opaque `default`, `communications`, `<uuid>` entries — which
  * is useless to pick from. `primeDevicePermissions` opens a throwaway stream
  * just long enough for the labels to come through, then releases it.
+ *
+ * Tauri's WebView protocol isn't a secure context, so `navigator.mediaDevices`
+ * is undefined there. The native shell owns audio capture via cpal in Rust, so
+ * the picker is a no-op on native — we return empty lists rather than throwing
+ * so the Settings UI can render its own "uses system defaults" notice.
  */
+
+import { isTauri } from '../voice/native-voice-bridge';
 
 export class MediaUnavailableError extends Error {
 	constructor(message = 'Media devices are unavailable in this context (HTTPS or localhost required)') {
 		super(message);
 	}
+}
+
+/** True when device enumeration / picking is meaningful in this build. */
+export function isMediaPickingSupported(): boolean {
+	if (isTauri()) return false;
+	return !!navigator.mediaDevices?.enumerateDevices;
 }
 
 export interface DeviceLists {
@@ -21,6 +34,7 @@ export interface DeviceLists {
 }
 
 export async function enumerateMediaDevices(): Promise<DeviceLists> {
+	if (isTauri()) return { mics: [], cameras: [], speakers: [] };
 	if (!navigator.mediaDevices?.enumerateDevices) {
 		throw new MediaUnavailableError();
 	}
@@ -38,6 +52,7 @@ export async function enumerateMediaDevices(): Promise<DeviceLists> {
  * grants are fine — we just need *one* to populate labels for its kind.
  */
 export async function primeDevicePermissions(): Promise<{ audio: boolean; video: boolean }> {
+	if (isTauri()) return { audio: false, video: false };
 	if (!navigator.mediaDevices?.getUserMedia) throw new MediaUnavailableError();
 
 	let audio = false;
@@ -85,7 +100,7 @@ export async function setAudioOutput(el: HTMLMediaElement, deviceId: string | un
  * Subscribe to device-list changes. Returns an unsubscribe function.
  */
 export function onDeviceChange(cb: () => void): () => void {
-	if (!navigator.mediaDevices) return () => {};
+	if (isTauri() || !navigator.mediaDevices) return () => {};
 	navigator.mediaDevices.addEventListener('devicechange', cb);
 	return () => navigator.mediaDevices.removeEventListener('devicechange', cb);
 }

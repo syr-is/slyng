@@ -426,6 +426,9 @@ importers:
       '@syren/types':
         specifier: workspace:*
         version: link:../types
+      '@tauri-apps/api':
+        specifier: ^2.5.0
+        version: 2.10.1
       livekit-client:
         specifier: ^2.18.3
         version: 2.18.3(@types/dom-mediacapture-record@1.0.22)

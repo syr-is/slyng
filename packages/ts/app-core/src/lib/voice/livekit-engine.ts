@@ -17,11 +17,19 @@ import {
 } from 'livekit-client';
 import { SvelteMap } from 'svelte/reactivity';
 import { WsOp } from '@syren/types';
-import { send, onWsEvent } from '../stores/ws.svelte';
+import { send } from '../stores/ws.svelte';
 import { setVoiceChannel, setSelfMute, setSelfDeaf, addLocalUserToChannel, removeLocalUser } from './voice-state.svelte';
 import { audioConstraints, videoConstraints } from '../stores/media-settings.svelte';
 import { getAuth } from '../stores/auth.svelte';
 import { api } from '../api';
+import {
+	isTauri,
+	nativeJoin,
+	nativeLeave,
+	nativeSetMic,
+	nativeSetSpeaker,
+	onVoiceEvent
+} from './native-voice-bridge';
 
 // ── State ──
 
@@ -56,10 +64,60 @@ export class CameraPermissionError extends Error {
 
 // ── Room lifecycle ──
 
+let nativeUnlisten: (() => void) | null = null;
+
+function ensureNativeListener() {
+	if (nativeUnlisten) return;
+	nativeUnlisten = onVoiceEvent((frame) => {
+		if (frame.event === 'connected') {
+			setSelfMute(false);
+			setSelfDeaf(false);
+			deafened = false;
+			const did = selfDid();
+			if (did) addLocalUserToChannel(frame.channel_id, did);
+			setVoiceChannel(frame.channel_id);
+			currentChannelId = frame.channel_id;
+		} else if (frame.event === 'disconnected') {
+			const did = selfDid();
+			if (did) removeLocalUser(did);
+			setVoiceChannel(null);
+			currentChannelId = null;
+		}
+	});
+}
+
 export async function joinVoiceChannel(channelId: string): Promise<void> {
 	if (currentChannelId) await leaveVoiceChannel();
 
 	const { token, url } = await api.voice.token(channelId);
+
+	if (isTauri()) {
+		// Native: Rust LiveKit + cpal own the room. The WebView never
+		// touches `getUserMedia` (and can't — Tauri's WebView protocol
+		// isn't a secure context). Voice state is fed back via
+		// `voice-event` Tauri broadcasts and routed into the existing
+		// stores via `ensureNativeListener` above.
+		ensureNativeListener();
+		send({
+			op: WsOp.VOICE_STATE_UPDATE,
+			d: {
+				channel_id: channelId,
+				self_mute: false,
+				self_deaf: false,
+				has_camera: false,
+				has_screen: false
+			}
+		});
+		try {
+			await nativeJoin(url, token, channelId);
+		} catch (err) {
+			throw new MicPermissionError(
+				'unknown',
+				(err as Error).message || 'Failed to join voice channel'
+			);
+		}
+		return;
+	}
 
 	room = new Room({
 		adaptiveStream: true,
@@ -101,6 +159,16 @@ export async function joinVoiceChannel(channelId: string): Promise<void> {
 }
 
 export async function leaveVoiceChannel(): Promise<void> {
+	if (isTauri()) {
+		await nativeLeave().catch(() => {});
+		send({ op: WsOp.VOICE_STATE_UPDATE, d: { channel_id: null } });
+		const did = selfDid();
+		if (did) removeLocalUser(did);
+		setVoiceChannel(null);
+		currentChannelId = null;
+		deafened = false;
+		return;
+	}
 	if (room) {
 		room.disconnect();
 		room = null;
@@ -132,7 +200,20 @@ export async function leaveVoiceChannel(): Promise<void> {
 
 // ── Audio controls ──
 
+// Mirror of `room.localParticipant.getTrackPublication(...).isMuted`
+// for the native path — Rust owns the actual track state, but we
+// echo it locally so `isMuted()` stays correct between explicit
+// toggles.
+let nativeMuted = false;
+
 export function toggleMute(): boolean {
+	if (isTauri()) {
+		nativeMuted = !nativeMuted;
+		void nativeSetMic(!nativeMuted);
+		broadcastState(nativeMuted, deafened);
+		setSelfMute(nativeMuted);
+		return nativeMuted;
+	}
 	if (!room) return false;
 	const pub = room.localParticipant.getTrackPublication(Track.Source.Microphone);
 	if (!pub) return false;
@@ -143,12 +224,30 @@ export function toggleMute(): boolean {
 }
 
 export function setMicEnabled(enabled: boolean) {
+	if (isTauri()) {
+		nativeMuted = !enabled;
+		void nativeSetMic(enabled);
+		broadcastState(nativeMuted, deafened);
+		setSelfMute(nativeMuted);
+		return;
+	}
 	if (!room) return;
 	void room.localParticipant.setMicrophoneEnabled(enabled);
 	broadcastState(!enabled, deafened);
 }
 
 export function toggleDeafen(): boolean {
+	if (isTauri()) {
+		deafened = !deafened;
+		// Deafen implies mute on native too — same UX as web.
+		nativeMuted = deafened;
+		void nativeSetMic(!deafened);
+		void nativeSetSpeaker(!deafened);
+		broadcastState(deafened, deafened);
+		setSelfMute(deafened);
+		setSelfDeaf(deafened);
+		return deafened;
+	}
 	if (!room) return false;
 	deafened = !deafened;
 	for (const [, el] of audioElements) el.muted = deafened;
@@ -165,6 +264,7 @@ function broadcastState(selfMute: boolean, selfDeaf: boolean) {
 }
 
 export function isMuted(): boolean {
+	if (isTauri()) return nativeMuted;
 	if (!room) return true;
 	const pub = room.localParticipant.getTrackPublication(Track.Source.Microphone);
 	return !pub || pub.isMuted;
@@ -173,6 +273,11 @@ export function isMuted(): boolean {
 export function isDeafened(): boolean { return deafened; }
 export function getCurrentChannel(): string | null { return currentChannelId; }
 export function getConnectedPeers(): string[] {
+	// Native: roster comes from VOICE_STATE_UPDATE_BROADCAST through
+	// voice-state.svelte.ts; the LiveKit Room lives in Rust so we can't
+	// enumerate participants here. Returning [] is fine — call sites
+	// only use this for the legacy mesh-engine fallback.
+	if (isTauri()) return [];
 	if (!room) return [];
 	return [...room.remoteParticipants.values()].map((p) => p.identity);
 }
@@ -180,6 +285,12 @@ export function getConnectedPeers(): string[] {
 // ── Video controls ──
 
 export async function startCamera(): Promise<void> {
+	if (isTauri()) {
+		// Camera/screen aren't wired through the Rust LiveKit pipeline yet —
+		// audio-only on native for now. Surface a typed error so callers
+		// can show a "not supported" toast instead of crashing.
+		throw new CameraPermissionError('unknown', 'Camera not yet supported on the native client');
+	}
 	if (!room || !currentChannelId) throw new Error('Not in a voice channel');
 	if (isCameraOn()) return;
 	try {
@@ -195,6 +306,7 @@ export async function startCamera(): Promise<void> {
 }
 
 export async function stopCamera(): Promise<void> {
+	if (isTauri()) return;
 	if (!room) return;
 	await room.localParticipant.setCameraEnabled(false);
 	notifyVideoState();
@@ -202,12 +314,16 @@ export async function stopCamera(): Promise<void> {
 }
 
 export function isCameraOn(): boolean {
+	if (isTauri()) return false;
 	if (!room) return false;
 	const pub = room.localParticipant.getTrackPublication(Track.Source.Camera);
 	return !!pub && !pub.isMuted;
 }
 
 export async function startScreenShare(): Promise<void> {
+	if (isTauri()) {
+		throw new ScreenSharePermissionError('unknown', 'Screen share not yet supported on the native client');
+	}
 	if (!room || !currentChannelId) throw new Error('Not in a voice channel');
 	if (isScreenSharing()) return;
 	try {
@@ -222,6 +338,7 @@ export async function startScreenShare(): Promise<void> {
 }
 
 export async function stopScreenShare(): Promise<void> {
+	if (isTauri()) return;
 	if (!room) return;
 	await room.localParticipant.setScreenShareEnabled(false);
 	notifyVideoState();
@@ -229,6 +346,7 @@ export async function stopScreenShare(): Promise<void> {
 }
 
 export function isScreenSharing(): boolean {
+	if (isTauri()) return false;
 	if (!room) return false;
 	const pub = room.localParticipant.getTrackPublication(Track.Source.ScreenShare);
 	return !!pub && !pub.isMuted;
@@ -242,6 +360,7 @@ function notifyVideoState() {
 // ── Device switching ──
 
 export async function setMicDevice(): Promise<void> {
+	if (isTauri()) return; // Rust picks the cpal default input for now.
 	if (!room) return;
 	const settings = audioConstraints();
 	const deviceId = (settings as any).deviceId?.exact ?? (settings as any).deviceId;
@@ -249,6 +368,7 @@ export async function setMicDevice(): Promise<void> {
 }
 
 export async function setCameraDevice(): Promise<void> {
+	if (isTauri()) return; // No camera path on native yet.
 	if (!room) return;
 	const settings = videoConstraints();
 	const deviceId = (settings as any).deviceId?.exact ?? (settings as any).deviceId;

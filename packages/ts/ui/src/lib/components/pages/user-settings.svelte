@@ -45,6 +45,7 @@
 		onDeviceChange,
 		setAudioOutput,
 		supportsSinkId,
+		isMediaPickingSupported,
 		MediaUnavailableError,
 		type DeviceLists
 	} from '@syren/app-core/utils/media-devices';
@@ -358,6 +359,13 @@
 			{#if activeTab === 'audio'}
 				<h1 class="mb-4 text-xl font-semibold">Audio</h1>
 
+				{#if !isMediaPickingSupported()}
+					<div class="mb-4 rounded-md border border-border bg-muted/40 p-3 text-sm text-muted-foreground">
+						The native client uses your system's default audio devices. Pick your input and
+						output in your OS sound settings.
+					</div>
+				{/if}
+
 				<section class="mb-6 space-y-2">
 					<div class="flex items-center gap-2">
 						<Mic class="h-4 w-4 text-muted-foreground" />
@@ -441,6 +449,13 @@
 
 			{#if activeTab === 'video'}
 				<h1 class="mb-4 text-xl font-semibold">Video</h1>
+
+				{#if !isMediaPickingSupported()}
+					<div class="mb-4 rounded-md border border-border bg-muted/40 p-3 text-sm text-muted-foreground">
+						Video isn't available on the native client yet — only audio is wired through the
+						native voice pipeline. Use the web client to camera or screen share.
+					</div>
+				{/if}
 
 				<section class="space-y-3">
 					<div class="flex items-center gap-2">
