@@ -142,28 +142,21 @@ fn run_capture_loop(
 	let mut camera = match Camera::new(camera_index.clone(), requested) {
 		Ok(c) => c,
 		Err(e) => {
-			#[cfg(debug_assertions)]
 			eprintln!("[voice/video] open camera {camera_index:?} failed: {e}");
-			let _ = e;
 			return;
 		}
 	};
 
-	let fmt = match camera.camera_format() {
-		fmt => fmt,
-	};
+	let fmt = camera.camera_format();
 	let width = fmt.resolution().width_x;
 	let height = fmt.resolution().height_y;
 	let frame_format = fmt.format();
 
 	if let Err(e) = camera.open_stream() {
-		#[cfg(debug_assertions)]
 		eprintln!("[voice/video] open_stream failed: {e}");
-		let _ = e;
 		return;
 	}
 
-	#[cfg(debug_assertions)]
 	eprintln!(
 		"[voice/video] capture started ({}x{} {:?} {}fps)",
 		width,
@@ -226,6 +219,14 @@ fn run_capture_loop(
 /// layout libwebrtc wants. Returns `false` if the buffer didn't match
 /// any known shape so the caller skips the frame instead of pushing
 /// garbage into the encoder.
+///
+/// macOS nokhwa-bindings aliases NV12 (`420YpCbCr8BiPlanarVideoRange`)
+/// to `FrameFormat::YUYV`, so the YUYV branch here disambiguates by
+/// buffer length before picking a libyuv conversion. Without this the
+/// frames are silently mangled (NV12 bytes interpreted as packed 4:2:2)
+/// and you'd see a green / scrambled stream on the receiver instead of
+/// nothing — but we'd rather skip an unidentifiable buffer than push
+/// garbage.
 fn convert_to_i420(
 	src: &[u8],
 	format: FrameFormat,
@@ -235,13 +236,55 @@ fn convert_to_i420(
 ) -> bool {
 	let (stride_y, stride_u, stride_v) = i420.strides();
 	let (data_y, data_u, data_v) = i420.data_mut();
+	let yuyv_size = (width as usize) * (height as usize) * 2;
+	let nv12_size = (width as usize) * (height as usize) * 3 / 2;
+
 	match format {
 		FrameFormat::YUYV => {
-			let src_stride = (width * 2) as i32;
+			if src.len() == yuyv_size {
+				let src_stride = (width * 2) as i32;
+				unsafe {
+					yuv_sys::rs_YUY2ToI420(
+						src.as_ptr(),
+						src_stride,
+						data_y.as_mut_ptr(),
+						stride_y as i32,
+						data_u.as_mut_ptr(),
+						stride_u as i32,
+						data_v.as_mut_ptr(),
+						stride_v as i32,
+						width as i32,
+						height as i32,
+					);
+				}
+				return true;
+			}
+			if src.len() == nv12_size {
+				return convert_nv12(src, width, height, data_y, stride_y, data_u, stride_u, data_v, stride_v);
+			}
+			eprintln!(
+				"[voice/video] unrecognised YUYV-tagged buffer (len={}, expected yuyv={} or nv12={})",
+				src.len(),
+				yuyv_size,
+				nv12_size
+			);
+			false
+		}
+		FrameFormat::NV12 => {
+			if src.len() != nv12_size {
+				eprintln!("[voice/video] NV12 buffer wrong size {} expected {}", src.len(), nv12_size);
+				return false;
+			}
+			convert_nv12(src, width, height, data_y, stride_y, data_u, stride_u, data_v, stride_v)
+		}
+		FrameFormat::RAWRGB => {
+			if src.len() != (width as usize * height as usize * 3) {
+				return false;
+			}
 			unsafe {
-				yuv_sys::rs_YUY2ToI420(
+				yuv_sys::rs_RGB24ToI420(
 					src.as_ptr(),
-					src_stride,
+					(width * 3) as i32,
 					data_y.as_mut_ptr(),
 					stride_y as i32,
 					data_u.as_mut_ptr(),
@@ -254,12 +297,12 @@ fn convert_to_i420(
 			}
 			true
 		}
-		FrameFormat::RAWRGB => {
+		FrameFormat::RAWBGR => {
 			if src.len() != (width as usize * height as usize * 3) {
 				return false;
 			}
 			unsafe {
-				yuv_sys::rs_RGB24ToI420(
+				yuv_sys::rs_RAWToI420(
 					src.as_ptr(),
 					(width * 3) as i32,
 					data_y.as_mut_ptr(),
@@ -284,9 +327,7 @@ fn convert_to_i420(
 			let dyn_img = match image::load_from_memory(src) {
 				Ok(img) => img,
 				Err(e) => {
-					#[cfg(debug_assertions)]
 					eprintln!("[voice/video] MJPEG decode failed: {e}");
-					let _ = e;
 					return false;
 				}
 			};
@@ -310,8 +351,44 @@ fn convert_to_i420(
 			}
 			true
 		}
-		_ => false,
+		_ => {
+			eprintln!("[voice/video] unsupported frame format {format:?}");
+			false
+		}
 	}
+}
+
+#[allow(clippy::too_many_arguments)]
+fn convert_nv12(
+	src: &[u8],
+	width: u32,
+	height: u32,
+	data_y: &mut [u8],
+	stride_y: u32,
+	data_u: &mut [u8],
+	stride_u: u32,
+	data_v: &mut [u8],
+	stride_v: u32,
+) -> bool {
+	let y_plane_size = (width as usize) * (height as usize);
+	let (src_y, src_uv) = src.split_at(y_plane_size);
+	unsafe {
+		yuv_sys::rs_NV12ToI420(
+			src_y.as_ptr(),
+			width as i32,
+			src_uv.as_ptr(),
+			width as i32,
+			data_y.as_mut_ptr(),
+			stride_y as i32,
+			data_u.as_mut_ptr(),
+			stride_u as i32,
+			data_v.as_mut_ptr(),
+			stride_v as i32,
+			width as i32,
+			height as i32,
+		);
+	}
+	true
 }
 
 /// JPEG-encodes the live capture frame and emits it as
@@ -368,6 +445,149 @@ fn emit_preview_frame(
 		height,
 		jpeg_b64: STANDARD.encode(&jpeg),
 	});
+}
+
+// ── Standalone Settings preview ─────────────────────────────────────
+//
+// Settings → Video shows a live preview before the user joins voice.
+// The voice room owns the camera while a call is active, so this
+// preview is only meaningful pre-call — opening the same camera in
+// two places at once fails on every platform. The Tauri commands
+// `voice_preview_start` / `voice_preview_stop` (in `voice.rs`) start
+// + tear down a thread that pushes JPEG-encoded frames at 10 fps via
+// `voice-video-frame` keyed to the `__preview__` participant. The JS
+// canvas dispatcher already handles arbitrary participant ids, so the
+// Settings page just listens for that one and paints.
+
+pub const PREVIEW_PARTICIPANT: &str = "__preview__";
+
+pub struct PreviewCapture {
+	is_running: Arc<AtomicBool>,
+	join: Mutex<Option<std::thread::JoinHandle<()>>>,
+}
+
+impl PreviewCapture {
+	pub fn new(
+		device_id: Option<&str>,
+		emit: Box<dyn Fn(RemoteFrame) + Send + Sync>,
+	) -> Result<Self, String> {
+		let camera_index = resolve_index(device_id);
+		let is_running = Arc::new(AtomicBool::new(true));
+		let stop = is_running.clone();
+		let join = std::thread::Builder::new()
+			.name(format!("syren-video-preview-{}", camera_index))
+			.spawn(move || run_preview_loop(camera_index, emit, stop))
+			.map_err(|e| format!("spawn preview thread: {e}"))?;
+		Ok(Self { is_running, join: Mutex::new(Some(join)) })
+	}
+}
+
+impl Drop for PreviewCapture {
+	fn drop(&mut self) {
+		self.is_running.store(false, Ordering::Release);
+		if let Some(h) = self.join.lock().take() {
+			let _ = h.join();
+		}
+	}
+}
+
+fn run_preview_loop(
+	camera_index: CameraIndex,
+	emit: Box<dyn Fn(RemoteFrame) + Send + Sync>,
+	is_running: Arc<AtomicBool>,
+) {
+	let requested = RequestedFormat::new::<RgbFormat>(RequestedFormatType::Closest(
+		nokhwa::utils::CameraFormat::new(
+			Resolution::new(640, 360), // smaller than capture; the preview tile is tiny
+			FrameFormat::MJPEG,
+			15,
+		),
+	));
+	let mut camera = match Camera::new(camera_index.clone(), requested) {
+		Ok(c) => c,
+		Err(e) => {
+			eprintln!("[voice/preview] open camera {camera_index:?} failed: {e}");
+			return;
+		}
+	};
+	let fmt = camera.camera_format();
+	let width = fmt.resolution().width_x;
+	let height = fmt.resolution().height_y;
+	let frame_format = fmt.format();
+	if let Err(e) = camera.open_stream() {
+		eprintln!("[voice/preview] open_stream failed: {e}");
+		return;
+	}
+	eprintln!(
+		"[voice/preview] capture started ({}x{} {:?} {}fps)",
+		width,
+		height,
+		frame_format,
+		fmt.frame_rate()
+	);
+
+	let mut i420 = I420Buffer::new(width, height);
+	let mut rgb_buf: Vec<u8> = Vec::new();
+	let mut frame_count: u32 = 0;
+	let preview_every: u32 = 1; // already at low fps; emit every frame
+
+	while is_running.load(Ordering::Acquire) {
+		let buf = match camera.frame() {
+			Ok(b) => b,
+			Err(_) => continue,
+		};
+		if !convert_to_i420(buf.buffer(), frame_format, width, height, &mut i420) {
+			continue;
+		}
+		frame_count = frame_count.wrapping_add(1);
+		if frame_count % preview_every != 0 {
+			continue;
+		}
+
+		// I420 → RGB → JPEG → emit. Reuse a single buffer across
+		// frames to avoid the per-frame allocation cost.
+		let pixels = (width as usize) * (height as usize);
+		rgb_buf.resize(pixels * 3, 0);
+		let (sy, su, sv) = i420.strides();
+		let (dy, du, dv) = i420.data();
+		let ret = unsafe {
+			yuv_sys::rs_I420ToRAW(
+				dy.as_ptr(),
+				sy as i32,
+				du.as_ptr(),
+				su as i32,
+				dv.as_ptr(),
+				sv as i32,
+				rgb_buf.as_mut_ptr(),
+				(width * 3) as i32,
+				width as i32,
+				height as i32,
+			)
+		};
+		if ret != 0 {
+			continue;
+		}
+
+		use base64::{engine::general_purpose::STANDARD, Engine};
+		use image::{codecs::jpeg::JpegEncoder, ColorType};
+		let mut jpeg: Vec<u8> = Vec::with_capacity(pixels / 4);
+		{
+			let mut enc = JpegEncoder::new_with_quality(&mut jpeg, 70);
+			if enc.encode(&rgb_buf, width, height, ColorType::Rgb8.into()).is_err() {
+				continue;
+			}
+		}
+		emit(RemoteFrame {
+			participant: PREVIEW_PARTICIPANT.to_string(),
+			track_sid: "preview".into(),
+			width,
+			height,
+			jpeg_b64: STANDARD.encode(&jpeg),
+		});
+	}
+
+	let _ = camera.stop_stream();
+	eprintln!("[voice/preview] capture stopped");
 }
 
 // ── Remote frame export to the WebView ──────────────────────────────

@@ -118,6 +118,17 @@ export async function nativeSetCameraDevice(deviceId: string | null): Promise<vo
 	await invoke('voice_set_camera_device', { deviceId });
 }
 
+/** Participant id Rust uses for the standalone Settings preview frames. */
+export const NATIVE_PREVIEW_PARTICIPANT = '__preview__';
+
+export async function nativePreviewStart(deviceId: string | null): Promise<void> {
+	await invoke('voice_preview_start', { deviceId });
+}
+
+export async function nativePreviewStop(): Promise<void> {
+	await invoke('voice_preview_stop');
+}
+
 // ── Remote video frames ─────────────────────────────────────────────
 //
 // Each subscribed remote video track on the Rust side decodes I420 to

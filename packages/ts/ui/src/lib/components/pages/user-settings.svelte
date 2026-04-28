@@ -49,7 +49,13 @@
 		MediaUnavailableError,
 		type DeviceLists
 	} from '@syren/app-core/utils/media-devices';
-	import { isTauri } from '@syren/app-core/voice/native-voice-bridge';
+	import {
+		isTauri,
+		nativePreviewStart,
+		nativePreviewStop,
+		onVoiceVideoFrame,
+		NATIVE_PREVIEW_PARTICIPANT
+	} from '@syren/app-core/voice/native-voice-bridge';
 	import {
 		loadTrustedDomains,
 		addTrustedDomain,
@@ -147,6 +153,7 @@
 
 	onDestroy(() => {
 		unsubDevices();
+		unsubNativePreview();
 		stopMicTest();
 		stopCamPreview();
 		if (speakerTimeout) {
@@ -184,6 +191,15 @@
 
 	async function startCamPreview() {
 		stopCamPreview();
+		if (isTauri()) {
+			try {
+				await nativePreviewStart(settings.cameraDeviceId ?? null);
+				nativePreviewActive = true;
+			} catch (err) {
+				toast.error((err as Error).message || 'Could not open camera');
+			}
+			return;
+		}
 		try {
 			camPreviewStream = await navigator.mediaDevices.getUserMedia({
 				audio: false,
@@ -195,9 +211,36 @@
 	}
 
 	function stopCamPreview() {
+		if (isTauri()) {
+			if (nativePreviewActive) {
+				void nativePreviewStop().catch(() => {});
+				nativePreviewActive = false;
+			}
+			if (nativePreviewCanvas) {
+				const ctx = nativePreviewCanvas.getContext('2d');
+				ctx?.clearRect(0, 0, nativePreviewCanvas.width, nativePreviewCanvas.height);
+			}
+			return;
+		}
 		camPreviewStream?.getTracks().forEach((t) => t.stop());
 		camPreviewStream = null;
 	}
+
+	let nativePreviewActive = $state(false);
+	let nativePreviewCanvas = $state<HTMLCanvasElement | null>(null);
+	const unsubNativePreview = isTauri()
+		? onVoiceVideoFrame((f) => {
+			if (f.participant !== NATIVE_PREVIEW_PARTICIPANT) return;
+			if (!nativePreviewCanvas) return;
+			if (nativePreviewCanvas.width !== f.width) nativePreviewCanvas.width = f.width;
+			if (nativePreviewCanvas.height !== f.height) nativePreviewCanvas.height = f.height;
+			const ctx = nativePreviewCanvas.getContext('2d');
+			if (!ctx) return;
+			const img = new Image();
+			img.onload = () => ctx.drawImage(img, 0, 0, f.width, f.height);
+			img.src = `data:image/jpeg;base64,${f.jpeg_b64}`;
+		})
+		: () => {};
 
 	async function handleMicChange(id: string | undefined) {
 		setMicDeviceId(id);
@@ -211,7 +254,9 @@
 
 	async function handleCameraChange(id: string | undefined) {
 		setCameraDeviceId(id);
-		if (camPreviewStream) await startCamPreview();
+		// Restart whichever preview is currently active so it
+		// re-opens against the newly selected camera.
+		if (camPreviewStream || nativePreviewActive) await startCamPreview();
 		if (isTauri() || voice.inVoice) {
 			try { await setCameraDevice(); } catch { /* not camera-on; ignored */ }
 		}
@@ -470,22 +515,30 @@
 						onSelect={handleCameraChange}
 					/>
 
-					{#if !isTauri()}
-						<div class="space-y-2">
-							<div class="flex items-center justify-between">
-								<span class="text-xs text-muted-foreground">Preview</span>
-								{#if camPreviewStream}
-									<Button size="sm" variant="outline" onclick={stopCamPreview}>Stop</Button>
-								{:else}
-									<Button size="sm" variant="outline" onclick={startCamPreview}>Start preview</Button>
-								{/if}
-							</div>
-							<CameraPreview stream={camPreviewStream} />
+					<div class="space-y-2">
+						<div class="flex items-center justify-between">
+							<span class="text-xs text-muted-foreground">Preview</span>
+							{#if isTauri() ? nativePreviewActive : camPreviewStream}
+								<Button size="sm" variant="outline" onclick={stopCamPreview}>Stop</Button>
+							{:else}
+								<Button size="sm" variant="outline" onclick={startCamPreview}>Start preview</Button>
+							{/if}
 						</div>
-						<p class="text-xs text-muted-foreground">
-							This preview is local. Turn the camera on in a voice channel to share it.
-						</p>
-					{/if}
+						{#if isTauri()}
+							<div class="aspect-video w-full overflow-hidden rounded-md border border-border bg-muted/40">
+								<canvas
+									bind:this={nativePreviewCanvas}
+									class="h-full w-full object-contain"
+								></canvas>
+							</div>
+						{:else}
+							<CameraPreview stream={camPreviewStream} />
+						{/if}
+					</div>
+					<p class="text-xs text-muted-foreground">
+						This preview is local. Turn the camera on in a voice channel to share it.
+						{#if isTauri()}Stop the preview before joining voice — the camera can only be opened in one place at a time.{/if}
+					</p>
 				</section>
 			{/if}
 

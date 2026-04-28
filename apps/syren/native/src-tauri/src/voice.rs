@@ -129,8 +129,14 @@ pub struct VoiceHandle {
 	/// honours it.
 	pref_input: Mutex<Option<String>>,
 	pref_output: Mutex<Option<String>>,
-	#[allow(dead_code)] // Camera publish pipeline lands later.
 	pref_camera: Mutex<Option<String>>,
+	/// Standalone Settings preview capture. Lives outside the voice
+	/// service-task because the preview is meaningful pre-call only —
+	/// it's torn down before `voice_join` opens the camera for
+	/// publishing (the OS won't let two consumers grab the same camera
+	/// at once).
+	#[cfg(not(any(target_os = "ios", target_os = "android")))]
+	preview: Mutex<Option<crate::voice_video::PreviewCapture>>,
 }
 
 impl VoiceHandle {
@@ -140,6 +146,8 @@ impl VoiceHandle {
 			pref_input: Mutex::new(None),
 			pref_output: Mutex::new(None),
 			pref_camera: Mutex::new(None),
+			#[cfg(not(any(target_os = "ios", target_os = "android")))]
+			preview: Mutex::new(None),
 		}
 	}
 
@@ -464,6 +472,12 @@ async fn handle_join<R: Runtime>(
 	// life so any future camera-on toggle just unmutes; we only build
 	// the capture thread (and publish) on the first enable so users
 	// who never turn the camera on don't show a dead track.
+	//
+	// We deliberately do NOT pre-mute the track here — pre-muting an
+	// unpublished track is a no-op signal-wise, and once we publish
+	// later we don't want LiveKit to see "muted" first and have to
+	// flip to unmuted. Capture starts in lockstep with publish, so
+	// frames flow as soon as the track exists on the wire.
 	let video_source = NativeVideoSource::new(
 		VideoResolution { width: 1280, height: 720 },
 		false, // not a screen-share source
@@ -472,7 +486,6 @@ async fn handle_join<R: Runtime>(
 		"camera",
 		RtcVideoSource::Native(video_source.clone()),
 	);
-	video_track.mute();
 
 	// Forward `RoomEvent`s to the JS side and feed remote audio into
 	// the mixer.
@@ -740,4 +753,47 @@ pub async fn voice_set_camera_device<R: Runtime>(
 	let tx = state.ensure(&app);
 	tx.send(VoiceCommand::SetCameraDevice(device_id))
 		.map_err(|e| e.to_string())
+}
+
+#[cfg(not(any(target_os = "ios", target_os = "android")))]
+#[tauri::command]
+pub async fn voice_preview_start<R: Runtime>(
+	app: AppHandle<R>,
+	state: State<'_, Arc<VoiceHandle>>,
+	device_id: Option<String>,
+) -> Result<(), String> {
+	let mut guard = state.preview.lock();
+	guard.take(); // tear down any existing capture first
+	let app_clone = app.clone();
+	let emit = Box::new(move |frame: crate::voice_video::RemoteFrame| {
+		let _ = app_clone.emit("voice-video-frame", frame);
+	});
+	*guard = Some(crate::voice_video::PreviewCapture::new(
+		device_id.as_deref(),
+		emit,
+	)?);
+	Ok(())
+}
+
+#[cfg(not(any(target_os = "ios", target_os = "android")))]
+#[tauri::command]
+pub async fn voice_preview_stop(state: State<'_, Arc<VoiceHandle>>) -> Result<(), String> {
+	state.preview.lock().take();
+	Ok(())
+}
+
+#[cfg(any(target_os = "ios", target_os = "android"))]
+#[tauri::command]
+pub async fn voice_preview_start<R: Runtime>(
+	_app: AppHandle<R>,
+	_state: State<'_, Arc<VoiceHandle>>,
+	_device_id: Option<String>,
+) -> Result<(), String> {
+	Err("camera preview not available on this platform".into())
+}
+
+#[cfg(any(target_os = "ios", target_os = "android"))]
+#[tauri::command]
+pub async fn voice_preview_stop(_state: State<'_, Arc<VoiceHandle>>) -> Result<(), String> {
+	Ok(())
 }

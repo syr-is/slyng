@@ -177,6 +177,8 @@ pub fn run() {
 			voice::voice_set_input_device,
 			voice::voice_set_output_device,
 			voice::voice_set_camera_device,
+			voice::voice_preview_start,
+			voice::voice_preview_stop,
 			// Device enumeration (audio + camera). On mobile these
 			// return empty lists — the platform shell will provide
 			// real device lists in a follow-up.

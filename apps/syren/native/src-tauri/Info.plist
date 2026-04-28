@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>NSCameraUsageDescription</key>
+	<string>Syren uses your camera so other people in voice channels can see you.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Syren uses your microphone so other people in voice channels can hear you.</string>
+	<key>NSAppleEventsUsageDescription</key>
+	<string>Syren uses Apple Events to open links you click.</string>
+</dict>
+</plist>

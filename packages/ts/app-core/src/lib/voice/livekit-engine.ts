@@ -145,6 +145,11 @@ function ensureNativeListener() {
 
 	if (nativeFrameUnlisten) return;
 	nativeFrameUnlisten = onVoiceVideoFrame((f) => {
+		// `__preview__` frames are the Settings standalone capture —
+		// the Settings page subscribes to `onVoiceVideoFrame` directly
+		// for those, so we skip them here to avoid leaking a
+		// "__preview__ participant" into the remote-video map.
+		if (f.participant === '__preview__') return;
 		// Decode the JPEG via an `<img>` and draw onto the per-
 		// participant canvas. The captureStream-backed MediaStream
 		// already binds to the canvas so the voice tile picks it up
@@ -559,6 +564,11 @@ export function getLocalScreenStream(): MediaStream | null {
 }
 
 export function getLocalCameraStream(): MediaStream | null {
+	if (isTauri()) {
+		// On native the camera frames land on a per-DID canvas; reuse
+		// `getLocalVideoStream` which already handles the lookup.
+		return getLocalVideoStream();
+	}
 	if (!room) return null;
 	const pub = room.localParticipant.getTrackPublication(Track.Source.Camera);
 	return pub?.track?.mediaStream ?? null;
