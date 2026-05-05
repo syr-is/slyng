@@ -78,6 +78,18 @@ interface MemberLike {
 	role_ids?: Array<string | { id: string }>;
 }
 
+/**
+ * Single source of truth for "does the actor have permission `flag`
+ * on the active server?" — owners short-circuit to `true` so the UI
+ * doesn't disable buttons for the literal server creator just because
+ * the backend snapshot didn't echo every permission bit back. The
+ * `ADMINISTRATOR` short-circuit lives inside `hasPermission` itself.
+ */
+function effectiveCan(flag: bigint): boolean {
+	if (isOwnerFlag || isActuallyOwner()) return true;
+	return hasPermission(bitmask, flag);
+}
+
 export function getPerms() {
 	return {
 		get serverId() {
@@ -93,9 +105,10 @@ export function getPerms() {
 			return isOwnerFlag || isActuallyOwner();
 		},
 		can(flag: bigint): boolean {
-			return hasPermission(bitmask, flag);
+			return effectiveCan(flag);
 		},
 		get isAdmin(): boolean {
+			if (isOwnerFlag || isActuallyOwner()) return true;
 			return (bitmask & Permissions.ADMINISTRATOR) === Permissions.ADMINISTRATOR;
 		},
 		// Hierarchy gates — used by UI to disable buttons before the user clicks.
@@ -128,44 +141,49 @@ export function getPerms() {
 				.reduce((max, r) => Math.max(max, r.position ?? 0), 0);
 			return effectiveHighest() > targetHighest;
 		},
-		// Convenience flags — keep names short, use in templates
+		// Convenience flags — keep names short, use in templates. All
+		// route through `effectiveCan` so the owner short-circuit
+		// applies uniformly (the simple `hasPermission(bitmask, …)`
+		// path only short-circuits on `ADMINISTRATOR`, which owners
+		// often don't have explicitly set in their bitmask).
 		get canManageServer() {
-			return hasPermission(bitmask, Permissions.MANAGE_SERVER);
+			return effectiveCan(Permissions.MANAGE_SERVER);
 		},
 		get canManageChannels() {
-			return hasPermission(bitmask, Permissions.MANAGE_CHANNELS);
+			return effectiveCan(Permissions.MANAGE_CHANNELS);
 		},
 		get canManageRoles() {
-			return hasPermission(bitmask, Permissions.MANAGE_ROLES);
+			return effectiveCan(Permissions.MANAGE_ROLES);
 		},
 		get canManageMessages() {
-			return hasPermission(bitmask, Permissions.MANAGE_MESSAGES);
+			return effectiveCan(Permissions.MANAGE_MESSAGES);
 		},
 		get canCreateInvites() {
-			return hasPermission(bitmask, Permissions.CREATE_INVITES);
+			return effectiveCan(Permissions.CREATE_INVITES);
 		},
 		get canManageInvites() {
-			return hasPermission(bitmask, Permissions.MANAGE_INVITES);
+			return effectiveCan(Permissions.MANAGE_INVITES);
 		},
 		get canKick() {
-			return hasPermission(bitmask, Permissions.KICK_MEMBERS);
+			return effectiveCan(Permissions.KICK_MEMBERS);
 		},
 		get canBan() {
-			return hasPermission(bitmask, Permissions.BAN_MEMBERS);
+			return effectiveCan(Permissions.BAN_MEMBERS);
 		},
 		get canViewAuditLog() {
-			return hasPermission(bitmask, Permissions.VIEW_AUDIT_LOG);
+			return effectiveCan(Permissions.VIEW_AUDIT_LOG);
 		},
 		get canViewRemovedMessages() {
-			return hasPermission(bitmask, Permissions.VIEW_REMOVED_MESSAGES);
+			return effectiveCan(Permissions.VIEW_REMOVED_MESSAGES);
 		},
 		get canViewTrash() {
-			return hasPermission(bitmask, Permissions.VIEW_TRASH);
+			return effectiveCan(Permissions.VIEW_TRASH);
 		},
 		get canHardDelete() {
-			return hasPermission(bitmask, Permissions.HARD_DELETE);
+			return effectiveCan(Permissions.HARD_DELETE);
 		},
 		canInChannel(channelId: string, flag: bigint): boolean {
+			if (isOwnerFlag || isActuallyOwner()) return true;
 			const ch = getServerState().channels.find((c) => c.id === channelId);
 			if (!ch?.my_permissions) return this.can(flag);
 			return hasPermission(BigInt(ch.my_permissions), flag);
