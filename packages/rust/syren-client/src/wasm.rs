@@ -37,6 +37,47 @@ fn from_jsv<T: serde::de::DeserializeOwned>(v: JsValue) -> std::result::Result<T
 	serde_wasm_bindgen::from_value(v).map_err(err)
 }
 
+/// Recursively strip `null` values out of any `serde_json::Value::Object`.
+/// Arrays and primitive nulls are left alone — only object KEYS whose
+/// value is `Null` get removed.
+///
+/// Why: `serde_wasm_bindgen::from_value` translates JS `undefined` into
+/// `serde_json::Value::Null`, so a JS object literal like
+/// `{ name: "x", icon_url: undefined }` arrives at the API as
+/// `{ "name": "x", "icon_url": null }`. The backend Zod schemas use
+/// `z.string().optional()` (`string | undefined`) which rejects `null`,
+/// so every JS form that includes `undefined` for an optional field
+/// would otherwise need to defensively `delete` keys before invoking
+/// the client. Compacting at the WASM boundary lets the rest of the
+/// stack treat `undefined` and "absent" as the same thing.
+///
+/// Typed-deserialise call sites (e.g. `from_jsv::<Vec<String>>` for
+/// query-param arrays) aren't affected because their target type
+/// already turns `null` into `None` / drop. Only `serde_json::Value`
+/// bodies preserve null, which is why this helper is body-only.
+fn compact_nulls(v: serde_json::Value) -> serde_json::Value {
+	use serde_json::Value;
+	match v {
+		Value::Object(map) => Value::Object(
+			map.into_iter()
+				.filter(|(_, val)| !val.is_null())
+				.map(|(k, val)| (k, compact_nulls(val)))
+				.collect(),
+		),
+		Value::Array(items) => Value::Array(items.into_iter().map(compact_nulls).collect()),
+		other => other,
+	}
+}
+
+/// Deserialises a JS body into a `serde_json::Value` and strips any
+/// `null` entries so the wire payload only carries the keys the JS
+/// caller actually set. Use this for every `data: JsValue` /
+/// `body: JsValue` parameter that gets sent as a request body.
+fn body_from_jsv(v: JsValue) -> std::result::Result<serde_json::Value, JsValue> {
+	let value: serde_json::Value = serde_wasm_bindgen::from_value(v).map_err(err)?;
+	Ok(compact_nulls(value))
+}
+
 #[wasm_bindgen]
 pub struct Client {
 	inner: InnerClient,
@@ -88,7 +129,7 @@ impl Client {
 	}
 
 	pub async fn server_create(&self, data: JsValue) -> std::result::Result<Server, JsValue> {
-		let body: serde_json::Value = from_jsv(data)?;
+		let body: serde_json::Value = body_from_jsv(data)?;
 		self.inner.server_create(&body).await.map_err(err)
 	}
 
@@ -97,7 +138,7 @@ impl Client {
 		id: String,
 		data: JsValue,
 	) -> std::result::Result<Server, JsValue> {
-		let body: serde_json::Value = from_jsv(data)?;
+		let body: serde_json::Value = body_from_jsv(data)?;
 		self.inner.server_update(&id, &body).await.map_err(err)
 	}
 
@@ -172,7 +213,7 @@ impl Client {
 		server_id: String,
 		data: JsValue,
 	) -> std::result::Result<Channel, JsValue> {
-		let body: serde_json::Value = from_jsv(data)?;
+		let body: serde_json::Value = body_from_jsv(data)?;
 		self.inner
 			.server_create_channel(&server_id, &body)
 			.await
@@ -196,7 +237,7 @@ impl Client {
 		server_id: String,
 		body: JsValue,
 	) -> std::result::Result<ServerBan, JsValue> {
-		let body: serde_json::Value = from_jsv(body)?;
+		let body: serde_json::Value = body_from_jsv(body)?;
 		self.inner.member_ban(&server_id, &body).await.map_err(err)
 	}
 
@@ -261,7 +302,7 @@ impl Client {
 		user_id: String,
 		body: JsValue,
 	) -> std::result::Result<SuccessResponse, JsValue> {
-		let body: serde_json::Value = from_jsv(body)?;
+		let body: serde_json::Value = body_from_jsv(body)?;
 		self.inner
 			.purge_member_messages(&server_id, &user_id, &body)
 			.await
@@ -333,7 +374,7 @@ impl Client {
 		server_id: String,
 		data: JsValue,
 	) -> std::result::Result<CreateInviteResponse, JsValue> {
-		let body: serde_json::Value = from_jsv(data)?;
+		let body: serde_json::Value = body_from_jsv(data)?;
 		self.inner
 			.invites_create(&server_id, &body)
 			.await
@@ -371,7 +412,7 @@ impl Client {
 		code: String,
 		data: JsValue,
 	) -> std::result::Result<syren_types::ServerInvite, JsValue> {
-		let body: serde_json::Value = from_jsv(data)?;
+		let body: serde_json::Value = body_from_jsv(data)?;
 		self.inner
 			.update_invite(&server_id, &code, &body)
 			.await
@@ -432,7 +473,7 @@ impl Client {
 		id: String,
 		body: JsValue,
 	) -> std::result::Result<Message, JsValue> {
-		let body: serde_json::Value = from_jsv(body)?;
+		let body: serde_json::Value = body_from_jsv(body)?;
 		self.inner.channel_send(&id, &body).await.map_err(err)
 	}
 
@@ -528,7 +569,7 @@ impl Client {
 		id: String,
 		data: JsValue,
 	) -> std::result::Result<Channel, JsValue> {
-		let body: serde_json::Value = from_jsv(data)?;
+		let body: serde_json::Value = body_from_jsv(data)?;
 		self.inner.channel_update(&id, &body).await.map_err(err)
 	}
 
@@ -580,7 +621,7 @@ impl Client {
 		server_id: String,
 		body: JsValue,
 	) -> std::result::Result<SuccessResponse, JsValue> {
-		let body: serde_json::Value = from_jsv(body)?;
+		let body: serde_json::Value = body_from_jsv(body)?;
 		self.inner
 			.channel_reorder(&server_id, &body)
 			.await
@@ -601,7 +642,7 @@ impl Client {
 		server_id: String,
 		data: JsValue,
 	) -> std::result::Result<ServerRole, JsValue> {
-		let body: serde_json::Value = from_jsv(data)?;
+		let body: serde_json::Value = body_from_jsv(data)?;
 		self.inner.role_create(&server_id, &body).await.map_err(err)
 	}
 
@@ -610,7 +651,7 @@ impl Client {
 		role_id: String,
 		data: JsValue,
 	) -> std::result::Result<ServerRole, JsValue> {
-		let body: serde_json::Value = from_jsv(data)?;
+		let body: serde_json::Value = body_from_jsv(data)?;
 		self.inner.role_update(&role_id, &body).await.map_err(err)
 	}
 
@@ -733,7 +774,7 @@ impl Client {
 		category_id: String,
 		data: JsValue,
 	) -> std::result::Result<ChannelCategory, JsValue> {
-		let body: serde_json::Value = from_jsv(data)?;
+		let body: serde_json::Value = body_from_jsv(data)?;
 		self.inner
 			.category_update(&category_id, &body)
 			.await
@@ -784,7 +825,7 @@ impl Client {
 		&self,
 		data: JsValue,
 	) -> std::result::Result<User, JsValue> {
-		let body: serde_json::Value = from_jsv(data)?;
+		let body: serde_json::Value = body_from_jsv(data)?;
 		self.inner.users_update_me(&body).await.map_err(err)
 	}
 
@@ -925,7 +966,7 @@ impl Client {
 		&self,
 		body: JsValue,
 	) -> std::result::Result<UploadPresignResponse, JsValue> {
-		let body: serde_json::Value = from_jsv(body)?;
+		let body: serde_json::Value = body_from_jsv(body)?;
 		self.inner.upload_presign(&body).await.map_err(err)
 	}
 
@@ -934,7 +975,7 @@ impl Client {
 		upload_id: String,
 		body: JsValue,
 	) -> std::result::Result<UploadFinalizeResponse, JsValue> {
-		let body: serde_json::Value = from_jsv(body)?;
+		let body: serde_json::Value = body_from_jsv(body)?;
 		self.inner
 			.upload_finalize(&upload_id, &body)
 			.await
@@ -977,7 +1018,7 @@ impl Client {
 		server_id: String,
 		body: JsValue,
 	) -> std::result::Result<PermissionOverride, JsValue> {
-		let body: serde_json::Value = from_jsv(body)?;
+		let body: serde_json::Value = body_from_jsv(body)?;
 		self.inner
 			.override_upsert(&server_id, &body)
 			.await

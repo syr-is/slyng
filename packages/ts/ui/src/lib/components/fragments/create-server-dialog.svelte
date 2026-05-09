@@ -57,23 +57,17 @@
 				toast.error('Check the form for errors');
 				return;
 			}
-			// Build the payload with only the fields the user actually
-			// set. The WASM client's `serde_wasm_bindgen::from_value`
-			// deserialiser turns JS `undefined` into JSON `null` on the
-			// way to the API, and the backend Zod schemas use
-			// `z.string().optional()` (which rejects null) — so passing
-			// `{ icon_url: undefined, … }` produces a 400. Conditional
-			// spreads keep the keys absent entirely so the request body
-			// is `{ "name": "..." }` with nothing extra.
-			const desc = f.data.description?.trim();
+			// `undefined` for absent optional fields is fine — the WASM
+			// client's `body_from_jsv` strips nulls before the request
+			// goes out, so the API receives `{ "name": "..." }` with
+			// nothing extra rather than `{ "name": "...", "icon_url":
+			// null, … }` which Zod's `.optional()` would reject.
 			onCreate({
 				name: f.data.name.trim(),
-				...(f.data.icon_url ? { icon_url: f.data.icon_url } : {}),
-				...(f.data.banner_url ? { banner_url: f.data.banner_url } : {}),
-				...(f.data.invite_background_url
-					? { invite_background_url: f.data.invite_background_url }
-					: {}),
-				...(desc ? { description: desc } : {})
+				icon_url: f.data.icon_url || undefined,
+				banner_url: f.data.banner_url || undefined,
+				invite_background_url: f.data.invite_background_url || undefined,
+				description: f.data.description?.trim() || undefined
 			});
 			f.data = { name: '' };
 			onClose();
