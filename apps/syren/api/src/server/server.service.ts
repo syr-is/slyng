@@ -85,6 +85,12 @@ export class ServerService {
 			server_id: serverId,
 			position: 0,
 			created_by: ownerId,
+			// `channelService.findByServer` filters
+			// `{ server_id, deleted: false }` — leaving `deleted` unset
+			// would let SurrealDB store the field as missing, and the
+			// query would never return this channel. The bootstrap role
+			// insert above sets the same flag for the same reason.
+			deleted: false,
 			created_at: now,
 			updated_at: now
 		});
