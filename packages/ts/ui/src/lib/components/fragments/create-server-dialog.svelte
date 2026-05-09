@@ -7,6 +7,7 @@
 	import { superForm, defaults } from 'sveltekit-superforms';
 	import { zod4, zod4Client } from 'sveltekit-superforms/adapters';
 	import { z } from 'zod';
+	import { toast } from 'svelte-sonner';
 	import { CreateServerInputSchema } from '@syren/types';
 
 	const {
@@ -28,19 +29,34 @@
 	// Generated `CreateServerInputSchema` covers the field shape; we
 	// extend it with bounds (`name` 1–100 chars, `description` ≤ 1000)
 	// that the Rust source can't express.
+	//
+	// URL fields tolerate an empty literal because superforms'
+	// `defaults()` zero-initialises optional strings to `''` (not
+	// `undefined`); without the literal escape hatch a fresh form
+	// where the user hasn't touched the image pickers fails
+	// `.url()` on `''` and the submit silently aborts. The submit
+	// handler still maps `''` → `undefined` before hitting the API.
 	const Schema = CreateServerInputSchema.extend({
 		name: z.string().min(1, 'Server name is required').max(100),
 		description: z.string().max(1000).optional(),
-		icon_url: z.string().url().optional(),
-		banner_url: z.string().url().optional(),
-		invite_background_url: z.string().url().optional()
+		icon_url: z.string().url().or(z.literal('')).optional(),
+		banner_url: z.string().url().or(z.literal('')).optional(),
+		invite_background_url: z.string().url().or(z.literal('')).optional()
 	});
 
 	const form = superForm(defaults(zod4(Schema)), {
 		SPA: true,
 		validators: zod4Client(Schema),
 		onUpdate: ({ form: f }) => {
-			if (!f.valid) return;
+			if (!f.valid) {
+				// `<Form.FieldErrors />` surfaces issues on `name` and
+				// `description`, but the URL fields are rendered through
+				// `<ImageField>` which isn't a Form.Field wrapper, so a
+				// rejected URL would otherwise be invisible. Toast keeps
+				// the failure mode loud regardless of which field fails.
+				toast.error('Check the form for errors');
+				return;
+			}
 			onCreate({
 				name: f.data.name.trim(),
 				icon_url: f.data.icon_url || undefined,
