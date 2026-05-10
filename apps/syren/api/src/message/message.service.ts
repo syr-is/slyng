@@ -289,13 +289,15 @@ export class MessageService {
 		const limit = Math.min(options.limit || 50, 100);
 		const channelRef = stringToRecordId.decode(channelId);
 
-		const all = await this.messages.findMany(
-			{ channel_id: channelRef },
-			{ sort: { field: 'created_at', order: 'desc' }, limit }
-		);
-		const filtered = options.before
-			? all.filter((m) => new Date((m as any).created_at).getTime() < new Date(options.before!).getTime())
-			: all;
+		// Push the `before` cutoff into the SQL so the DB returns the
+		// page strictly older than the cursor. The previous shape —
+		// fetch-latest-N then filter — silently returned [] for every
+		// scroll-up page because the in-memory filter ran on the
+		// already-trimmed top-N set.
+		const all = await this.messages.findByChannelBefore(channelRef, {
+			before: options.before ? new Date(options.before) : undefined,
+			limit
+		});
 
 		// Viewer-aware deletion filter.
 		// Callers who lack VIEW_REMOVED_MESSAGES, OR callers who have it but
@@ -306,8 +308,8 @@ export class MessageService {
 		const reveal = await this.canRevealRemoved(actorUserId, serverId, channelId);
 		const includeDeleted = !!options.includeDeleted && reveal;
 		const postDeletedFilter = includeDeleted
-			? filtered
-			: filtered.filter((m) => !(m as any).deleted);
+			? all
+			: all.filter((m) => !(m as any).deleted);
 		const enriched = await this.enrich(postDeletedFilter as any);
 		// Even when includeDeleted is true for a privileged caller, run through
 		// maskIfDeleted as a no-op safety (reveal=true means no mask). Cheap.
