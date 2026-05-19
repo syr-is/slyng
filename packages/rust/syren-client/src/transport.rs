@@ -5,6 +5,40 @@ use serde::{de::DeserializeOwned, Serialize};
 use std::sync::Arc;
 use url::Url;
 
+/// Recursively strip `null` values out of any `serde_json::Value::Object`.
+/// Arrays and primitive nulls are left alone — only object KEYS whose
+/// value is `Null` get removed.
+///
+/// Why this lives in the transport: the backend Zod schemas use
+/// `z.string().optional()` (`string | undefined`) which rejects JSON
+/// `null`. Two parallel paths into a request body both need cleaning:
+///
+///   1. JS object literals passed through wasm-bindgen. Those go through
+///      `serde_wasm_bindgen::from_value`, which translates JS `undefined`
+///      into `serde_json::Value::Null`. `wasm::body_from_jsv` already
+///      compacts there, but it can only see JS-provided bodies.
+///   2. Typed Rust methods that build their JSON via `json!({ field:
+///      option })`. `serde_json` renders `Option::None` as `Value::Null`,
+///      so any call like `friend_send(user_id, None)` ships a body of
+///      `{"user_id":"…","syr_instance_url":null}` — which Zod rejects at
+///      the api's `ZodValidationPipe` long before the route handler runs.
+///
+/// Cleaning at the transport boundary catches both. Idempotent on already-
+/// cleaned bodies, so the redundant pass on JS-built bodies is harmless.
+pub(crate) fn compact_nulls(v: serde_json::Value) -> serde_json::Value {
+	use serde_json::Value;
+	match v {
+		Value::Object(map) => Value::Object(
+			map.into_iter()
+				.filter(|(_, val)| !val.is_null())
+				.map(|(k, val)| (k, compact_nulls(val)))
+				.collect(),
+		),
+		Value::Array(items) => Value::Array(items.into_iter().map(compact_nulls).collect()),
+		other => other,
+	}
+}
+
 /// HTTP transport — wraps `reqwest::Client`, attaches the bearer token
 /// from the configured `SessionStore` to every outgoing request,
 /// surfaces non-2xx responses as `Error::Status` with the body as the
@@ -87,21 +121,24 @@ impl Transport {
 
 	pub async fn post<B: Serialize, T: DeserializeOwned>(&self, path: &str, body: &B) -> Result<T> {
 		let url = self.url(path)?;
-		let req = self.http.request(Method::POST, url).json(body);
+		let body = compact_nulls(serde_json::to_value(body)?);
+		let req = self.http.request(Method::POST, url).json(&body);
 		let resp = self.send_with_auth(req).await?;
 		self.handle(resp).await
 	}
 
 	pub async fn patch<B: Serialize, T: DeserializeOwned>(&self, path: &str, body: &B) -> Result<T> {
 		let url = self.url(path)?;
-		let req = self.http.request(Method::PATCH, url).json(body);
+		let body = compact_nulls(serde_json::to_value(body)?);
+		let req = self.http.request(Method::PATCH, url).json(&body);
 		let resp = self.send_with_auth(req).await?;
 		self.handle(resp).await
 	}
 
 	pub async fn put<B: Serialize, T: DeserializeOwned>(&self, path: &str, body: &B) -> Result<T> {
 		let url = self.url(path)?;
-		let req = self.http.request(Method::PUT, url).json(body);
+		let body = compact_nulls(serde_json::to_value(body)?);
+		let req = self.http.request(Method::PUT, url).json(&body);
 		let resp = self.send_with_auth(req).await?;
 		self.handle(resp).await
 	}
