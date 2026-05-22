@@ -37,45 +37,19 @@ fn from_jsv<T: serde::de::DeserializeOwned>(v: JsValue) -> std::result::Result<T
 	serde_wasm_bindgen::from_value(v).map_err(err)
 }
 
-/// Recursively strip `null` values out of any `serde_json::Value::Object`.
-/// Arrays and primitive nulls are left alone — only object KEYS whose
-/// value is `Null` get removed.
-///
-/// Why: `serde_wasm_bindgen::from_value` translates JS `undefined` into
-/// `serde_json::Value::Null`, so a JS object literal like
-/// `{ name: "x", icon_url: undefined }` arrives at the API as
-/// `{ "name": "x", "icon_url": null }`. The backend Zod schemas use
-/// `z.string().optional()` (`string | undefined`) which rejects `null`,
-/// so every JS form that includes `undefined` for an optional field
-/// would otherwise need to defensively `delete` keys before invoking
-/// the client. Compacting at the WASM boundary lets the rest of the
-/// stack treat `undefined` and "absent" as the same thing.
-///
-/// Typed-deserialise call sites (e.g. `from_jsv::<Vec<String>>` for
-/// query-param arrays) aren't affected because their target type
-/// already turns `null` into `None` / drop. Only `serde_json::Value`
-/// bodies preserve null, which is why this helper is body-only.
-fn compact_nulls(v: serde_json::Value) -> serde_json::Value {
-	use serde_json::Value;
-	match v {
-		Value::Object(map) => Value::Object(
-			map.into_iter()
-				.filter(|(_, val)| !val.is_null())
-				.map(|(k, val)| (k, compact_nulls(val)))
-				.collect(),
-		),
-		Value::Array(items) => Value::Array(items.into_iter().map(compact_nulls).collect()),
-		other => other,
-	}
-}
-
 /// Deserialises a JS body into a `serde_json::Value` and strips any
 /// `null` entries so the wire payload only carries the keys the JS
-/// caller actually set. Use this for every `data: JsValue` /
-/// `body: JsValue` parameter that gets sent as a request body.
+/// caller actually set.
+///
+/// `serde_wasm_bindgen::from_value` turns JS `undefined` into
+/// `serde_json::Value::Null`, which the backend Zod schemas reject
+/// for `.optional()` fields. The cleanup itself lives in
+/// `transport::compact_nulls` so both JS-built and Rust-built bodies
+/// get the same treatment — this wrapper exists to make the JS
+/// boundary explicit at call sites that take a `data: JsValue`.
 fn body_from_jsv(v: JsValue) -> std::result::Result<serde_json::Value, JsValue> {
 	let value: serde_json::Value = serde_wasm_bindgen::from_value(v).map_err(err)?;
-	Ok(compact_nulls(value))
+	Ok(crate::transport::compact_nulls(value))
 }
 
 #[wasm_bindgen]
