@@ -9,6 +9,9 @@
 	import NavUser from '@syren/ui/fragments/nav-user.svelte';
 	import { api } from '@syren/app-core/api';
 	import { setActiveServer } from '@syren/app-core/stores/servers.svelte';
+	import { clearRoles } from '@syren/app-core/stores/roles.svelte';
+	import { clearMembers } from '@syren/app-core/stores/members.svelte';
+	import { clearServerPerms } from '@syren/app-core/stores/perms.svelte';
 	import { getAuth } from '@syren/app-core/stores/auth.svelte';
 	import { getRelations } from '@syren/app-core/stores/relations.svelte';
 	import { resolveProfile, displayName } from '@syren/app-core/stores/profiles.svelte';
@@ -49,7 +52,19 @@
 	const wsUnsubs: Array<() => void> = [];
 
 	onMount(async () => {
+		// DM context has no server, so every server-scoped store has to be
+		// emptied — otherwise role colors, role pills, owner crowns, and
+		// "former member" badges from the previously-viewed server leak into
+		// rendering for DM partners. Mirrors the cleanup set at the top of
+		// `server-layout.svelte:loadServer`, just inverted: clear only, no
+		// subsequent populate. `setActiveServer(null)` already resets the
+		// servers store itself (channels, categories, owner), but the roles /
+		// members / perms stores live in their own modules and don't watch
+		// the servers store — they need explicit clearing.
 		setActiveServer(null);
+		clearServerPerms();
+		clearRoles();
+		clearMembers();
 		// Hand the DM-list sidebar off to (app)/+layout's SwipeLayout
 		// drawer. It used to render inline next to the main panel, which
 		// crowded the main view on mobile (the user saw both side-by-side
