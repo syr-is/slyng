@@ -126,8 +126,19 @@
 	// in the store to begin with (messages.svelte.ts drops them on WS + the
 	// backend excludes them from HTTP). Privileged users toggle between
 	// showing + hiding deleted rows here.
+	//
+	// Gated on `messageStore.channelId === channelId` so a server-switch
+	// transition can't render the previous channel's messages: when the
+	// URL has settled on the new channel but `loadChannel` hasn't yet
+	// flipped `currentChannelId` (or `clearMessages` from the server
+	// switch nulled it), this evaluates to `[]` instead of leaking the
+	// stale array. Belt to `clearMessages` in `server-layout`'s
+	// `loadServer`; covers the case where channel-page stays mounted
+	// across a same-route param change.
 	const visibleMessages = $derived(
-		messageStore.list.filter((m) => showRemoved || !m.deleted)
+		messageStore.channelId === channelId
+			? messageStore.list.filter((m) => showRemoved || !m.deleted)
+			: []
 	);
 
 	// Group consecutive messages by the same author inside a 5-minute window.

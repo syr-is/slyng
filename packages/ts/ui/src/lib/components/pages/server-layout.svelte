@@ -22,6 +22,7 @@
 	import { setServerPerms, clearServerPerms } from '@syren/app-core/stores/perms.svelte';
 	import { setRoles, clearRoles } from '@syren/app-core/stores/roles.svelte';
 	import { setMembers, clearMembers, getMembers } from '@syren/app-core/stores/members.svelte';
+	import { clearMessages } from '@syren/app-core/stores/messages.svelte';
 	import { watchProfiles, unwatchProfiles } from '@syren/app-core/stores/profiles.svelte';
 	import { setChannelUsers, clearChannelUsers } from '@syren/app-core/voice/voice-state.svelte';
 	import { subscribeChannels, unsubscribeChannels } from '@syren/app-core/stores/ws.svelte';
@@ -59,6 +60,14 @@
 		clearServerPerms();
 		clearRoles();
 		clearMembers();
+		// Wipe the message pane synchronously so the old channel's messages
+		// can't paint while we transition into the new server's default
+		// channel. Without this the `[serverId]/+page.svelte` → goto
+		// `[channelId]/+page.svelte` sequence remounts `channel-page` with
+		// the message store still pointing at the previous channel's array;
+		// its initial render paints those messages before its `$effect`
+		// runs `loadChannel` and calls `setCurrentChannel(newId, [])`.
+		clearMessages();
 
 		// Unwatch previous server's member profiles
 		if (watchedDids.length) {

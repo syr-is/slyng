@@ -103,7 +103,16 @@
 		}
 	});
 
-	const visibleMessages = $derived(messageStore.list.filter((m) => !m.deleted));
+	// Gated on `messageStore.channelId === channelId` so messages from a
+	// previously-viewed channel can't leak into this DM's render during
+	// the route transition — see server channel-page for the full
+	// rationale. Falls back to `[]` until `loadChannel` flips the store
+	// to this channel.
+	const visibleMessages = $derived(
+		messageStore.channelId === channelId
+			? messageStore.list.filter((m) => !m.deleted)
+			: []
+	);
 
 	// Group consecutive messages by the same author inside a 5-minute window
 	// (same grouping rule as the server channel page).
