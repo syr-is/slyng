@@ -12,6 +12,7 @@
 	import { api, apiReady } from '@syren/app-core/api';
 	import { realtimeReady } from '@syren/app-core/realtime';
 	import { getBootProgress, setBootStage } from '@syren/app-core/boot-progress';
+	import { Progress } from '$lib/components/ui/progress';
 	// Side-effect imports — ensure WS listeners in these stores register
 	// BEFORE connectWs() runs, so we don't miss the READY snapshot or
 	// any messages that arrive in the gap before child pages mount.
@@ -37,6 +38,24 @@
 	// the `{#await bootstrap}` branch so the user sees what's happening
 	// during the first ~1s of WASM load instead of a frozen "Loading…".
 	const boot = getBootProgress();
+
+	// Stage → fake percentage for the shadcn <Progress />. We don't have
+	// byte-level numbers for the WASM stream + compile, so map the known
+	// phases to an advancing percentage instead — the bar moves forward at
+	// every transition and the user perceives steady progress. Order
+	// matches the chronological sequence in `+layout.ts` →
+	// `app-layout.svelte`'s bootstrap.
+	const BOOT_PERCENT: Record<string, number> = {
+		'Loading runtime': 10,
+		'Completing sign-in': 30,
+		'Runtime ready': 45,
+		'Opening realtime channel': 60,
+		'Restoring session': 75,
+		Connecting: 85,
+		'Loading servers': 95,
+		'Startup failed': 100
+	};
+	const bootPercent = $derived(BOOT_PERCENT[boot.stage] ?? 5);
 
 	const auth = getAuth();
 	// Per-page sidebar (DM list, channel sidebar, etc.). Child layouts
@@ -151,12 +170,7 @@
 			{#if boot.detail}
 				<p class="text-xs text-muted-foreground">{boot.detail}</p>
 			{/if}
-			<!-- Indeterminate progress bar: we don't have byte-level numbers
-			     for the WASM stream + compile, but the moving sliver tells the
-			     user the tab is alive while ~1.4 MB is fetched + compiled. -->
-			<div class="mt-2 h-1 w-full overflow-hidden rounded-full bg-muted">
-				<div class="syren-boot-bar h-full w-1/3 rounded-full bg-foreground/60"></div>
-			</div>
+			<Progress class="mt-2" value={bootPercent} />
 		</div>
 	</div>
 {:then ready}
@@ -209,22 +223,3 @@
 		</button>
 	</div>
 {/await}
-
-<style>
-	/* Indeterminate sliver: a 33%-wide bar sweeps back and forth. Scoped to
-	   this layout because nothing else uses it. */
-	.syren-boot-bar {
-		animation: syren-boot-bar 1.4s ease-in-out infinite;
-	}
-	@keyframes syren-boot-bar {
-		0% {
-			transform: translateX(-100%);
-		}
-		50% {
-			transform: translateX(150%);
-		}
-		100% {
-			transform: translateX(-100%);
-		}
-	}
-</style>
