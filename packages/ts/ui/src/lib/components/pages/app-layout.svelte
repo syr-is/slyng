@@ -11,6 +11,7 @@
 	import { startIdleWatcher, stopIdleWatcher, syncStatus } from '@syren/app-core/stores/idle.svelte';
 	import { api, apiReady } from '@syren/app-core/api';
 	import { realtimeReady } from '@syren/app-core/realtime';
+	import { getBootProgress, setBootStage } from '@syren/app-core/boot-progress';
 	// Side-effect imports — ensure WS listeners in these stores register
 	// BEFORE connectWs() runs, so we don't miss the READY snapshot or
 	// any messages that arrive in the gap before child pages mount.
@@ -30,6 +31,12 @@
 
 	let { children } = $props();
 	let showCreateServer = $state(false);
+
+	// Surfaces the current cold-boot phase set by the host (web: WASM init
+	// stages from `+layout.ts`; native: gates already resolved). Read inside
+	// the `{#await bootstrap}` branch so the user sees what's happening
+	// during the first ~1s of WASM load instead of a frozen "Loading…".
+	const boot = getBootProgress();
 
 	const auth = getAuth();
 	// Per-page sidebar (DM list, channel sidebar, etc.). Child layouts
@@ -58,6 +65,7 @@
 		// `api.servers.list()` below would throw a "client not initialised"
 		// error on web because we no longer block render on WASM init.
 		await Promise.all([apiReady, realtimeReady]);
+		setBootStage('Restoring session');
 		const user = await checkAuth();
 		if (import.meta.env.DEV) console.log('[(app) layout] checkAuth returned authed=', !!user?.did);
 		if (!user) {
@@ -68,11 +76,13 @@
 		if (import.meta.env.DEV) console.log('[(app) layout] user authenticated; continuing bootstrap');
 
 		// Connect WebSocket — server auto-identifies from httpOnly cookie
+		setBootStage('Connecting');
 		connectWs();
 		startIdleWatcher();
 		loadTrustedDomains();
 		loadRelations();
 
+		setBootStage('Loading servers');
 		try {
 			const servers = await api.servers.list();
 			setServers(servers);
@@ -129,8 +139,25 @@
 </script>
 
 {#await bootstrap}
-	<div class="flex min-h-0 flex-1 items-center justify-center bg-background">
-		<p class="text-sm text-muted-foreground">Loading...</p>
+	<div class="flex min-h-0 flex-1 flex-col items-center justify-center gap-4 bg-background p-6">
+		<div
+			class="size-8 animate-spin rounded-full border-2 border-muted-foreground/25 border-t-foreground"
+			aria-hidden="true"
+		></div>
+		<div class="flex w-full max-w-xs flex-col items-center gap-1.5 text-center">
+			<p class="text-sm font-medium text-foreground">
+				{boot.stage || 'Starting syren'}
+			</p>
+			{#if boot.detail}
+				<p class="text-xs text-muted-foreground">{boot.detail}</p>
+			{/if}
+			<!-- Indeterminate progress bar: we don't have byte-level numbers
+			     for the WASM stream + compile, but the moving sliver tells the
+			     user the tab is alive while ~1.4 MB is fetched + compiled. -->
+			<div class="mt-2 h-1 w-full overflow-hidden rounded-full bg-muted">
+				<div class="syren-boot-bar h-full w-1/3 rounded-full bg-foreground/60"></div>
+			</div>
+		</div>
 	</div>
 {:then ready}
 	{#if ready}
@@ -182,3 +209,22 @@
 		</button>
 	</div>
 {/await}
+
+<style>
+	/* Indeterminate sliver: a 33%-wide bar sweeps back and forth. Scoped to
+	   this layout because nothing else uses it. */
+	.syren-boot-bar {
+		animation: syren-boot-bar 1.4s ease-in-out infinite;
+	}
+	@keyframes syren-boot-bar {
+		0% {
+			transform: translateX(-100%);
+		}
+		50% {
+			transform: translateX(150%);
+		}
+		100% {
+			transform: translateX(-100%);
+		}
+	}
+</style>
