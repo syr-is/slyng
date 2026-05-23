@@ -42,15 +42,24 @@
 	// Stage → fake percentage for the shadcn <Progress />. We don't have
 	// byte-level numbers for the WASM stream + compile, so map the known
 	// phases to an advancing percentage instead — the bar moves forward at
-	// every transition and the user perceives steady progress. Order
-	// matches the chronological sequence in `+layout.ts` →
-	// `app-layout.svelte`'s bootstrap.
+	// every transition and the user perceives steady progress.
+	//
+	// Order must match the actual emission sequence in `+layout.ts`'s
+	// `ensureClient` → this layout's bootstrap, NOT alphabetical order:
+	//   Loading runtime → Runtime ready → (Completing sign-in) →
+	//   Opening realtime channel → Restoring session → Connecting →
+	//   Loading servers
+	//
+	// `Completing sign-in` only fires when an OAuth bridge token is being
+	// exchanged, between `Runtime ready` and `Opening realtime channel`,
+	// so it must land in that interval — otherwise the bar would jump
+	// backward on bridge-login boots.
 	const BOOT_PERCENT: Record<string, number> = {
 		'Loading runtime': 10,
-		'Completing sign-in': 30,
-		'Runtime ready': 45,
-		'Opening realtime channel': 60,
-		'Restoring session': 75,
+		'Runtime ready': 25,
+		'Completing sign-in': 45,
+		'Opening realtime channel': 55,
+		'Restoring session': 70,
 		Connecting: 85,
 		'Loading servers': 95,
 		'Startup failed': 100

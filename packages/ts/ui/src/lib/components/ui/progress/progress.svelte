@@ -9,6 +9,13 @@
 		value,
 		...restProps
 	}: WithoutChildrenOrChild<ProgressPrimitive.RootProps> = $props();
+
+	// Guard the indicator math: a caller-supplied `max` of 0 (or anything
+	// non-positive) would otherwise produce Infinity/NaN in the transform
+	// and blank out the bar. Clamp `max` to at least 1 and `value` into
+	// `[0, safeMax]` before computing the percentage.
+	const safeMax = $derived(Math.max(1, max ?? 1));
+	const safeValue = $derived(Math.min(Math.max(value ?? 0, 0), safeMax));
 </script>
 
 <ProgressPrimitive.Root
@@ -22,6 +29,6 @@
 	<div
 		data-slot="progress-indicator"
 		class="bg-primary size-full flex-1 transition-all"
-		style="transform: translateX(-{100 - (100 * (value ?? 0)) / (max ?? 1)}%)"
+		style="transform: translateX(-{100 - (100 * safeValue) / safeMax}%)"
 	></div>
 </ProgressPrimitive.Root>
