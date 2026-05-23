@@ -90,9 +90,19 @@
 	// starts sharing, so users don't notice the deferred mount.
 	let ScreenShareView = $state<Component | null>(null);
 	onMount(() => {
-		void import('@syren/ui/fragments/screen-share-view.svelte').then((m) => {
-			ScreenShareView = m.default as Component;
-		});
+		import('@syren/ui/fragments/screen-share-view.svelte')
+			.then((m) => {
+				ScreenShareView = m.default as Component;
+			})
+			.catch((err) => {
+				// Chunk-load failure (offline, cache mismatch across deploys, …).
+				// Overlay is best-effort visual feedback — drop it silently and
+				// keep the rest of the app working. A dev warning helps surface
+				// regressions during iteration.
+				if (import.meta.env.DEV) {
+					console.warn('[app-layout] screen-share-view chunk failed to load', err);
+				}
+			});
 	});
 
 	onDestroy(() => {
@@ -151,4 +161,24 @@
 			<p class="text-sm text-muted-foreground">Redirecting to login...</p>
 		</div>
 	{/if}
+{:catch err}
+	<!-- Surfaces a WASM-init failure that came through the `apiReady` /
+	     `realtimeReady` gates' rejection path. Without this `{:catch}` the
+	     await above would hang the layout in the "Loading…" branch with no
+	     recovery path. The reload button starts a fresh navigation, which
+	     re-imports `+layout.ts`, resets `initPromise`, and retries the
+	     whole chain. -->
+	<div class="flex min-h-0 flex-1 flex-col items-center justify-center gap-3 bg-background p-6 text-center">
+		<p class="text-sm font-medium text-foreground">Couldn't start syren</p>
+		<p class="max-w-xs text-xs text-muted-foreground">
+			{err instanceof Error ? err.message : 'Unknown error during startup'}
+		</p>
+		<button
+			type="button"
+			onclick={() => window.location.reload()}
+			class="rounded-md border border-border bg-card px-3 py-1.5 text-xs font-medium hover:bg-accent"
+		>
+			Reload
+		</button>
+	</div>
 {/await}

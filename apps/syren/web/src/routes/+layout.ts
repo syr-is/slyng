@@ -1,7 +1,7 @@
 import { browser } from '$app/environment';
 import { setHost } from '@syren/app-core/host';
-import { setApi } from '@syren/app-core/api';
-import { setRealtime } from '@syren/app-core/realtime';
+import { setApi, setApiError } from '@syren/app-core/api';
+import { setRealtime, setRealtimeError } from '@syren/app-core/realtime';
 import { createSyrenRealtime, initSyrenClient, type SyrenClient } from '@syren/client';
 
 // Web app is served same-origin with the API behind a `/api` reverse proxy
@@ -73,6 +73,12 @@ async function ensureClient(url?: URL): Promise<SyrenClient> {
 		return c;
 	})().catch((err) => {
 		console.error('[syren] failed to initialise WASM client', err);
+		// Route the failure through the readiness gates so any consumer
+		// `await apiReady` / `await realtimeReady` falls out of its await
+		// with a rejection — otherwise the (app) bootstrap hangs on
+		// "Loading…" indefinitely with nothing to recover from.
+		setApiError(err);
+		setRealtimeError(err);
 		// Don't pin a failed promise — allow a retry on next navigation.
 		initPromise = null;
 		throw err;
@@ -82,11 +88,10 @@ async function ensureClient(url?: URL): Promise<SyrenClient> {
 
 export const load = ({ url }: { url: URL }) => {
 	if (!browser) return {};
-	// Fire-and-forget. The promise is memoised by `ensureClient`, so the
-	// (app) layout will pick up the same in-flight init via `apiReady` /
-	// `realtimeReady` without re-kicking. Errors surface through the
-	// rejection inside ensureClient (logged) and through `api.*` calls
-	// throwing for callers that didn't await `apiReady`.
-	void ensureClient(url);
+	// Fire-and-forget. `ensureClient`'s inner catch already logs the failure
+	// and routes it through `setApiError`/`setRealtimeError`; the trailing
+	// `.catch(() => {})` here just suppresses the unhandled-rejection that
+	// would otherwise log when the (app) bootstrap is the actual consumer.
+	void ensureClient(url).catch(() => {});
 	return {};
 };
