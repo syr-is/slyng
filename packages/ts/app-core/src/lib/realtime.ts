@@ -26,8 +26,39 @@ export interface RealtimeHandle {
 
 let _handle: RealtimeHandle | null = null;
 
+/**
+ * Resolves on the first non-null `setRealtime(...)` call, or rejects
+ * if the host signals an init failure via `setRealtimeError(...)`.
+ * Mirrors {@link apiReady} — see that promise's doc for the boot-chain
+ * story and the failure-signalling rationale.
+ */
+let _rtResolve: (() => void) | undefined;
+let _rtReject: ((err: unknown) => void) | undefined;
+export const realtimeReady: Promise<void> = new Promise<void>((resolve, reject) => {
+	_rtResolve = resolve;
+	_rtReject = reject;
+});
+
+function clearRtGate() {
+	_rtResolve = undefined;
+	_rtReject = undefined;
+}
+
 export function setRealtime(handle: RealtimeHandle | null): void {
 	_handle = handle;
+	if (handle && _rtResolve) {
+		_rtResolve();
+		clearRtGate();
+	}
+}
+
+/** Reject `realtimeReady` so consumers fall out of their await on init
+ *  failure instead of hanging. See {@link setApiError}'s doc. */
+export function setRealtimeError(err: unknown): void {
+	if (_rtReject) {
+		_rtReject(err);
+		clearRtGate();
+	}
 }
 
 export function getRealtime(): RealtimeHandle | null {

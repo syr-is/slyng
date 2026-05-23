@@ -1,10 +1,23 @@
 <script lang="ts">
 	import '../app.css';
+	import { onMount } from 'svelte';
 	import { ModeWatcher } from 'mode-watcher';
 	import { Toaster } from '@syren/ui/sonner';
 	import * as Tooltip from '@syren/ui/tooltip';
 
 	let { children } = $props();
+
+	// Tear down the pre-hydration loading placeholder painted by `app.html`.
+	// It sits as a sibling of `%sveltekit.body%` and SvelteKit's hydration
+	// only reconciles nodes inside its mount target, so without this it
+	// would keep covering the real UI forever. Removing it from the root
+	// layout's onMount fires the moment SvelteKit takes over rendering, so
+	// the user transitions from inline "Loading…" to the themed chrome
+	// (which paints its own "Loading…" inside the (app) layout) in one
+	// frame.
+	onMount(() => {
+		document.getElementById('syren-boot-fallback')?.remove();
+	});
 </script>
 
 <svelte:head>

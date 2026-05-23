@@ -16,12 +16,59 @@ import type { SyrenClient } from '@syren/client';
 let _client: SyrenClient | null = null;
 
 /**
+ * Resolves the moment `setApi(...)` is first called, or rejects if the
+ * host signals an init failure via `setApiError(...)`.
+ *
+ * App layouts await this before issuing any `api.*` call so the host's
+ * boot chain can stay non-blocking: web's `+layout.ts` kicks off WASM
+ * init without awaiting (so SvelteKit can render chrome immediately),
+ * the WASM finishes loading on its own, then `setApi(...)` flips this
+ * promise and the layout's bootstrap proceeds. If the WASM fetch /
+ * compile errors out, the host calls `setApiError(...)` so the promise
+ * rejects — without this, the bootstrap's `await apiReady` would hang
+ * forever and the user would be stuck on "Loading…" with no recovery.
+ *
+ * Native's `+layout.ts` calls `setApi` synchronously during its own
+ * `load()` so this resolves before any (app)-route renders — no
+ * behavioural change for the native shell.
+ */
+let _apiResolve: (() => void) | undefined;
+let _apiReject: ((err: unknown) => void) | undefined;
+export const apiReady: Promise<void> = new Promise<void>((resolve, reject) => {
+	_apiResolve = resolve;
+	_apiReject = reject;
+});
+
+function clearGate() {
+	_apiResolve = undefined;
+	_apiReject = undefined;
+}
+
+/**
  * Wire the singleton API client. Call this from the host's root layout
  * once the WASM module is loaded. Both apps' `+layout.ts` does this in
  * their `load()` so children render with `api.*` already wired.
  */
 export function setApi(client: SyrenClient): void {
 	_client = client;
+	if (_apiResolve) {
+		_apiResolve();
+		clearGate();
+	}
+}
+
+/**
+ * Surface a host-side init failure to consumers awaiting `apiReady`
+ * (typically a WASM fetch error on flaky / offline networks). Rejects
+ * the gate so app layouts can show a recoverable error state instead
+ * of hanging on a never-resolving promise. No-op once the gate has
+ * already settled.
+ */
+export function setApiError(err: unknown): void {
+	if (_apiReject) {
+		_apiReject(err);
+		clearGate();
+	}
 }
 
 function get(): SyrenClient {

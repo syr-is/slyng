@@ -1,7 +1,7 @@
 import { browser } from '$app/environment';
 import { setHost } from '@syren/app-core/host';
-import { setApi } from '@syren/app-core/api';
-import { setRealtime } from '@syren/app-core/realtime';
+import { setApi, setApiError } from '@syren/app-core/api';
+import { setRealtime, setRealtimeError } from '@syren/app-core/realtime';
 import { createSyrenRealtime, initSyrenClient, type SyrenClient } from '@syren/client';
 
 // Web app is served same-origin with the API behind a `/api` reverse proxy
@@ -12,65 +12,86 @@ export const ssr = false;
 export const prerender = false;
 
 const SESSION_KEY = 'syren_session';
-let client: SyrenClient | null = null;
+let initPromise: Promise<SyrenClient> | null = null;
 
 /**
- * Initialise the WASM client + register it as the singleton api on
- * first `load()`. Both apps share `@syren/app-core/api`'s lazy
- * facade — once `setApi(client)` runs, every `api.foo.bar()` call
- * routes through the same Rust transport that defines the URL,
- * body shape, and bearer-auth handling. No per-app fetch wrapper.
- */
-async function ensureClient(): Promise<SyrenClient> {
-	if (client) return client;
-	const c = await initSyrenClient(window.location.origin, { sessionKey: SESSION_KEY });
-	setApi(c);
-	const realtime = await createSyrenRealtime(window.location.origin, { sessionKey: SESSION_KEY });
-	setRealtime(realtime);
-	client = c;
-	return c;
-}
-
-/**
- * If the page URL carries a `syren_bridge=…` param, we just landed
- * here from the OAuth callback. `client.auth.exchange(bridge)` posts
- * to /auth/exchange and persists the returned session id under
- * `localStorage[syren_session]` through the Rust client's
- * `LocalStorageStore`. Then scrub the param so the single-use code
- * doesn't sit in history / referrer headers.
+ * Initialise the WASM client + realtime + finish any pending OAuth
+ * bridge exchange.
  *
- * The param is namespaced (`syren_bridge`, not `code`) so the
- * unconditional consume-and-scrub pass doesn't fight any future route
- * that legitimately uses `?code=…` for its own purposes.
+ * Memoised — every caller after the first gets the in-flight promise.
+ *
+ * Crucially, **this is not awaited inside `load()`**. SvelteKit's
+ * `load` is a render barrier: awaiting WASM init here would leave the
+ * user staring at the browser-default white background until the
+ * ~1.4 MB `syren_client_bg.wasm` has been fetched + compiled. Instead
+ * we kick the init off so it overlaps with hydration, and the (app)
+ * layout's bootstrap awaits `apiReady` + `realtimeReady` from
+ * `@syren/app-core` before issuing any `api.*` call. The visible
+ * "Loading…" state inside the (app) layout now paints within a frame
+ * of hydration instead of after a second of blocking init.
+ *
+ * Bridge exchange runs **before** `setApi(c)` so the very first thing
+ * the rest of the app sees is an `api` that already holds the fresh
+ * session — no race between auth check and the bridge handoff.
  */
-export const load = async ({ url }) => {
-	if (!browser) return {};
-	let c: SyrenClient;
-	try {
-		c = await ensureClient();
-	} catch (err) {
-		// Surface a real error here — a swallowed init failure means a
-		// blank app with no API client, which is much harder to debug
-		// than a SvelteKit error page.
-		console.error('[syren] failed to initialise WASM client', err);
-		throw err;
-	}
-	const bridge = url.searchParams.get('syren_bridge');
-	if (bridge) {
-		try {
-			await c.auth.exchange(bridge);
-		} catch (err) {
-			// Bridge code expired or already consumed — fall through;
-			// the (app) bootstrap will redirect to /login if no session.
-			if (import.meta.env.DEV) {
-				console.warn('[syren] bridge exchange failed', err);
+async function ensureClient(url?: URL): Promise<SyrenClient> {
+	if (initPromise) return initPromise;
+	initPromise = (async () => {
+		const c = await initSyrenClient(window.location.origin, { sessionKey: SESSION_KEY });
+
+		// Bridge handoff: when the OAuth callback redirects to `?syren_bridge=…`,
+		// swap it for a real session id (persisted under `localStorage` by the
+		// Rust client's `LocalStorageStore`) BEFORE exposing the api singleton —
+		// otherwise the (app) layout's checkAuth() can race the exchange and
+		// redirect to /login mid-flight. Bridge tokens are namespaced and
+		// single-use; scrub from history so the same code can't be replayed.
+		const bridge = url?.searchParams.get('syren_bridge');
+		if (bridge) {
+			try {
+				await c.auth.exchange(bridge);
+			} catch (err) {
+				// Expired / already consumed — fall through; (app) will redirect
+				// to /login if no session is found.
+				if (import.meta.env.DEV) {
+					console.warn('[syren] bridge exchange failed', err);
+				}
+			}
+			if (url && typeof history !== 'undefined') {
+				const cleaned = new URL(url.toString());
+				cleaned.searchParams.delete('syren_bridge');
+				history.replaceState(history.state, '', cleaned.toString());
 			}
 		}
-		const cleaned = new URL(url.toString());
-		cleaned.searchParams.delete('syren_bridge');
-		if (typeof history !== 'undefined') {
-			history.replaceState(history.state, '', cleaned.toString());
-		}
-	}
+
+		setApi(c);
+
+		const realtime = await createSyrenRealtime(window.location.origin, {
+			sessionKey: SESSION_KEY
+		});
+		setRealtime(realtime);
+
+		return c;
+	})().catch((err) => {
+		console.error('[syren] failed to initialise WASM client', err);
+		// Route the failure through the readiness gates so any consumer
+		// `await apiReady` / `await realtimeReady` falls out of its await
+		// with a rejection — otherwise the (app) bootstrap hangs on
+		// "Loading…" indefinitely with nothing to recover from.
+		setApiError(err);
+		setRealtimeError(err);
+		// Don't pin a failed promise — allow a retry on next navigation.
+		initPromise = null;
+		throw err;
+	});
+	return initPromise;
+}
+
+export const load = ({ url }: { url: URL }) => {
+	if (!browser) return {};
+	// Fire-and-forget. `ensureClient`'s inner catch already logs the failure
+	// and routes it through `setApiError`/`setRealtimeError`; the trailing
+	// `.catch(() => {})` here just suppresses the unhandled-rejection that
+	// would otherwise log when the (app) bootstrap is the actual consumer.
+	void ensureClient(url).catch(() => {});
 	return {};
 };
