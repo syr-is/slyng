@@ -102,9 +102,31 @@ export async function loadRelations(): Promise<void> {
 		for (const r of snap.outgoing) outgoing.set(r.to, { created_at: r.created_at });
 		// Rebuild the instance map to match the snapshot — drop stale entries
 		// for DIDs no longer in the relations surface.
+		//
+		// `snap.instances` is typed `Map<string, string>` in the WASM
+		// client's `.d.ts`: tsify-next + serde-wasm-bindgen convert Rust
+		// `HashMap<String, String>` to a real JS `Map`, not a plain object.
+		// `Object.entries(jsMap)` silently returns `[]`, so the previous
+		// code left this SvelteMap empty after every snapshot load. With
+		// no instance URLs cached, `dm-friends.svelte`'s `friendPairs`
+		// (`friends.map(did => ({ did, instance_url: instanceFor(did) }))
+		//   .filter(p => !!p.instance_url)`) was always empty, and friend
+		// posts + stories never triggered a federated fetch.
+		//
+		// We accept either runtime shape so a future Rust-side switch to
+		// `serde_wasm_bindgen::json_compatible()` (the same workaround
+		// `server_voice_states` already uses) doesn't re-break us.
 		instances.clear();
-		for (const [did, url] of Object.entries(snap.instances ?? {})) {
-			rememberInstance(did, url);
+		const snapInstances = snap.instances as
+			| Map<string, string>
+			| Record<string, string>
+			| undefined;
+		if (snapInstances) {
+			const entries: Iterable<[string, string]> =
+				snapInstances instanceof Map ? snapInstances : Object.entries(snapInstances);
+			for (const [did, url] of entries) {
+				rememberInstance(did, url);
+			}
 		}
 		allowDms = snap.allow_dms;
 		allowFriendRequests = snap.allow_friend_requests;
