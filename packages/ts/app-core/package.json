@@ -28,6 +28,12 @@
 			"import": "./dist/realtime.js",
 			"default": "./dist/realtime.js"
 		},
+		"./boot-progress": {
+			"types": "./dist/boot-progress.svelte.d.ts",
+			"svelte": "./dist/boot-progress.svelte.js",
+			"import": "./dist/boot-progress.svelte.js",
+			"default": "./dist/boot-progress.svelte.js"
+		},
 		"./normalize-host": {
 			"types": "./dist/normalize-host.d.ts",
 			"svelte": "./dist/normalize-host.js",

@@ -2,6 +2,7 @@ import { browser } from '$app/environment';
 import { setHost } from '@syren/app-core/host';
 import { setApi, setApiError } from '@syren/app-core/api';
 import { setRealtime, setRealtimeError } from '@syren/app-core/realtime';
+import { setBootStage } from '@syren/app-core/boot-progress';
 import { createSyrenRealtime, initSyrenClient, type SyrenClient } from '@syren/client';
 
 // Web app is served same-origin with the API behind a `/api` reverse proxy
@@ -37,7 +38,9 @@ let initPromise: Promise<SyrenClient> | null = null;
 async function ensureClient(url?: URL): Promise<SyrenClient> {
 	if (initPromise) return initPromise;
 	initPromise = (async () => {
+		setBootStage('Loading runtime', 'fetching ~1.4 MB WebAssembly client');
 		const c = await initSyrenClient(window.location.origin, { sessionKey: SESSION_KEY });
+		setBootStage('Runtime ready');
 
 		// Bridge handoff: when the OAuth callback redirects to `?syren_bridge=…`,
 		// swap it for a real session id (persisted under `localStorage` by the
@@ -47,6 +50,7 @@ async function ensureClient(url?: URL): Promise<SyrenClient> {
 		// single-use; scrub from history so the same code can't be replayed.
 		const bridge = url?.searchParams.get('syren_bridge');
 		if (bridge) {
+			setBootStage('Completing sign-in', 'exchanging bridge token');
 			try {
 				await c.auth.exchange(bridge);
 			} catch (err) {
@@ -65,6 +69,7 @@ async function ensureClient(url?: URL): Promise<SyrenClient> {
 
 		setApi(c);
 
+		setBootStage('Opening realtime channel');
 		const realtime = await createSyrenRealtime(window.location.origin, {
 			sessionKey: SESSION_KEY
 		});
@@ -72,6 +77,7 @@ async function ensureClient(url?: URL): Promise<SyrenClient> {
 
 		return c;
 	})().catch((err) => {
+		setBootStage('Startup failed', err instanceof Error ? err.message : 'unknown error');
 		console.error('[syren] failed to initialise WASM client', err);
 		// Route the failure through the readiness gates so any consumer
 		// `await apiReady` / `await realtimeReady` falls out of its await
