@@ -16,6 +16,7 @@
  */
 
 import type {
+	AuditLog as WasmAuditLog,
 	Channel,
 	ChannelCategory,
 	CreateDmResponse,
@@ -30,7 +31,7 @@ import type {
 	MemberPermissionsView,
 	Message,
 	MyPermissions,
-	PageAuditLog,
+	PageAuditLog as WasmPageAuditLog,
 	PageBlockedRow,
 	PageFriendshipRow,
 	PageIgnoredRow,
@@ -42,7 +43,7 @@ import type {
 	PaginatedQuery,
 	PermissionOverride,
 	PermissionTree,
-	RelationsSnapshot,
+	RelationsSnapshot as WasmRelationsSnapshot,
 	Server,
 	ServerBan,
 	ServerInvite,
@@ -61,6 +62,37 @@ import type {
 	Client as WasmClient,
 } from '@syren/client/wasm';
 
+// ── Boundary-normalized type overrides ───────────────────────────────
+//
+// Tsify-next + serde-wasm-bindgen convert Rust `HashMap<K, V>` to a real
+// JS `Map<K, V>` (not a plain object) when crossing the WASM boundary.
+// Property access (`obj.field`) and `Object.entries(obj)` both silently
+// no-op on Maps, which has caused silent breakage: empty friend posts /
+// stories (`RelationsSnapshot.instances`), missing audit metadata
+// (`AuditLog.metadata`), …
+//
+// `normalizeMaps` (below) walks every WASM response and converts any
+// `Map` to a plain object recursively. To keep the type system honest
+// about the post-normalization runtime shape, we re-export these three
+// types with `instances` / `metadata` re-typed as `Record<...>` instead
+// of `Map<...>`. Consumer code reads them as ordinary objects and the
+// types match what they actually get.
+//
+// Native (Tauri-IPC) returns JSON-decoded plain objects already, so it
+// matches these shapes without needing the normalizer.
+
+export type RelationsSnapshot = Omit<WasmRelationsSnapshot, 'instances'> & {
+	instances?: Record<string, string>;
+};
+
+export type AuditLog = Omit<WasmAuditLog, 'metadata'> & {
+	metadata?: Record<string, unknown>;
+};
+
+export type PageAuditLog = Omit<WasmPageAuditLog, 'items'> & {
+	items: AuditLog[];
+};
+
 // Re-export the wasm-emitted types so consumers can `import type
 // { Server } from '@syren/client'` without reaching into
 // `dist/wasm/web/`. Adding more here is purely a convenience —
@@ -70,7 +102,6 @@ export type {
 	AllowFriendRequests,
 	Attachment,
 	AuditAction,
-	AuditLog,
 	AuditTargetKind,
 	BanMemberInput,
 	BlockedRow,
@@ -106,7 +137,6 @@ export type {
 	MessageReaction,
 	MessageType,
 	MyPermissions,
-	PageAuditLog,
 	PageBlockedRow,
 	PageFriendshipRow,
 	PageIgnoredRow,
@@ -130,7 +160,6 @@ export type {
 	PurgeMessagesInput,
 	ReactionKind,
 	ReactionSummary,
-	RelationsSnapshot,
 	SendMessageInput,
 	Server,
 	ServerBan,
@@ -404,6 +433,53 @@ export async function createSyrenRealtime(
 	};
 }
 
+// ── WASM ↔ JS boundary helpers ───────────────────────────────────────
+//
+// Tsify-next + serde-wasm-bindgen convert Rust `HashMap` to a real JS
+// `Map` rather than a plain object. Consumer code reasonably expects
+// plain objects (`obj.field`, `Object.entries(obj)`), so we normalize
+// every WASM response that carries a HashMap-typed field at this
+// boundary instead of pushing the workaround into every store / page.
+//
+// Scope: only walks Maps, Arrays, and plain objects (objects whose
+// prototype is `Object.prototype`). Won't touch `Date`, `Error`, class
+// instances, primitives — so it's safe to apply broadly. The walk is
+// O(node-count) on each response; payloads we care about (snapshots,
+// audit-log pages) are small enough that the cost is irrelevant.
+
+function normalizeMaps(value: unknown): unknown {
+	if (value === null || typeof value !== 'object') return value;
+	if (value instanceof Map) {
+		const out: Record<string, unknown> = {};
+		for (const [k, v] of value as Map<unknown, unknown>) {
+			out[String(k)] = normalizeMaps(v);
+		}
+		return out;
+	}
+	if (Array.isArray(value)) {
+		return value.map(normalizeMaps);
+	}
+	// Don't walk class instances (Date, regex, …) — only plain objects
+	// produced by serde-wasm-bindgen's struct serialization.
+	if (Object.getPrototypeOf(value) === Object.prototype) {
+		const out: Record<string, unknown> = {};
+		for (const [k, v] of Object.entries(value)) {
+			out[k] = normalizeMaps(v);
+		}
+		return out;
+	}
+	return value;
+}
+
+/** Apply `normalizeMaps` to a promised WASM response and assert the
+ *  post-normalization shape. The cast is the contract between the WASM
+ *  type (which says `Map`) and the adapter type (which says `Record`)
+ *  — once `normalizeMaps` has run, the runtime matches the adapter
+ *  type. */
+function normalized<T>(p: Promise<unknown>): Promise<T> {
+	return p.then(normalizeMaps) as Promise<T>;
+}
+
 // ── Namespace adapter ───────────────────────────────────────────────
 //
 // Every method below is a one-liner: forward the call to the wasm
@@ -411,6 +487,10 @@ export async function createSyrenRealtime(
 // are no `as` casts; the wasm-pack `.d.ts` already gives us the right
 // return type. If a wrapper is more than one line, the wasm signature
 // already does the work and we should just use it.
+//
+// The three methods that go through `normalized<T>()` instead — relations
+// snapshot, audit log, member audit log — return types with `HashMap`
+// fields that need Map→object normalization. See `normalizeMaps` above.
 
 function wrap(c: WasmClient): SyrenClient {
 	return {
@@ -444,8 +524,9 @@ function wrap(c: WasmClient): SyrenClient {
 			memberMessageStats: (sid, uid) => c.member_message_stats(sid, uid),
 			purgeMemberMessages: (sid, uid, body) => c.purge_member_messages(sid, uid, body),
 			memberBanHistory: (sid, uid) => c.member_ban_history(sid, uid),
-			auditLog: (sid, params) => c.audit_log(sid, params ?? {}),
-			memberAuditLog: (sid, uid, params) => c.member_audit_log(sid, uid, params ?? {}),
+			auditLog: (sid, params) => normalized<PageAuditLog>(c.audit_log(sid, params ?? {})),
+			memberAuditLog: (sid, uid, params) =>
+				normalized<PageAuditLog>(c.member_audit_log(sid, uid, params ?? {})),
 			createInvite: (id, data) => c.invites_create(id, data ?? {}),
 			listInvites: (id, params) => c.invites_list(id, params ?? {}),
 			deleteInvite: (id, code) => c.invite_delete(id, code),
@@ -505,7 +586,7 @@ function wrap(c: WasmClient): SyrenClient {
 			createDM: (rid, instance) => c.create_dm(rid, instance),
 		},
 		relations: {
-			snapshot: () => c.relations_snapshot(),
+			snapshot: () => normalized<RelationsSnapshot>(c.relations_snapshot()),
 			listFriends: (params) => c.list_friends(params ?? {}),
 			listBlocked: (params) => c.list_blocked(params ?? {}),
 			listIgnored: (params) => c.list_ignored(params ?? {}),
