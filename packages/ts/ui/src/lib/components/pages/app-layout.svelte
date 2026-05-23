@@ -1,16 +1,16 @@
 <script lang="ts">
-	import { onDestroy } from 'svelte';
+	import { onDestroy, onMount, type Component } from 'svelte';
 	import { toast } from 'svelte-sonner';
 	import ServerList from '@syren/ui/fragments/server-list.svelte';
 	import CreateServerDialog from '@syren/ui/fragments/create-server-dialog.svelte';
-	import ScreenShareView from '@syren/ui/fragments/screen-share-view.svelte';
 	import SwipeLayout from '@syren/ui/fragments/swipe-layout';
 	import { setServers } from '@syren/app-core/stores/servers.svelte';
 	import { checkAuth, getAuth } from '@syren/app-core/stores/auth.svelte';
 	import { connectWs, disconnectWs } from '@syren/app-core/stores/ws.svelte';
 	import { getPresenceData } from '@syren/app-core/stores/presence.svelte';
 	import { startIdleWatcher, stopIdleWatcher, syncStatus } from '@syren/app-core/stores/idle.svelte';
-	import { api } from '@syren/app-core/api';
+	import { api, apiReady } from '@syren/app-core/api';
+	import { realtimeReady } from '@syren/app-core/realtime';
 	// Side-effect imports — ensure WS listeners in these stores register
 	// BEFORE connectWs() runs, so we don't miss the READY snapshot or
 	// any messages that arrive in the gap before child pages mount.
@@ -51,6 +51,13 @@
 
 	const bootstrap = (async () => {
 		if (import.meta.env.DEV) console.log('[(app) layout] bootstrap start');
+		// Wait for the host to wire `api` + `realtime`. On web this gates on the
+		// WASM client finishing init (kicked off non-blockingly from
+		// `+layout.ts`); on native both gates resolve synchronously during the
+		// root `load()`, so this is a no-op there. Without these waits the
+		// `api.servers.list()` below would throw a "client not initialised"
+		// error on web because we no longer block render on WASM init.
+		await Promise.all([apiReady, realtimeReady]);
 		const user = await checkAuth();
 		if (import.meta.env.DEV) console.log('[(app) layout] checkAuth returned authed=', !!user?.did);
 		if (!user) {
@@ -74,6 +81,19 @@
 		}
 		return true;
 	})();
+
+	// Defer the global screen-share overlay until after first paint. It
+	// statically pulls in the LiveKit voice engine, which drags ~7 MB of
+	// dependency (protobuf-es, livekit-client) into the main chunk. Loading
+	// it via dynamic `import()` after mount keeps it out of the critical
+	// boot path — screen-share itself is invisible until a peer actually
+	// starts sharing, so users don't notice the deferred mount.
+	let ScreenShareView = $state<Component | null>(null);
+	onMount(() => {
+		void import('@syren/ui/fragments/screen-share-view.svelte').then((m) => {
+			ScreenShareView = m.default as Component;
+		});
+	});
 
 	onDestroy(() => {
 		disconnectWs();
@@ -123,7 +143,9 @@
 			onCreate={handleCreateServer}
 		/>
 
-		<ScreenShareView />
+		{#if ScreenShareView}
+			<ScreenShareView />
+		{/if}
 	{:else}
 		<div class="flex min-h-0 flex-1 items-center justify-center bg-background">
 			<p class="text-sm text-muted-foreground">Redirecting to login...</p>

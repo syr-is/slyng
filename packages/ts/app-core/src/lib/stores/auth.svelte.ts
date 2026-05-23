@@ -3,7 +3,7 @@
  * client-side from the user's instance via `profiles.svelte.ts`.
  */
 
-import { api } from '../api';
+import { api, apiReady } from '../api';
 
 export interface AuthIdentity {
 	did: string;
@@ -32,6 +32,14 @@ export async function checkAuth(): Promise<AuthIdentity | null> {
 
 	loading = true;
 	try {
+		// Wait for the host to wire the api singleton. On web that's after
+		// the WASM client has finished initialising (kicked off non-blockingly
+		// from `+layout.ts` so SvelteKit can paint chrome immediately); on
+		// native it's after the root `load()` calls `setApi(createNativeApi)`
+		// synchronously. Without this await the root `/+page.svelte` redirect
+		// can race the WASM boot, hit a "client not initialised" throw, and
+		// bounce the user to `/login` even though they have a valid session.
+		await apiReady;
 		// Goes through the registered api singleton — WASM-backed
 		// (`@syren/client`) on web, Tauri-IPC-backed (`createNativeApi`)
 		// on native. Both impls source the bearer from their respective

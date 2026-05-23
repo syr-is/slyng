@@ -16,12 +16,34 @@ import type { SyrenClient } from '@syren/client';
 let _client: SyrenClient | null = null;
 
 /**
+ * Resolves the moment `setApi(...)` is first called.
+ *
+ * App layouts await this before issuing any `api.*` call so the host's
+ * boot chain can stay non-blocking: web's `+layout.ts` kicks off WASM
+ * init without awaiting (so SvelteKit can render chrome immediately),
+ * the WASM finishes loading on its own, then `setApi(...)` flips this
+ * promise and the layout's bootstrap proceeds.
+ *
+ * Native's `+layout.ts` calls `setApi` synchronously during its own
+ * `load()` so this resolves before any (app)-route renders — no
+ * behavioural change for the native shell.
+ */
+let _apiResolve: (() => void) | undefined;
+export const apiReady: Promise<void> = new Promise<void>((resolve) => {
+	_apiResolve = resolve;
+});
+
+/**
  * Wire the singleton API client. Call this from the host's root layout
  * once the WASM module is loaded. Both apps' `+layout.ts` does this in
  * their `load()` so children render with `api.*` already wired.
  */
 export function setApi(client: SyrenClient): void {
 	_client = client;
+	if (_apiResolve) {
+		_apiResolve();
+		_apiResolve = undefined;
+	}
 }
 
 function get(): SyrenClient {

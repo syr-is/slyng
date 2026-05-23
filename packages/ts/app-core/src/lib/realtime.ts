@@ -26,8 +26,21 @@ export interface RealtimeHandle {
 
 let _handle: RealtimeHandle | null = null;
 
+/**
+ * Resolves on the first non-null `setRealtime(...)` call. Mirrors
+ * {@link apiReady} — see that promise's doc for the boot-chain story.
+ */
+let _rtResolve: (() => void) | undefined;
+export const realtimeReady: Promise<void> = new Promise<void>((resolve) => {
+	_rtResolve = resolve;
+});
+
 export function setRealtime(handle: RealtimeHandle | null): void {
 	_handle = handle;
+	if (handle && _rtResolve) {
+		_rtResolve();
+		_rtResolve = undefined;
+	}
 }
 
 export function getRealtime(): RealtimeHandle | null {
