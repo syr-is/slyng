@@ -78,6 +78,21 @@ export function setCurrentChannel(channelId: string, initial: MessageData[] = []
 	messages = channelMessages.get(channelId)!;
 }
 
+/**
+ * Wipe the reactive view (currentChannelId + messages) without flushing the
+ * per-channel cache. Called when the user switches servers so the message
+ * pane can't briefly paint the old server's channel during the route
+ * transition (channel-page's initial render reads `messageStore.list`
+ * before its `$effect` runs `loadChannel` → `setCurrentChannel(new, [])`).
+ *
+ * `channelMessages` (the cache map) stays intact — revisiting a channel
+ * still reuses what's in the Map until `loadChannel` overwrites it.
+ */
+export function clearMessages() {
+	currentChannelId = null;
+	messages = [];
+}
+
 export function addMessage(msg: MessageData) {
 	const channelMsgs = channelMessages.get(msg.channel_id);
 	if (!channelMsgs) return;

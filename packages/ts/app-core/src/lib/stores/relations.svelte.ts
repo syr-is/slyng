@@ -101,7 +101,12 @@ export async function loadRelations(): Promise<void> {
 		outgoing.clear();
 		for (const r of snap.outgoing) outgoing.set(r.to, { created_at: r.created_at });
 		// Rebuild the instance map to match the snapshot — drop stale entries
-		// for DIDs no longer in the relations surface.
+		// for DIDs no longer in the relations surface. `snap.instances` is
+		// a plain `Record<string, string>` here: the @syren/client adapter
+		// normalizes WASM-side JS Maps to plain objects at the boundary,
+		// so we can use `Object.entries` without worrying about whether
+		// the Rust type was a `HashMap`. See `normalizeMaps` in
+		// `packages/ts/client/src/adapter.ts`.
 		instances.clear();
 		for (const [did, url] of Object.entries(snap.instances ?? {})) {
 			rememberInstance(did, url);

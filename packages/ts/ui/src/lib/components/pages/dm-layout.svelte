@@ -12,6 +12,7 @@
 	import { clearRoles } from '@syren/app-core/stores/roles.svelte';
 	import { clearMembers } from '@syren/app-core/stores/members.svelte';
 	import { clearServerPerms } from '@syren/app-core/stores/perms.svelte';
+	import { clearMessages } from '@syren/app-core/stores/messages.svelte';
 	import { getAuth } from '@syren/app-core/stores/auth.svelte';
 	import { getRelations } from '@syren/app-core/stores/relations.svelte';
 	import { resolveProfile, displayName } from '@syren/app-core/stores/profiles.svelte';
@@ -65,6 +66,11 @@
 		clearServerPerms();
 		clearRoles();
 		clearMembers();
+		// Same rationale as server-layout: wipe the message pane so a
+		// previously-viewed server channel can't paint while we mount the
+		// DM channel page. dm-channel.svelte's gate (below) is the
+		// backstop; this prevents even the brief first-frame flash.
+		clearMessages();
 		// Hand the DM-list sidebar off to (app)/+layout's SwipeLayout
 		// drawer. It used to render inline next to the main panel, which
 		// crowded the main view on mobile (the user saw both side-by-side
