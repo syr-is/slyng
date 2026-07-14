@@ -3,15 +3,15 @@
     {
       "name": "anonymous",
       "actions": [
-        "Read:syren/uploads/*/public/*"
+        "Read:slyng/uploads/*/public/*"
       ]
     },
     {
-      "name": "syren-access",
+      "name": "slyng-access",
       "credentials": [
         {
-          "accessKey": "syren-access-key",
-          "secretKey": "syren-secret-key"
+          "accessKey": "slyng-access-key",
+          "secretKey": "slyng-secret-key"
         }
       ],
       "actions": ["Admin", "Read", "List", "Tagging", "Write"]

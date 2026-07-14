@@ -2,18 +2,18 @@
 	import { ArrowLeft, User, Shield, Users, Ticket, Ban, Trash2, AlertTriangle, Hash } from '@lucide/svelte';
 	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
-	import { Button } from '@syren/ui/button';
-	import { getAuth } from '@syren/app-core/stores/auth.svelte';
-	import { getServerState } from '@syren/app-core/stores/servers.svelte';
-	import { getPerms } from '@syren/app-core/stores/perms.svelte';
-	import ProfilePanel from '@syren/ui/fragments/server-settings/profile-panel.svelte';
-	import RolesPanel from '@syren/ui/fragments/server-settings/roles-panel.svelte';
-	import MembersPanel from '@syren/ui/fragments/server-settings/members-panel.svelte';
-	import InvitesPanel from '@syren/ui/fragments/server-settings/invites-panel.svelte';
-	import BansPanel from '@syren/ui/fragments/server-settings/bans-panel.svelte';
-	import TrashPanel from '@syren/ui/fragments/server-settings/trash-panel.svelte';
-	import DangerPanel from '@syren/ui/fragments/server-settings/danger-panel.svelte';
-	import ChannelsPanel from '@syren/ui/fragments/server-settings/channels-panel.svelte';
+	import { Button } from '@slyng/ui/button';
+	import { getAuth } from '@slyng/app-core/stores/auth.svelte';
+	import { getServerState } from '@slyng/app-core/stores/servers.svelte';
+	import { getPerms } from '@slyng/app-core/stores/perms.svelte';
+	import ProfilePanel from '@slyng/ui/fragments/server-settings/profile-panel.svelte';
+	import RolesPanel from '@slyng/ui/fragments/server-settings/roles-panel.svelte';
+	import MembersPanel from '@slyng/ui/fragments/server-settings/members-panel.svelte';
+	import InvitesPanel from '@slyng/ui/fragments/server-settings/invites-panel.svelte';
+	import BansPanel from '@slyng/ui/fragments/server-settings/bans-panel.svelte';
+	import TrashPanel from '@slyng/ui/fragments/server-settings/trash-panel.svelte';
+	import DangerPanel from '@slyng/ui/fragments/server-settings/danger-panel.svelte';
+	import ChannelsPanel from '@slyng/ui/fragments/server-settings/channels-panel.svelte';
 
 	type Tab = 'profile' | 'channels' | 'roles' | 'members' | 'invites' | 'bans' | 'trash' | 'danger';
 

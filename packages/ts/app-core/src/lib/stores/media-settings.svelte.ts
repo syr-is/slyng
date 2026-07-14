@@ -5,13 +5,13 @@
  * session/auth state because these survive logout too.
  */
 
-const KEY_MIC = 'syren:mic_device_id';
-const KEY_CAMERA = 'syren:camera_device_id';
-const KEY_SPEAKER = 'syren:speaker_device_id';
-const KEY_ECHO = 'syren:echo_cancellation';
-const KEY_NOISE = 'syren:noise_suppression';
-const KEY_AGC = 'syren:auto_gain_control';
-const KEY_NOTIFY = 'syren:desktop_notifications';
+const KEY_MIC = 'slyng:mic_device_id';
+const KEY_CAMERA = 'slyng:camera_device_id';
+const KEY_SPEAKER = 'slyng:speaker_device_id';
+const KEY_ECHO = 'slyng:echo_cancellation';
+const KEY_NOISE = 'slyng:noise_suppression';
+const KEY_AGC = 'slyng:auto_gain_control';
+const KEY_NOTIFY = 'slyng:desktop_notifications';
 
 function readString(key: string): string | undefined {
 	if (typeof localStorage === 'undefined') return undefined;

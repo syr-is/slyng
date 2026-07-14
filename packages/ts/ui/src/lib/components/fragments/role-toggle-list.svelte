@@ -1,8 +1,8 @@
 <script lang="ts">
 	import { toast } from 'svelte-sonner';
 	import { Check, Lock } from '@lucide/svelte';
-	import { api } from '@syren/app-core/api';
-	import { getPerms } from '@syren/app-core/stores/perms.svelte';
+	import { api } from '@slyng/app-core/api';
+	import { getPerms } from '@slyng/app-core/stores/perms.svelte';
 
 	/**
 	 * Inline list of togglable roles for a member. Used by the popover in

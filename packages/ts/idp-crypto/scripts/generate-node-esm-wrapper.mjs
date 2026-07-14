@@ -11,7 +11,7 @@ import { fileURLToPath } from "url";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const pkgRoot = join(__dirname, "..");
-const outPath = join(pkgRoot, "dist/wasm/node/syren_idp_crypto_esm.mjs");
+const outPath = join(pkgRoot, "dist/wasm/node/slyng_idp_crypto_esm.mjs");
 
 const EXPORTS = [
   "build_did_document_wasm",
@@ -42,7 +42,7 @@ const EXPORTS = [
 const lines = [
   'import { createRequire } from "module";',
   "const require = createRequire(import.meta.url);",
-  'const mod = require("./syren_idp_crypto.js");',
+  'const mod = require("./slyng_idp_crypto.js");',
   "",
   ...EXPORTS.map((name) => `export const ${name} = mod.${name};`),
   "",

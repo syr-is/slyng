@@ -1,9 +1,9 @@
 // Fetch layer + reactive state for the post editor's Klipy media picker (GIFs /
 // stickers / clips / memes). Ported from pendi's clips-store.svelte.ts, trimmed
-// for syren: syren IS the server, so there's no on-device "unavailable" mode —
+// for slyng: slyng IS the server, so there's no on-device "unavailable" mode —
 // only `available` (the server has a Klipy key) matters. All feed/category/track
 // calls go through the authed `/clips` proxy (`idpJson`); the Klipy key never
-// reaches the browser. Page fetches are de-duped by a composite key (syren's
+// reaches the browser. Page fetches are de-duped by a composite key (slyng's
 // gifs.svelte.ts idiom) so an effect re-run or a double scroll-trigger never
 // double-loads.
 import type {
@@ -14,7 +14,7 @@ import type {
 	ClipFeedResponse,
 	ClipKind,
 	ClipTrackRequest
-} from '@syren/types';
+} from '@slyng/types';
 import { idpJson } from '../idp-fetch.js';
 
 export interface ClipPage {

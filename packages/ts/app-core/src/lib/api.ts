@@ -1,8 +1,8 @@
 /**
  * `api` — the single typed API client surface, shared by every page in
  * web and native. The actual HTTP / bearer-auth / error-parsing logic
- * lives in the Rust `syren-client` crate; both apps consume it through
- * the WASM-backed `@syren/client` adapter and register it here at boot
+ * lives in the Rust `slyng-client` crate; both apps consume it through
+ * the WASM-backed `@slyng/client` adapter and register it here at boot
  * via `setApi(client)`.
  *
  * Every endpoint's URL, body shape, and response shape is defined in
@@ -11,9 +11,9 @@
  * with the transport that uses it.
  */
 
-import type { SyrenClient } from '@syren/client';
+import type { SlyngClient } from '@slyng/client';
 
-let _client: SyrenClient | null = null;
+let _client: SlyngClient | null = null;
 
 /**
  * Resolves the moment `setApi(...)` is first called, or rejects if the
@@ -49,7 +49,7 @@ function clearGate() {
  * once the WASM module is loaded. Both apps' `+layout.ts` does this in
  * their `load()` so children render with `api.*` already wired.
  */
-export function setApi(client: SyrenClient): void {
+export function setApi(client: SlyngClient): void {
 	_client = client;
 	if (_apiResolve) {
 		_apiResolve();
@@ -71,10 +71,10 @@ export function setApiError(err: unknown): void {
 	}
 }
 
-function get(): SyrenClient {
+function get(): SlyngClient {
 	if (!_client) {
 		throw new Error(
-			"@syren/app-core/api: client not initialised — call setApi(initSyrenClient(...)) in your root layout's load()"
+			"@slyng/app-core/api: client not initialised — call setApi(initSlyngClient(...)) in your root layout's load()"
 		);
 	}
 	return _client;
@@ -86,7 +86,7 @@ function get(): SyrenClient {
  * top level without caring about init ordering — as long as `setApi` is
  * called before the first `api.foo.bar()` invocation, all good.
  */
-export const api: SyrenClient = {
+export const api: SlyngClient = {
 	get auth() {
 		return get().auth;
 	},
@@ -120,4 +120,4 @@ export const api: SyrenClient = {
 	get overrides() {
 		return get().overrides;
 	}
-} as SyrenClient;
+} as SlyngClient;

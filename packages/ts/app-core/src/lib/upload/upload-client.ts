@@ -62,7 +62,7 @@ async function probeVideo(file: File): Promise<{ width?: number; height?: number
 }
 
 /**
- * Upload a file via the syren presign → direct-PUT → finalize flow.
+ * Upload a file via the slyng presign → direct-PUT → finalize flow.
  * Progress is reported in [0, 1]. `cancel()` aborts the PUT and the finalize call.
  */
 export function uploadFile(

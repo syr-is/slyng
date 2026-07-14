@@ -1,4 +1,4 @@
-// @syren/ui — Shared UI Components
+// @slyng/ui — Shared UI Components
 export {
 	cn,
 	type WithoutChild,

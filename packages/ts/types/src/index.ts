@@ -1,6 +1,6 @@
 // Auto-generated entity schemas + types come from `./generated.ts`,
-// which is produced by `cargo run -p syren-types --bin generate-zod`
-// from the Rust source of truth in `packages/rust/syren-types/`.
+// which is produced by `cargo run -p slyng-types --bin generate-zod`
+// from the Rust source of truth in `packages/rust/slyng-types/`.
 //
 // The hand-written survivors here are limited to:
 // - `./codecs.ts`     — RecordId / ISO datetime codecs (bidirectional, not derivable)

@@ -1,8 +1,8 @@
-# Syren
+# Slyng
 
 Federated real-time chat on the syr platform.
 
-> **Note:** Syren is a vibecoded platform with zero architectural considerations. The majority of it was written in under a day. It exists solely to showcase Syr's platform delegation capabilities and the capabilities of human-driven people discovery over an algorithmic/AI-driven shared heap architecture.
+> **Note:** Slyng is a vibecoded platform with zero architectural considerations. The majority of it was written in under a day. It exists solely to showcase Syr's platform delegation capabilities and the capabilities of human-driven people discovery over an algorithmic/AI-driven shared heap architecture.
 
 ## Dev
 
@@ -11,7 +11,7 @@ docker compose up -d   # SurrealDB + SeaweedFS + LiveKit
 pnpm install
 pnpm dev               # all apps
 # or
-pnpm dev:syren         # just the chat app
+pnpm dev:slyng         # just the chat app
 ```
 
 The app listens on `http://localhost:5174`. API on `:5175`. Adjust `.env` to bind a LAN IP if testing across devices.
@@ -31,23 +31,23 @@ Then open the app at your `PUBLIC_URL` (e.g. `http://192.168.1.10:5174`). The AP
 **Just the web client** (keep the API on the host):
 
 ```bash
-SYREN_API_PROXY=http://host.docker.internal:5175 docker compose up -d syren-web
+SLYNG_API_PROXY=http://host.docker.internal:5175 docker compose up -d slyng-web
 ```
 
-The web container's Vite dev proxy forwards `/api`, `/ws` and `/.well-known` to `SYREN_API_PROXY` — the containerized `syren-api` by default, or override it to point at a host-run API (`pnpm dev:api`) or any LAN address.
+The web container's Vite dev proxy forwards `/api`, `/ws` and `/.well-known` to `SLYNG_API_PROXY` — the containerized `slyng-api` by default, or override it to point at a host-run API (`pnpm dev:api`) or any LAN address.
 
-The web app's own source hot-reloads (bind-mounted). Editing a shared package (`@syren/ui`, `@syren/app-core`, …) or the API needs a rebuild: `docker compose build syren-web syren-api`.
+The web app's own source hot-reloads (bind-mounted). Editing a shared package (`@slyng/ui`, `@slyng/app-core`, …) or the API needs a rebuild: `docker compose build slyng-web slyng-api`.
 
 ### Local identity provider
 
-Syren can act as a full syr instance: users can sign up locally (username +
-password) and get a `did:syr` identity hosted by syren itself — no external
+Slyng can act as a full syr instance: users can sign up locally (username +
+password) and get a `did:syr` identity hosted by slyng itself — no external
 syr instance required. Configure in `.env` (see `.env.example` for details):
 
 ```
-SYREN_JWT_SECRET=...            # ≥32 chars — signs session/platform tokens
+SLYNG_JWT_SECRET=...            # ≥32 chars — signs session/platform tokens
 PLATFORM_DELEGATE_SECRET=...    # ≥32 chars — encrypts delegate keys at rest; treat like a KMS key
-SYREN_REGISTRATION_MODE=open    # open | invite_only | closed
+SLYNG_REGISTRATION_MODE=open    # open | invite_only | closed
 ```
 
 Generate secrets with `openssl rand -hex 32`. Both must stay stable across
@@ -118,9 +118,9 @@ Point the Vite `server.https` config at the generated `.pem` pair. The API needs
 
 | Path | What |
 |------|------|
-| `apps/syren/web` | SvelteKit SPA (web client) |
-| `apps/syren/api` | NestJS API + WS gateway |
-| `packages/ts/types` | Shared Zod schemas (`@syren/types`) |
-| `packages/ts/ui` | shadcn-svelte component package (`@syren/ui`) |
+| `apps/slyng/web` | SvelteKit SPA (web client) |
+| `apps/slyng/api` | NestJS API + WS gateway |
+| `packages/ts/types` | Shared Zod schemas (`@slyng/types`) |
+| `packages/ts/ui` | shadcn-svelte component package (`@slyng/ui`) |
 
 See `CLAUDE.md` for conventions.

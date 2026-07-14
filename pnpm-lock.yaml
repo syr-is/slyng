@@ -41,13 +41,13 @@ importers:
 
   .:
     dependencies:
-      '@syren/app-core':
+      '@slyng/app-core':
         specifier: workspace:*
         version: link:packages/ts/app-core
-      '@syren/types':
+      '@slyng/types':
         specifier: workspace:*
         version: link:packages/ts/types
-      '@syren/ui':
+      '@slyng/ui':
         specifier: workspace:*
         version: link:packages/ts/ui
     devDependencies:
@@ -70,7 +70,7 @@ importers:
         specifier: ^2.8.0
         version: 2.9.6
 
-  apps/syren/api:
+  apps/slyng/api:
     dependencies:
       '@aws-sdk/client-s3':
         specifier: ^3.1029.0
@@ -111,10 +111,10 @@ importers:
       '@scalar/nestjs-api-reference':
         specifier: ^1.0.24
         version: 1.1.7
-      '@syren/idp-crypto':
+      '@slyng/idp-crypto':
         specifier: workspace:*
         version: link:../../../packages/ts/idp-crypto
-      '@syren/types':
+      '@slyng/types':
         specifier: workspace:*
         version: link:../../../packages/ts/types
       cookie-parser:
@@ -191,18 +191,18 @@ importers:
         specifier: 'catalog:'
         version: 8.44.1(eslint@9.36.0(jiti@2.6.1))(typescript@5.9.3)
 
-  apps/syren/native:
+  apps/slyng/native:
     dependencies:
-      '@syren/app-core':
+      '@slyng/app-core':
         specifier: workspace:*
         version: link:../../../packages/ts/app-core
-      '@syren/client':
+      '@slyng/client':
         specifier: workspace:*
         version: link:../../../packages/ts/client
-      '@syren/types':
+      '@slyng/types':
         specifier: workspace:*
         version: link:../../../packages/ts/types
-      '@syren/ui':
+      '@slyng/ui':
         specifier: workspace:*
         version: link:../../../packages/ts/ui
       '@tauri-apps/api':
@@ -315,18 +315,18 @@ importers:
         specifier: ^7.1.7
         version: 7.3.2(@types/node@20.19.39)(jiti@2.6.1)(lightningcss@1.32.0)(terser@5.46.1)(yaml@2.8.3)
 
-  apps/syren/web:
+  apps/slyng/web:
     dependencies:
-      '@syren/app-core':
+      '@slyng/app-core':
         specifier: workspace:*
         version: link:../../../packages/ts/app-core
-      '@syren/client':
+      '@slyng/client':
         specifier: workspace:*
         version: link:../../../packages/ts/client
-      '@syren/types':
+      '@slyng/types':
         specifier: workspace:*
         version: link:../../../packages/ts/types
-      '@syren/ui':
+      '@slyng/ui':
         specifier: workspace:*
         version: link:../../../packages/ts/ui
       clsx:
@@ -441,10 +441,10 @@ importers:
 
   packages/ts/app-core:
     dependencies:
-      '@syren/client':
+      '@slyng/client':
         specifier: workspace:*
         version: link:../client
-      '@syren/types':
+      '@slyng/types':
         specifier: workspace:*
         version: link:../types
       livekit-client:
@@ -481,7 +481,7 @@ importers:
 
   packages/ts/client:
     dependencies:
-      '@syren/types':
+      '@slyng/types':
         specifier: workspace:*
         version: link:../types
     devDependencies:
@@ -558,10 +558,10 @@ importers:
       '@lucide/svelte':
         specifier: ^0.564.0
         version: 0.564.0(svelte@5.55.3(@typescript-eslint/types@8.44.1))
-      '@syren/app-core':
+      '@slyng/app-core':
         specifier: workspace:*
         version: link:../app-core
-      '@syren/types':
+      '@slyng/types':
         specifier: workspace:*
         version: link:../types
       '@tiptap/core':

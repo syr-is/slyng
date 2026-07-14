@@ -1,14 +1,14 @@
 <script lang="ts">
-	import * as Avatar from '@syren/ui/avatar';
+	import * as Avatar from '@slyng/ui/avatar';
 	import { Loader2 } from '@lucide/svelte';
 	import { onDestroy } from 'svelte';
-	import { getRelations } from '@syren/app-core/stores/relations.svelte';
-	import { resolveProfile, displayName, watchProfiles, unwatchProfiles } from '@syren/app-core/stores/profiles.svelte';
-	import { resolveStories, hasStories, type StoryBundle } from '@syren/app-core/stores/stories.svelte';
-	import { resolvePosts, type Post, type PostBundle } from '@syren/app-core/stores/posts.svelte';
-	import { proxied } from '@syren/app-core/utils/proxy';
-	import StoryViewer from '@syren/ui/fragments/story-viewer.svelte';
-	import PostFeed from '@syren/ui/fragments/post-feed.svelte';
+	import { getRelations } from '@slyng/app-core/stores/relations.svelte';
+	import { resolveProfile, displayName, watchProfiles, unwatchProfiles } from '@slyng/app-core/stores/profiles.svelte';
+	import { resolveStories, hasStories, type StoryBundle } from '@slyng/app-core/stores/stories.svelte';
+	import { resolvePosts, type Post, type PostBundle } from '@slyng/app-core/stores/posts.svelte';
+	import { proxied } from '@slyng/app-core/utils/proxy';
+	import StoryViewer from '@slyng/ui/fragments/story-viewer.svelte';
+	import PostFeed from '@slyng/ui/fragments/post-feed.svelte';
 
 	const relations = getRelations();
 	const friendsList = $derived([...relations.friends]);

@@ -21,7 +21,7 @@ import {
 	type TrackPublication
 } from 'livekit-client';
 import { SvelteMap } from 'svelte/reactivity';
-import { WsOp } from '@syren/types';
+import { WsOp } from '@slyng/types';
 import { send } from '../stores/ws.svelte';
 import { setVoiceChannel, setSelfMute, setSelfDeaf, addLocalUserToChannel, removeLocalUser } from './voice-state.svelte';
 import { audioConstraints, videoConstraints } from '../stores/media-settings.svelte';

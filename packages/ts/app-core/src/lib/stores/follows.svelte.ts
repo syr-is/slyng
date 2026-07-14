@@ -9,7 +9,7 @@
 
 import { SvelteMap } from 'svelte/reactivity';
 import { idpJson } from '../idp-fetch.js';
-import type { OwnedFollow, FollowCheckResponse } from '@syren/types';
+import type { OwnedFollow, FollowCheckResponse } from '@slyng/types';
 
 interface Envelope<T> {
 	status: string;

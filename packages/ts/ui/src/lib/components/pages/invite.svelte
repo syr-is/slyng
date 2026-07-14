@@ -2,12 +2,12 @@
 	import { onMount } from 'svelte';
 	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
-	import * as Avatar from '@syren/ui/avatar';
-	import { Button } from '@syren/ui/button';
+	import * as Avatar from '@slyng/ui/avatar';
+	import { Button } from '@slyng/ui/button';
 	import { Loader2, Users } from '@lucide/svelte';
-	import { checkAuth } from '@syren/app-core/stores/auth.svelte';
-	import { api } from '@syren/app-core/api';
-	import { proxied } from '@syren/app-core/utils/proxy';
+	import { checkAuth } from '@slyng/app-core/stores/auth.svelte';
+	import { api } from '@slyng/app-core/api';
+	import { proxied } from '@slyng/app-core/utils/proxy';
 
 	const code = $derived(page.params.code ?? '');
 

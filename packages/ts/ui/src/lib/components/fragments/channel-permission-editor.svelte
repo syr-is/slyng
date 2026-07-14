@@ -1,22 +1,22 @@
 <script lang="ts">
-	import * as Avatar from '@syren/ui/avatar';
-	import * as Dialog from '@syren/ui/dialog';
-	import { Button } from '@syren/ui/button';
+	import * as Avatar from '@slyng/ui/avatar';
+	import * as Dialog from '@slyng/ui/dialog';
+	import { Button } from '@slyng/ui/button';
 	import { Check, X, Minus, Plus, Loader2, Shield } from '@lucide/svelte';
 	import { toast } from 'svelte-sonner';
-	import { Permissions } from '@syren/types';
-	import { api } from '@syren/app-core/api';
-	import { getRoles } from '@syren/app-core/stores/roles.svelte';
-	import { getMembers } from '@syren/app-core/stores/members.svelte';
-	import { getPerms } from '@syren/app-core/stores/perms.svelte';
+	import { Permissions } from '@slyng/types';
+	import { api } from '@slyng/app-core/api';
+	import { getRoles } from '@slyng/app-core/stores/roles.svelte';
+	import { getMembers } from '@slyng/app-core/stores/members.svelte';
+	import { getPerms } from '@slyng/app-core/stores/perms.svelte';
 	import {
 		loadOverrides,
 		getOverrides,
 		invalidateOverrides,
 		type OverrideData
-	} from '@syren/app-core/stores/overrides.svelte';
-	import { resolveProfile, displayName } from '@syren/app-core/stores/profiles.svelte';
-	import { proxied } from '@syren/app-core/utils/proxy';
+	} from '@slyng/app-core/stores/overrides.svelte';
+	import { resolveProfile, displayName } from '@slyng/app-core/stores/profiles.svelte';
+	import { proxied } from '@slyng/app-core/utils/proxy';
 
 	const {
 		open,

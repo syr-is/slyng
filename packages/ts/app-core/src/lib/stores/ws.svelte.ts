@@ -1,10 +1,10 @@
-import { WsOp } from '@syren/types';
+import { WsOp } from '@slyng/types';
 import { getRealtime, type WsState } from '../realtime';
 
 /**
  * WebSocket dispatch layer. The actual wire transport (connect, IDENTIFY,
  * heartbeat, reconnect, subscribe-state) lives in Rust now — see
- * `RealtimeClient` in `packages/rust/syren-client/src/ws/`. This module
+ * `RealtimeClient` in `packages/rust/slyng-client/src/ws/`. This module
  * registers a single `on_frame` callback against the platform's
  * `RealtimeHandle` and routes incoming frames to per-op listeners
  * (`onWsEvent(op, handler)`), preserving the API consumer stores have

@@ -1,7 +1,7 @@
 /**
  * WebSocket opcodes.
  *
- * The numeric values match `packages/rust/syren-types/src/ws.rs::WsOp`.
+ * The numeric values match `packages/rust/slyng-types/src/ws.rs::WsOp`.
  * The dictionary form is preserved here (uppercase keys) because the
  * existing UI / app-core / api code addresses ops as `WsOp.MESSAGE_CREATE`
  * etc. Wire format stays `{ op: number, d: payload }`; the typed payload

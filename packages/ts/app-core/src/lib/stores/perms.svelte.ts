@@ -5,7 +5,7 @@
  * position changes (debounced).
  */
 
-import { Permissions, WsOp, hasPermission } from '@syren/types';
+import { Permissions, WsOp, hasPermission } from '@slyng/types';
 import { onWsEvent } from './ws.svelte';
 import { getAuth } from './auth.svelte';
 import { getServerState } from './servers.svelte';

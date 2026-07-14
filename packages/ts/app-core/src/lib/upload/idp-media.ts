@@ -1,11 +1,11 @@
 /**
  * Client helpers for hosting custom emoji + personal GIFs (P6). Same authed IdP
  * path as the story/post helpers: presign → direct S3 PUT → complete. Only
- * meaningful for local accounts hosted on this syren instance.
+ * meaningful for local accounts hosted on this slyng instance.
  */
 
 import { idpJson } from '../idp-fetch.js';
-import type { OwnedEmoji, OwnedGif } from '@syren/types';
+import type { OwnedEmoji, OwnedGif } from '@slyng/types';
 
 interface Envelope<T> {
 	status: string;

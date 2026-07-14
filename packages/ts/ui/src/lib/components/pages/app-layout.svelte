@@ -1,34 +1,34 @@
 <script lang="ts">
 	import { onDestroy, onMount, type Component } from 'svelte';
 	import { toast } from 'svelte-sonner';
-	import ServerList from '@syren/ui/fragments/server-list.svelte';
-	import CreateServerDialog from '@syren/ui/fragments/create-server-dialog.svelte';
-	import SwipeLayout from '@syren/ui/fragments/swipe-layout';
-	import { setServers } from '@syren/app-core/stores/servers.svelte';
-	import { checkAuth, getAuth } from '@syren/app-core/stores/auth.svelte';
-	import { connectWs, disconnectWs } from '@syren/app-core/stores/ws.svelte';
-	import { getPresenceData } from '@syren/app-core/stores/presence.svelte';
-	import { startIdleWatcher, stopIdleWatcher, syncStatus } from '@syren/app-core/stores/idle.svelte';
-	import { api, apiReady } from '@syren/app-core/api';
-	import { realtimeReady } from '@syren/app-core/realtime';
-	import { getBootProgress, setBootStage } from '@syren/app-core/boot-progress';
+	import ServerList from '@slyng/ui/fragments/server-list.svelte';
+	import CreateServerDialog from '@slyng/ui/fragments/create-server-dialog.svelte';
+	import SwipeLayout from '@slyng/ui/fragments/swipe-layout';
+	import { setServers } from '@slyng/app-core/stores/servers.svelte';
+	import { checkAuth, getAuth } from '@slyng/app-core/stores/auth.svelte';
+	import { connectWs, disconnectWs } from '@slyng/app-core/stores/ws.svelte';
+	import { getPresenceData } from '@slyng/app-core/stores/presence.svelte';
+	import { startIdleWatcher, stopIdleWatcher, syncStatus } from '@slyng/app-core/stores/idle.svelte';
+	import { api, apiReady } from '@slyng/app-core/api';
+	import { realtimeReady } from '@slyng/app-core/realtime';
+	import { getBootProgress, setBootStage } from '@slyng/app-core/boot-progress';
 	import { Progress } from '$lib/components/ui/progress';
 	// Side-effect imports — ensure WS listeners in these stores register
 	// BEFORE connectWs() runs, so we don't miss the READY snapshot or
 	// any messages that arrive in the gap before child pages mount.
-	import '@syren/app-core/stores/presence.svelte';
-	import '@syren/app-core/stores/messages.svelte';
-	import '@syren/app-core/stores/roles.svelte';
-	import '@syren/app-core/stores/members.svelte';
-	import '@syren/app-core/stores/profiles.svelte';
-	import '@syren/app-core/stores/stories.svelte';
-	import '@syren/app-core/stores/emojis.svelte';
-	import '@syren/app-core/stores/gifs.svelte';
-	import '@syren/app-core/stores/typing.svelte';
-	import '@syren/app-core/stores/posts.svelte';
-	import { loadTrustedDomains } from '@syren/app-core/stores/trusted-domains.svelte';
-	import { loadRelations, clearRelations } from '@syren/app-core/stores/relations.svelte';
-	import { getPageSidebar, getPageMembers } from '@syren/ui/fragments/swipe-layout';
+	import '@slyng/app-core/stores/presence.svelte';
+	import '@slyng/app-core/stores/messages.svelte';
+	import '@slyng/app-core/stores/roles.svelte';
+	import '@slyng/app-core/stores/members.svelte';
+	import '@slyng/app-core/stores/profiles.svelte';
+	import '@slyng/app-core/stores/stories.svelte';
+	import '@slyng/app-core/stores/emojis.svelte';
+	import '@slyng/app-core/stores/gifs.svelte';
+	import '@slyng/app-core/stores/typing.svelte';
+	import '@slyng/app-core/stores/posts.svelte';
+	import { loadTrustedDomains } from '@slyng/app-core/stores/trusted-domains.svelte';
+	import { loadRelations, clearRelations } from '@slyng/app-core/stores/relations.svelte';
+	import { getPageSidebar, getPageMembers } from '@slyng/ui/fragments/swipe-layout';
 
 	let { children } = $props();
 	let showCreateServer = $state(false);
@@ -128,7 +128,7 @@
 	// starts sharing, so users don't notice the deferred mount.
 	let ScreenShareView = $state<Component | null>(null);
 	onMount(() => {
-		import('@syren/ui/fragments/screen-share-view.svelte')
+		import('@slyng/ui/fragments/screen-share-view.svelte')
 			.then((m) => {
 				ScreenShareView = m.default as Component;
 			})
@@ -174,7 +174,7 @@
 		></div>
 		<div class="flex w-full max-w-xs flex-col items-center gap-1.5 text-center">
 			<p class="text-sm font-medium text-foreground">
-				{boot.stage || 'Starting syren'}
+				{boot.stage || 'Starting slyng'}
 			</p>
 			{#if boot.detail}
 				<p class="text-xs text-muted-foreground">{boot.detail}</p>
@@ -219,7 +219,7 @@
 	     re-imports `+layout.ts`, resets `initPromise`, and retries the
 	     whole chain. -->
 	<div class="flex min-h-0 flex-1 flex-col items-center justify-center gap-3 bg-background p-6 text-center">
-		<p class="text-sm font-medium text-foreground">Couldn't start syren</p>
+		<p class="text-sm font-medium text-foreground">Couldn't start slyng</p>
 		<p class="max-w-xs text-xs text-muted-foreground">
 			{err instanceof Error ? err.message : 'Unknown error during startup'}
 		</p>

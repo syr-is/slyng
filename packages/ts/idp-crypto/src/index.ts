@@ -1,7 +1,7 @@
 /**
- * @syren/idp-crypto
+ * @slyng/idp-crypto
  * Cryptographic primitives for the Syr identity system, vendored from syr's
- * @syr-is/crypto (packages/ts/crypto) for syren's identity-provider role.
+ * @syr-is/crypto (packages/ts/crypto) for slyng's identity-provider role.
  * Ed25519 key generation, multibase encoding, signing, verification, and JCS canonicalization.
  * Requires initCryptoWasm() before use.
  *

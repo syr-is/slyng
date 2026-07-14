@@ -1,15 +1,15 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { toast } from 'svelte-sonner';
-	import { Button } from '@syren/ui/button';
+	import { Button } from '@slyng/ui/button';
 	import { Loader2, Plus, Trash2, Clock } from '@lucide/svelte';
-	import { proxied } from '@syren/app-core/utils/proxy';
+	import { proxied } from '@slyng/app-core/utils/proxy';
 	import {
 		listStories,
 		uploadStory,
 		deleteStory,
 		type OwnedStory
-	} from '@syren/app-core/upload/idp-upload';
+	} from '@slyng/app-core/upload/idp-upload';
 
 	/**
 	 * Story composer for local accounts — upload a slide (image/video),

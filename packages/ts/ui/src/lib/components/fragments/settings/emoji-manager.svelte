@@ -1,14 +1,14 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { toast } from 'svelte-sonner';
-	import { Button } from '@syren/ui/button';
-	import { Input } from '@syren/ui/input';
+	import { Button } from '@slyng/ui/button';
+	import { Input } from '@slyng/ui/input';
 	import { Loader2, Plus, Trash2, Sticker } from '@lucide/svelte';
-	import { EMOJI_SHORTCODE_RE, MAX_EMOJI_BYTES } from '@syren/types';
-	import { getAuth } from '@syren/app-core/stores/auth.svelte';
-	import { invalidateEmojis } from '@syren/app-core/stores/emojis.svelte';
-	import { proxied } from '@syren/app-core/utils/proxy';
-	import { listEmojis, uploadEmoji, deleteEmoji, type OwnedEmoji } from '@syren/app-core/upload/idp-media';
+	import { EMOJI_SHORTCODE_RE, MAX_EMOJI_BYTES } from '@slyng/types';
+	import { getAuth } from '@slyng/app-core/stores/auth.svelte';
+	import { invalidateEmojis } from '@slyng/app-core/stores/emojis.svelte';
+	import { proxied } from '@slyng/app-core/utils/proxy';
+	import { listEmojis, uploadEmoji, deleteEmoji, type OwnedEmoji } from '@slyng/app-core/upload/idp-media';
 
 	/**
 	 * Custom-emoji manager (P6). Upload an image under a `:shortcode:` (optionally

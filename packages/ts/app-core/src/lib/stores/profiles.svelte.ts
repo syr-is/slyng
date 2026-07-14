@@ -1,14 +1,14 @@
 /**
  * Profile resolver — fetches user profiles directly from their syr instance.
  *
- * Syren stores no profile data. For any DID we know the syr_instance_url,
+ * Slyng stores no profile data. For any DID we know the syr_instance_url,
  * we resolve profile fields by hitting the instance's manifest then its
  * `profile` endpoint. SvelteMap (not a $state record) is used for the cache
  * so dynamic-key access is properly reactive.
  */
 
 import { SvelteMap } from 'svelte/reactivity';
-import { WsOp } from '@syren/types';
+import { WsOp } from '@slyng/types';
 import { onWsEvent, send } from './ws.svelte';
 import { proxied } from '../utils/proxy';
 
@@ -57,7 +57,7 @@ async function fetchManifest(did: string, instanceUrl: string): Promise<Manifest
 
 	const base = instanceUrl.replace(/\/+$/, '');
 	const manifestUrl = `${base}/.well-known/syr/${encodeURIComponent(did)}`;
-	// Go through syren's proxy so the remote instance doesn't log the viewer's IP
+	// Go through slyng's proxy so the remote instance doesn't log the viewer's IP
 	const res = await fetch(proxied(manifestUrl), {
 		headers: { Accept: 'application/json' }
 	});
@@ -157,7 +157,7 @@ export function invalidateProfile(did: string) {
 // ── Federated watcher wiring ──
 
 /**
- * Tell the syren backend to watch these DIDs' hash endpoints on their
+ * Tell the slyng backend to watch these DIDs' hash endpoints on their
  * respective syr instances. Backend polls periodically and notifies via
  * PROFILE_UPDATE when anything changes.
  */

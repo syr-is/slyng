@@ -15,15 +15,15 @@
 	import { page } from '$app/state';
 	import { marked } from 'marked';
 	import DOMPurify from 'dompurify';
-	import { getAuth } from '@syren/app-core/stores/auth.svelte';
-	import { getRelations } from '@syren/app-core/stores/relations.svelte';
-	import { resolveManifest } from '@syren/app-core/stores/profiles.svelte';
-	import { resolveProfile, displayName } from '@syren/app-core/stores/profiles.svelte';
-	import { proxied } from '@syren/app-core/utils/proxy';
+	import { getAuth } from '@slyng/app-core/stores/auth.svelte';
+	import { getRelations } from '@slyng/app-core/stores/relations.svelte';
+	import { resolveManifest } from '@slyng/app-core/stores/profiles.svelte';
+	import { resolveProfile, displayName } from '@slyng/app-core/stores/profiles.svelte';
+	import { proxied } from '@slyng/app-core/utils/proxy';
 	// Aliased: svelte-package names this component `PublicPost` from the
 	// filename, and an identically-named type import collides in the generated
 	// .d.ts, breaking the default export under verbatimModuleSyntax.
-	import type { PublicPost as PublicPostData } from '@syren/types';
+	import type { PublicPost as PublicPostData } from '@slyng/types';
 	import { LoaderCircle } from '@lucide/svelte';
 	import CommentThread from '../fragments/comment-thread.svelte';
 

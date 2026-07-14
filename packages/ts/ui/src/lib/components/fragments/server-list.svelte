@@ -1,8 +1,8 @@
 <script lang="ts">
 	import { MessageSquare, Plus } from '@lucide/svelte';
-	import * as Tooltip from '@syren/ui/tooltip';
-	import { getServerState } from '@syren/app-core/stores/servers.svelte';
-	import { proxied } from '@syren/app-core/utils/proxy';
+	import * as Tooltip from '@slyng/ui/tooltip';
+	import { getServerState } from '@slyng/app-core/stores/servers.svelte';
+	import { proxied } from '@slyng/app-core/utils/proxy';
 
 	const { onCreateServer }: { onCreateServer: () => void } = $props();
 	const state = getServerState();

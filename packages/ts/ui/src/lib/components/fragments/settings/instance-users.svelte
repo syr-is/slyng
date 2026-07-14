@@ -1,9 +1,9 @@
 <script lang="ts">
-	import * as Dialog from '@syren/ui/dialog';
+	import * as Dialog from '@slyng/ui/dialog';
 	import { FolderOpen, Shield, Globe, Lock, ImageIcon, Film, FileIcon, User } from '@lucide/svelte';
-	import { proxied } from '@syren/app-core/utils/proxy';
-	import { adminListUsers, adminListUserFiles } from '@syren/app-core/stores/instance.svelte';
-	import type { InstanceUser, OwnedUpload } from '@syren/types';
+	import { proxied } from '@slyng/app-core/utils/proxy';
+	import { adminListUsers, adminListUserFiles } from '@slyng/app-core/stores/instance.svelte';
+	import type { InstanceUser, OwnedUpload } from '@slyng/types';
 	import PaginatedTable from '../paginated-table.svelte';
 
 	/**

@@ -21,23 +21,23 @@
 		Radar,
 		Fingerprint
 	} from '@lucide/svelte';
-	import * as Avatar from '@syren/ui/avatar';
-	import { Button } from '@syren/ui/button';
-	import { Input } from '@syren/ui/input';
-	import * as Form from '@syren/ui/form';
-	import { Separator } from '@syren/ui/separator';
+	import * as Avatar from '@slyng/ui/avatar';
+	import { Button } from '@slyng/ui/button';
+	import { Input } from '@slyng/ui/input';
+	import * as Form from '@slyng/ui/form';
+	import { Separator } from '@slyng/ui/separator';
 	import { superForm, defaults } from 'sveltekit-superforms';
 	import { zod4, zod4Client } from 'sveltekit-superforms/adapters';
 	import { z } from 'zod';
-	import { getAuth } from '@syren/app-core/stores/auth.svelte';
+	import { getAuth } from '@slyng/app-core/stores/auth.svelte';
 	import {
 		resolveProfile,
 		invalidateProfile,
 		displayName,
 		federatedHandle
-	} from '@syren/app-core/stores/profiles.svelte';
-	import { getVoiceState } from '@syren/app-core/voice/voice-state.svelte';
-	import { setMicDevice, setCameraDevice } from '@syren/app-core/voice/livekit-engine';
+	} from '@slyng/app-core/stores/profiles.svelte';
+	import { getVoiceState } from '@slyng/app-core/voice/voice-state.svelte';
+	import { setMicDevice, setCameraDevice } from '@slyng/app-core/voice/livekit-engine';
 	import {
 		getMediaSettings,
 		setMicDeviceId,
@@ -49,7 +49,7 @@
 		setDesktopNotifications,
 		audioConstraints,
 		videoConstraints
-	} from '@syren/app-core/stores/media-settings.svelte';
+	} from '@slyng/app-core/stores/media-settings.svelte';
 	import {
 		enumerateMediaDevices,
 		primeDevicePermissions,
@@ -58,29 +58,29 @@
 		supportsSinkId,
 		MediaUnavailableError,
 		type DeviceLists
-	} from '@syren/app-core/utils/media-devices';
+	} from '@slyng/app-core/utils/media-devices';
 	import {
 		loadTrustedDomains,
 		addTrustedDomain,
 		removeTrustedDomain,
 		getTrustedDomainsList
-	} from '@syren/app-core/stores/trusted-domains.svelte';
-	import SafeMedia from '@syren/ui/fragments/safe-media.svelte';
-	import SafeLink from '@syren/ui/fragments/safe-link.svelte';
-	import DeviceSelect from '@syren/ui/fragments/settings/device-select.svelte';
-	import AudioLevelMeter from '@syren/ui/fragments/settings/audio-level-meter.svelte';
-	import CameraPreview from '@syren/ui/fragments/settings/camera-preview.svelte';
-	import RelationsPanel from '@syren/ui/fragments/settings/relations-panel.svelte';
-	import ConnectionsPanel from '@syren/ui/fragments/settings/connections-panel.svelte';
-	import ProfileEditor from '@syren/ui/fragments/settings/profile-editor.svelte';
-	import EmojiManager from '@syren/ui/fragments/settings/emoji-manager.svelte';
-	import GifManager from '@syren/ui/fragments/settings/gif-manager.svelte';
-	import InstanceManager from '@syren/ui/fragments/settings/instance-manager.svelte';
-	import InstanceUsers from '@syren/ui/fragments/settings/instance-users.svelte';
-	import DiscoveryPanel from '@syren/ui/fragments/settings/discovery-panel.svelte';
-	import IdentityPanel from '@syren/ui/fragments/settings/identity-panel.svelte';
-	import { loadAdminStatus } from '@syren/app-core/stores/instance.svelte';
-	import { isLocalIdentity } from '@syren/app-core/upload/idp-upload';
+	} from '@slyng/app-core/stores/trusted-domains.svelte';
+	import SafeMedia from '@slyng/ui/fragments/safe-media.svelte';
+	import SafeLink from '@slyng/ui/fragments/safe-link.svelte';
+	import DeviceSelect from '@slyng/ui/fragments/settings/device-select.svelte';
+	import AudioLevelMeter from '@slyng/ui/fragments/settings/audio-level-meter.svelte';
+	import CameraPreview from '@slyng/ui/fragments/settings/camera-preview.svelte';
+	import RelationsPanel from '@slyng/ui/fragments/settings/relations-panel.svelte';
+	import ConnectionsPanel from '@slyng/ui/fragments/settings/connections-panel.svelte';
+	import ProfileEditor from '@slyng/ui/fragments/settings/profile-editor.svelte';
+	import EmojiManager from '@slyng/ui/fragments/settings/emoji-manager.svelte';
+	import GifManager from '@slyng/ui/fragments/settings/gif-manager.svelte';
+	import InstanceManager from '@slyng/ui/fragments/settings/instance-manager.svelte';
+	import InstanceUsers from '@slyng/ui/fragments/settings/instance-users.svelte';
+	import DiscoveryPanel from '@slyng/ui/fragments/settings/discovery-panel.svelte';
+	import IdentityPanel from '@slyng/ui/fragments/settings/identity-panel.svelte';
+	import { loadAdminStatus } from '@slyng/app-core/stores/instance.svelte';
+	import { isLocalIdentity } from '@slyng/app-core/upload/idp-upload';
 
 	type Tab =
 		| 'profile'
@@ -147,7 +147,7 @@
 	const profileName = $derived(displayName(profile, auth.identity?.did ?? ''));
 	const profileHandle = $derived(federatedHandle(profile, auth.identity?.did ?? ''));
 
-	// Whether this identity is hosted on the syren instance we're talking to.
+	// Whether this identity is hosted on the slyng instance we're talking to.
 	// Local accounts edit their profile in-app; federated ones link out to syr.
 	let isLocalAccount = $state(false);
 	let isInstanceAdmin = $state(false);
@@ -364,7 +364,7 @@
 					{#if isLocalAccount}
 						Your profile is hosted here on this instance.
 					{:else}
-						Your profile lives on your syr instance. Syren only shows it.
+						Your profile lives on your syr instance. Slyng only shows it.
 					{/if}
 				</p>
 
@@ -562,7 +562,7 @@
 					<div>
 						<p class="text-sm font-medium">Desktop notifications</p>
 						<p class="text-xs text-muted-foreground">
-							Get notified about mentions and DMs even when syren is backgrounded.
+							Get notified about mentions and DMs even when slyng is backgrounded.
 						</p>
 					</div>
 					<input
@@ -620,7 +620,7 @@
 			{#if activeTab === 'trusted'}
 				<h1 class="mb-2 text-xl font-semibold">Trusted domains</h1>
 				<p class="mb-4 text-sm text-muted-foreground">
-					Links to these domains skip the "Leaving syren" confirmation.
+					Links to these domains skip the "Leaving slyng" confirmation.
 				</p>
 
 				<form method="POST" use:trustedDomainEnhance class="mb-4">

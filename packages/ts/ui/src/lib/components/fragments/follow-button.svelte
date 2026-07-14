@@ -1,9 +1,9 @@
 <script lang="ts">
-	import { Button } from '@syren/ui/button';
+	import { Button } from '@slyng/ui/button';
 	import { UserPlus, UserCheck, LoaderCircle } from '@lucide/svelte';
 	import { toast } from 'svelte-sonner';
-	import { getAuth } from '@syren/app-core/stores/auth.svelte';
-	import { getFollows, checkFollow, follow, unfollow } from '@syren/app-core/stores/follows.svelte';
+	import { getAuth } from '@slyng/app-core/stores/auth.svelte';
+	import { getFollows, checkFollow, follow, unfollow } from '@slyng/app-core/stores/follows.svelte';
 
 	/**
 	 * Follow / unfollow a syr identity (P8). Self-contained: reads the viewer's

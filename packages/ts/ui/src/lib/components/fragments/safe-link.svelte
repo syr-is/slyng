@@ -1,10 +1,10 @@
 <script lang="ts">
 	import type { Snippet } from 'svelte';
-	import * as Dialog from '@syren/ui/dialog';
-	import { Button } from '@syren/ui/button';
+	import * as Dialog from '@slyng/ui/dialog';
+	import { Button } from '@slyng/ui/button';
 	import { ExternalLink, TriangleAlert } from '@lucide/svelte';
-	import { originHost } from '@syren/app-core/utils/proxy';
-	import { isTrusted, addTrustedDomain } from '@syren/app-core/stores/trusted-domains.svelte';
+	import { originHost } from '@slyng/app-core/utils/proxy';
+	import { isTrusted, addTrustedDomain } from '@slyng/app-core/stores/trusted-domains.svelte';
 
 	const {
 		href,
@@ -61,10 +61,10 @@
 		<Dialog.Header>
 			<Dialog.Title class="flex items-center gap-2">
 				<TriangleAlert class="h-5 w-5 text-amber-500" />
-				Leaving syren
+				Leaving slyng
 			</Dialog.Title>
 			<Dialog.Description>
-				You're about to visit an external site. syren can't vouch for what happens
+				You're about to visit an external site. slyng can't vouch for what happens
 				there.
 			</Dialog.Description>
 		</Dialog.Header>

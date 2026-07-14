@@ -1,13 +1,13 @@
 <script lang="ts">
 	import { Plus } from '@lucide/svelte';
 	import { toast } from 'svelte-sonner';
-	import { Input } from '@syren/ui/input';
-	import * as Form from '@syren/ui/form';
+	import { Input } from '@slyng/ui/input';
+	import * as Form from '@slyng/ui/form';
 	import { superForm, defaults } from 'sveltekit-superforms';
 	import { zod4, zod4Client } from 'sveltekit-superforms/adapters';
 	import { z } from 'zod';
-	import { CreateInviteInputSchema } from '@syren/types';
-	import { api } from '@syren/app-core/api';
+	import { CreateInviteInputSchema } from '@slyng/types';
+	import { api } from '@slyng/app-core/api';
 
 	const {
 		serverId,
@@ -32,7 +32,7 @@
 
 	// Schema covers everything that ships in the body. Built on top of
 	// `CreateInviteInputSchema` (generated from
-	// `packages/rust/syren-types/src/server.rs::CreateInviteInput`),
+	// `packages/rust/slyng-types/src/server.rs::CreateInviteInput`),
 	// then refined for the conditional `target_kind` ↔ `target_value`
 	// rules — those aren't expressible at the Rust struct level.
 	const Schema = CreateInviteInputSchema.extend({

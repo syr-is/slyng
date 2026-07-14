@@ -1,8 +1,8 @@
 <script lang="ts">
 	import { Loader2, FileText } from '@lucide/svelte';
-	import { Button } from '@syren/ui/button';
+	import { Button } from '@slyng/ui/button';
 	import PostItem from './post-item.svelte';
-	import type { Post } from '@syren/app-core/stores/posts.svelte';
+	import type { Post } from '@slyng/app-core/stores/posts.svelte';
 
 	const {
 		posts,

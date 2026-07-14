@@ -1,13 +1,13 @@
 <script lang="ts">
-	import * as Avatar from '@syren/ui/avatar';
+	import * as Avatar from '@slyng/ui/avatar';
 	import { Crown } from '@lucide/svelte';
-	import { getPresence, getPresenceData, type PresenceStatus } from '@syren/app-core/stores/presence.svelte';
-	import { resolveProfile, displayName } from '@syren/app-core/stores/profiles.svelte';
-	import { getMembers, type MemberData } from '@syren/app-core/stores/members.svelte';
-	import { getRoles, type RoleData } from '@syren/app-core/stores/roles.svelte';
+	import { getPresence, getPresenceData, type PresenceStatus } from '@slyng/app-core/stores/presence.svelte';
+	import { resolveProfile, displayName } from '@slyng/app-core/stores/profiles.svelte';
+	import { getMembers, type MemberData } from '@slyng/app-core/stores/members.svelte';
+	import { getRoles, type RoleData } from '@slyng/app-core/stores/roles.svelte';
 	import MemberRolesPopover from './member-roles-popover.svelte';
 	import ProfileHoverCard from './profile-hover-card.svelte';
-	import { proxied } from '@syren/app-core/utils/proxy';
+	import { proxied } from '@slyng/app-core/utils/proxy';
 
 	const STATUS_COLORS: Record<PresenceStatus, string> = {
 		online: 'bg-green-500',

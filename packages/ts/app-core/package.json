@@ -1,5 +1,5 @@
 {
-	"name": "@syren/app-core",
+	"name": "@slyng/app-core",
 	"version": "0.0.1",
 	"type": "module",
 	"svelte": "./dist/index.js",
@@ -84,8 +84,8 @@
 		"svelte": "^5.0.0"
 	},
 	"dependencies": {
-		"@syren/client": "workspace:*",
-		"@syren/types": "workspace:*",
+		"@slyng/client": "workspace:*",
+		"@slyng/types": "workspace:*",
 		"livekit-client": "^2.18.3"
 	},
 	"devDependencies": {

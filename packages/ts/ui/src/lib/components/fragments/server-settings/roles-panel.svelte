@@ -1,12 +1,12 @@
 <script lang="ts">
 	import { Plus, Pencil, Trash2, GripVertical, Lock, User } from '@lucide/svelte';
 	import { toast } from 'svelte-sonner';
-	import { Button } from '@syren/ui/button';
-	import { api } from '@syren/app-core/api';
-	import { getRoles, setRoles, reorderRoles, type RoleData } from '@syren/app-core/stores/roles.svelte';
-	import { getMembers } from '@syren/app-core/stores/members.svelte';
-	import { getAuth } from '@syren/app-core/stores/auth.svelte';
-	import { getPerms } from '@syren/app-core/stores/perms.svelte';
+	import { Button } from '@slyng/ui/button';
+	import { api } from '@slyng/app-core/api';
+	import { getRoles, setRoles, reorderRoles, type RoleData } from '@slyng/app-core/stores/roles.svelte';
+	import { getMembers } from '@slyng/app-core/stores/members.svelte';
+	import { getAuth } from '@slyng/app-core/stores/auth.svelte';
+	import { getPerms } from '@slyng/app-core/stores/perms.svelte';
 	import RoleEditDialog from '../role-edit-dialog.svelte';
 
 	const { serverId }: { serverId: string } = $props();

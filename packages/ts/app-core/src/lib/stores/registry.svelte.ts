@@ -12,7 +12,7 @@ import type {
 	OwnedRegistry,
 	OwnedOutboxJob,
 	RegistrySyncResult
-} from '@syren/types';
+} from '@slyng/types';
 
 interface Envelope<T> {
 	status: string;

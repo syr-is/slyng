@@ -41,7 +41,7 @@ export async function checkAuth(): Promise<AuthIdentity | null> {
 		// bounce the user to `/login` even though they have a valid session.
 		await apiReady;
 		// Goes through the registered api singleton — WASM-backed
-		// (`@syren/client`) on web, Tauri-IPC-backed (`createNativeApi`)
+		// (`@slyng/client`) on web, Tauri-IPC-backed (`createNativeApi`)
 		// on native. Both impls source the bearer from their respective
 		// session store (localStorage for web, Tauri Store for native);
 		// `checkAuth` does not need to know which.

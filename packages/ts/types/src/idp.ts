@@ -1,10 +1,10 @@
 /**
- * Local identity-provider (IdP) schemas — syren acting as a syr instance.
+ * Local identity-provider (IdP) schemas — slyng acting as a syr instance.
  *
  * Hand-written Zod ported from syr's wire contracts rather than generated
  * from Rust: these shapes must stay byte-compatible with syr's own
  * (`syr/packages/ts/types/src/user.ts`, `identity.ts`), so the syr source
- * is the canonical reference, not a syren Rust struct.
+ * is the canonical reference, not a slyng Rust struct.
  */
 import { z } from 'zod';
 import { RecordId } from 'surrealdb';
@@ -157,7 +157,7 @@ const httpUrlTemplate = z
 /**
  * Instance-level manifest served at `/.well-known/syr`. `name` is the
  * literal 'syr' — it identifies the protocol, not the product; consumer
- * schemas (including syren's own login flow) require it.
+ * schemas (including slyng's own login flow) require it.
  */
 export const SyrInstanceManifestSchema = z.object({
 	name: z.literal('syr'),
@@ -184,15 +184,15 @@ export const SyrInstanceManifestSchema = z.object({
 		.optional(),
 	syner: z
 		.object({
-			// Device flows syren implements (root key on the device):
+			// Device flows slyng implements (root key on the device):
 			independent_login_challenge: httpUrlTemplate,
 			independent_login_verify: httpUrlTemplate,
 			delegation_challenge_payload: httpUrlTemplate,
 			delegation_verify: httpUrlTemplate,
-			// syr's device content-signing surface. syren signs content
+			// syr's device content-signing surface. slyng signs content
 			// server-side (server-held delegate key), so these are optional —
 			// present on a full syr host, absent here. Kept in the schema so a
-			// syr-hosted manifest still validates against syren's copy.
+			// syr-hosted manifest still validates against slyng's copy.
 			profile_sync: httpUrlTemplate.optional(),
 			export_challenge: httpUrlTemplate.optional(),
 			export_verify: httpUrlTemplate.optional(),
@@ -437,7 +437,7 @@ export type FullProfilePatch = z.infer<typeof FullProfilePatchSchema>;
 // that backs stories (library files are `is_story=false`). The federation
 // surface is GET /api/public/uploads/:did, whose wire shape is ported verbatim
 // from syr's routes/api/public/uploads/[did]. Unlike syr (which encodes
-// public/private into the S3 key + relies on anonymous bucket reads), syren
+// public/private into the S3 key + relies on anonymous bucket reads), slyng
 // proxies every remote asset through its auth-gated media proxy, so `is_public`
 // is a pure DB flag: it gates federation listing + share-link behaviour, not
 // object reachability. Keys are therefore stable across a visibility toggle.
@@ -591,7 +591,7 @@ export type PublicUploadsResponse = z.infer<typeof PublicUploadsResponseSchema>;
 
 // ── Instance limits (admin-configurable) ─────────────────────────────
 // Two instance-level upload limits, both admin-settable and stored in the kv
-// `instance_config` table (env `SYREN_MAX_FILE_SIZE_MB` / `SYREN_STORAGE_LIMIT_GB`
+// `instance_config` table (env `SLYNG_MAX_FILE_SIZE_MB` / `SLYNG_STORAGE_LIMIT_GB`
 // seed the defaults). The per-file cap is enforced on every upload path across
 // the platform (chat attachments, library, stories, post assets, profile);
 // the per-account storage quota is enforced on the file library.
@@ -640,11 +640,11 @@ export type InstanceUsersPage = z.infer<typeof InstanceUsersPageSchema>;
 // ── Comments / reactions / follows (P8) ──────────────────────────────
 // Ported from syr's comment/reaction/follow wire contracts
 // (syr/apps/syr/app/src/lib/{controllers,repositories}/{comment,reaction,follow}.*
-// + routes/api/public/{comments,reactions,following}/[did]). Two syren
+// + routes/api/public/{comments,reactions,following}/[did]). Two slyng
 // divergences, both deliberate:
 //   1. Ownership lives in the composite key (`table:{ created_by:<did>, id }`),
 //      so there is no `author_id` column — every query filters `id.created_by`,
-//      exactly as syren's posts/emojis/gifs already do. Follows use a composite
+//      exactly as slyng's posts/emojis/gifs already do. Follows use a composite
 //      key too (syr uses a plain auto id), which keeps the whole interaction set
 //      portable for import/export (P11).
 //   2. syr's public reads are per-author (`/public/comments/:did` = comments
@@ -825,8 +825,8 @@ export type FollowCheckResponse = z.infer<typeof FollowCheckResponseSchema>;
 // from syr's identity_registry + outbox (syr/apps/syr/.../services/db.ts,
 // registry-job-crypto.ts, registry-job-runner.ts, registry.ts wire schemas).
 //
-// syren divergence: syr signs client-side (its server never holds the root
-// key); syren stores the Aegis-encrypted root seed, so the SYNC endpoint takes
+// slyng divergence: syr signs client-side (its server never holds the root
+// key); slyng stores the Aegis-encrypted root seed, so the SYNC endpoint takes
 // the password and signs server-side. Because a signed record carries a fixed
 // `updatedAt`, an @Interval poller can autonomously RE-DELIVER a signed job
 // whose push failed — signing needs the password, redelivery does not.
@@ -901,7 +901,7 @@ export const RegistrySyncResultSchema = z.object({
 export type RegistrySyncResult = z.infer<typeof RegistrySyncResultSchema>;
 
 // ── Registry HTTP wire contract (ported verbatim from syr's registry.ts) ──
-// The exact bodies syren POSTs to a registry server — a real syr registry
+// The exact bodies slyng POSTs to a registry server — a real syr registry
 // validates against these, so they must stay byte-compatible.
 
 export const RegistryUpdateRecordSchema = z.object({
@@ -934,7 +934,7 @@ export type RegistryDirectoryUpsert = z.infer<typeof RegistryDirectoryUpsertSche
 // P10 — Syner self-custody (two-round delegation + independent login)
 // ════════════════════════════════════════════════════════════════════════
 //
-// syren does server-side content signing via a server-held delegate key
+// slyng does server-side content signing via a server-held delegate key
 // (encrypted under PLATFORM_DELEGATE_SECRET), while the *root* key is either
 // Aegis-encrypted (password accounts) or held on the user's device
 // (self-custody). The two-round flow: the server generates the delegate

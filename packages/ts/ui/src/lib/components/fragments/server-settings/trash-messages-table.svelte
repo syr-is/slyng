@@ -1,12 +1,12 @@
 <script lang="ts">
-	import * as Avatar from '@syren/ui/avatar';
+	import * as Avatar from '@slyng/ui/avatar';
 	import { Hash, RotateCcw, Trash2, MoveRight } from '@lucide/svelte';
 	import { toast } from 'svelte-sonner';
 	import { goto } from '$app/navigation';
-	import { api } from '@syren/app-core/api';
-	import { resolveProfile, displayName } from '@syren/app-core/stores/profiles.svelte';
-	import { getPerms } from '@syren/app-core/stores/perms.svelte';
-	import { proxied } from '@syren/app-core/utils/proxy';
+	import { api } from '@slyng/app-core/api';
+	import { resolveProfile, displayName } from '@slyng/app-core/stores/profiles.svelte';
+	import { getPerms } from '@slyng/app-core/stores/perms.svelte';
+	import { proxied } from '@slyng/app-core/utils/proxy';
 	import PaginatedTable from '../paginated-table.svelte';
 	import HardDeleteConfirmDialog from './hard-delete-confirm-dialog.svelte';
 

@@ -1,5 +1,5 @@
 import { SvelteMap } from 'svelte/reactivity';
-import { WsOp } from '@syren/types';
+import { WsOp } from '@slyng/types';
 import { onWsEvent, send } from './ws.svelte';
 
 /**

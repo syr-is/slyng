@@ -2,7 +2,7 @@ services:
   surrealdb:
     image: surrealdb/surrealdb:v2.6
     user: root
-    command: start --log info --user root --pass ${SURREALDB_PASS} file:/data/syren.db
+    command: start --log info --user root --pass ${SURREALDB_PASS} file:/data/slyng.db
     volumes:
       - surrealdb-prod-data:/data
     environment:
@@ -49,24 +49,24 @@ services:
       - ./docker/prod/livekit.yaml:/etc/livekit.yaml
     restart: unless-stopped
 
-  syren-api:
+  slyng-api:
     build:
       context: .
-      dockerfile: docker/prod/syren-api.dockerfile
+      dockerfile: docker/prod/slyng-api.dockerfile
     environment:
       - NODE_ENV=production
-      - SYREN_API_PORT=${SYREN_API_PORT:-5175}
+      - SLYNG_API_PORT=${SLYNG_API_PORT:-5175}
       - SURREALDB_URL=ws://surrealdb:8000/rpc
-      - SURREALDB_NAMESPACE=${SURREALDB_NAMESPACE:-syren}
-      - SURREALDB_DATABASE=${SURREALDB_DATABASE:-syren}
+      - SURREALDB_NAMESPACE=${SURREALDB_NAMESPACE:-slyng}
+      - SURREALDB_DATABASE=${SURREALDB_DATABASE:-slyng}
       - SURREALDB_USER=${SURREALDB_USER:-root}
       - SURREALDB_PASS=${SURREALDB_PASS}
       - S3_ENDPOINT=http://seaweedfs:8333
-      - S3_BUCKET=${S3_BUCKET:-syren}
+      - S3_BUCKET=${S3_BUCKET:-slyng}
       - S3_REGION=${S3_REGION:-us-east-1}
-      - S3_ACCESS_KEY_ID=${S3_ACCESS_KEY_ID:-syren-access-key}
-      - S3_SECRET_ACCESS_KEY=${S3_SECRET_ACCESS_KEY:-syren-secret-key}
-      - S3_PUBLIC_URL=${S3_PUBLIC_URL:-https://s3.slyng.gg/syren}
+      - S3_ACCESS_KEY_ID=${S3_ACCESS_KEY_ID:-slyng-access-key}
+      - S3_SECRET_ACCESS_KEY=${S3_SECRET_ACCESS_KEY:-slyng-secret-key}
+      - S3_PUBLIC_URL=${S3_PUBLIC_URL:-https://s3.slyng.gg/slyng}
       - S3_CORS_ORIGINS=${S3_CORS_ORIGINS:-https://app.slyng.gg}
       - PUBLIC_URL=${PUBLIC_URL:-https://app.slyng.gg}
       - SYR_INSTANCE_URL=${SYR_INSTANCE_URL:-https://app.syr.is}
@@ -84,13 +84,13 @@ services:
         condition: service_healthy
     restart: unless-stopped
 
-  syren:
+  slyng:
     build:
       context: .
-      dockerfile: docker/prod/syren.dockerfile
+      dockerfile: docker/prod/slyng.dockerfile
       args:
         - PUBLIC_URL=${PUBLIC_URL:-https://app.slyng.gg}
-        - SYREN_API_URL=${SYREN_API_URL:-https://app.slyng.gg}
+        - SLYNG_API_URL=${SLYNG_API_URL:-https://app.slyng.gg}
     restart: unless-stopped
 
 volumes:

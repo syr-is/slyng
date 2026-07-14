@@ -8,7 +8,7 @@ import type {
 	Message,
 	DmChannelSummary,
 	UserResolveResult
-} from '@syren/client';
+} from '@slyng/client';
 import {
 	normalizeServer,
 	normalizeChannel,

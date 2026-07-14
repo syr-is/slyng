@@ -1,21 +1,21 @@
 <script lang="ts">
 	import { MessageSquare, Ban, EyeOff } from '@lucide/svelte';
 	import { toast } from 'svelte-sonner';
-	import * as Avatar from '@syren/ui/avatar';
-	import MessageItem from '@syren/ui/fragments/message-item.svelte';
-	import MessageInput from '@syren/ui/fragments/message-input.svelte';
-	import ProfileHoverCard from '@syren/ui/fragments/profile-hover-card.svelte';
+	import * as Avatar from '@slyng/ui/avatar';
+	import MessageItem from '@slyng/ui/fragments/message-item.svelte';
+	import MessageInput from '@slyng/ui/fragments/message-input.svelte';
+	import ProfileHoverCard from '@slyng/ui/fragments/profile-hover-card.svelte';
 	import { onDestroy } from 'svelte';
-	import { api } from '@syren/app-core/api';
-	import { subscribeChannels, unsubscribeChannels } from '@syren/app-core/stores/ws.svelte';
-	import { setCurrentChannel, getMessages, addMessage } from '@syren/app-core/stores/messages.svelte';
-	import { setTypingChannel, getTyping } from '@syren/app-core/stores/typing.svelte';
-	import { resolveProfile, displayName, federatedHandle, getProfile } from '@syren/app-core/stores/profiles.svelte';
-	import { setActiveChannelForUnread } from '@syren/app-core/stores/unread.svelte';
-	import { getAuth } from '@syren/app-core/stores/auth.svelte';
-	import { getRelations } from '@syren/app-core/stores/relations.svelte';
-	import { proxied } from '@syren/app-core/utils/proxy';
-	import { formatDateLabel } from '@syren/app-core/utils/date';
+	import { api } from '@slyng/app-core/api';
+	import { subscribeChannels, unsubscribeChannels } from '@slyng/app-core/stores/ws.svelte';
+	import { setCurrentChannel, getMessages, addMessage } from '@slyng/app-core/stores/messages.svelte';
+	import { setTypingChannel, getTyping } from '@slyng/app-core/stores/typing.svelte';
+	import { resolveProfile, displayName, federatedHandle, getProfile } from '@slyng/app-core/stores/profiles.svelte';
+	import { setActiveChannelForUnread } from '@slyng/app-core/stores/unread.svelte';
+	import { getAuth } from '@slyng/app-core/stores/auth.svelte';
+	import { getRelations } from '@slyng/app-core/stores/relations.svelte';
+	import { proxied } from '@slyng/app-core/utils/proxy';
+	import { formatDateLabel } from '@slyng/app-core/utils/date';
 	import { page } from '$app/state';
 
 	const auth = getAuth();

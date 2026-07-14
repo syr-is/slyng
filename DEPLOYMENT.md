@@ -1,6 +1,6 @@
-# Syren Production Deployment
+# Slyng Production Deployment
 
-Deploying Syren on Dokploy (Hetzner) behind Cloudflare.
+Deploying Slyng on Dokploy (Hetzner) behind Cloudflare.
 
 ---
 
@@ -12,8 +12,8 @@ Browser → Cloudflare → Traefik (Dokploy) → Docker containers
 
 | Container | Port | Domain |
 |-----------|------|--------|
-| syren (SPA, sirv) | 5174 | app.slyng.gg |
-| syren-api (NestJS) | 5175 | app.slyng.gg/api, app.slyng.gg/ws |
+| slyng (SPA, sirv) | 5174 | app.slyng.gg |
+| slyng-api (NestJS) | 5175 | app.slyng.gg/api, app.slyng.gg/ws |
 | surrealdb | 8000 | internal only |
 | seaweedfs | 8333 | s3.slyng.gg |
 | livekit | 7880 | lk.slyng.gg |
@@ -69,12 +69,12 @@ Open these ports for LiveKit:
 
 ### Compose Project
 
-- Point at the Syren repo
+- Point at the Slyng repo
 - Compose file: `docker-compose.prod.yml`
 - Watch paths:
   ```
-  apps/syren/web/**
-  apps/syren/api/**
+  apps/slyng/web/**
+  apps/slyng/api/**
   packages/ts/types/**
   packages/ts/ui/**
   docker-compose.prod.yml
@@ -86,11 +86,11 @@ Open these ports for LiveKit:
 
 | Service | Host | Path | Port | HTTPS |
 |---------|------|------|------|-------|
-| syren | app.slyng.gg | / | 5174 | Yes |
-| syren-api | app.slyng.gg | /api | 5175 | Yes |
-| syren-api | app.slyng.gg | /ws | 5175 | Yes |
-| syren-api | app.slyng.gg | /.well-known/syr | 5175 | Yes |
-| syren-api | app.slyng.gg | /.well-known/did | 5175 | Yes |
+| slyng | app.slyng.gg | / | 5174 | Yes |
+| slyng-api | app.slyng.gg | /api | 5175 | Yes |
+| slyng-api | app.slyng.gg | /ws | 5175 | Yes |
+| slyng-api | app.slyng.gg | /.well-known/syr | 5175 | Yes |
+| slyng-api | app.slyng.gg | /.well-known/did | 5175 | Yes |
 | seaweedfs | s3.slyng.gg | / | 8333 | Yes |
 | livekit | lk.slyng.gg | / | 7880 | Yes |
 
@@ -99,7 +99,7 @@ Open these ports for LiveKit:
 **`.well-known` routing**: the `/.well-known/syr` + `/.well-known/did` prefixes
 are the syr federation discovery endpoints (instance manifest, per-DID
 manifests, DID documents) served by the API at the site root — required for
-syren's local identity provider. They must route to syren-api, not the SPA.
+slyng's local identity provider. They must route to slyng-api, not the SPA.
 Do NOT route all of `/.well-known` — ACME HTTP-01 challenges and other
 well-known consumers may need the default handling.
 
@@ -113,21 +113,21 @@ PORT=5174
 PUBLIC_URL=https://app.slyng.gg
 
 SURREALDB_URL=ws://surrealdb:8000/rpc
-SURREALDB_NAMESPACE=syren
-SURREALDB_DATABASE=syren
+SURREALDB_NAMESPACE=slyng
+SURREALDB_DATABASE=slyng
 SURREALDB_USER=root
 SURREALDB_PASS=<openssl rand -base64 32>
 
-SYREN_API_PORT=5175
-SYREN_API_URL=https://app.slyng.gg
+SLYNG_API_PORT=5175
+SLYNG_API_URL=https://app.slyng.gg
 SYR_INSTANCE_URL=https://app.syr.is
 
 S3_ENDPOINT=http://seaweedfs:8333
-S3_BUCKET=syren
+S3_BUCKET=slyng
 S3_REGION=us-east-1
-S3_ACCESS_KEY_ID=syren-access-key
-S3_SECRET_ACCESS_KEY=syren-secret-key
-S3_PUBLIC_URL=https://s3.slyng.gg/syren
+S3_ACCESS_KEY_ID=slyng-access-key
+S3_SECRET_ACCESS_KEY=slyng-secret-key
+S3_PUBLIC_URL=https://s3.slyng.gg/slyng
 S3_CORS_ORIGINS=https://app.slyng.gg
 
 LIVEKIT_API_KEY=<openssl rand -hex 12>
@@ -153,7 +153,7 @@ S3 credentials match the hardcoded values in `s3/s3_config.json`. They're intern
 
 - Served by `sirv-cli` (not nginx, not adapter-node).
 - **Healthcheck must use `0.0.0.0`** not `localhost`. Alpine resolves `localhost` to IPv6 `::1`, but sirv only binds IPv4.
-- Build args `PUBLIC_URL` and `SYREN_API_URL` are baked into the static build at image time.
+- Build args `PUBLIC_URL` and `SLYNG_API_URL` are baked into the static build at image time.
 
 ### pnpm Workspace in Docker
 
@@ -182,14 +182,14 @@ S3 credentials match the hardcoded values in `s3/s3_config.json`. They're intern
 ### Docker on Hetzner
 
 - SeaweedFS containers can get stuck in a bad state where `docker kill` / `docker rm` hang. Fix: `systemctl restart docker`, then `docker rm -f <id>`.
-- Always clean up stuck containers before redeploying: `docker rm -f $(docker ps -a --filter "name=syren" -q)`.
+- Always clean up stuck containers before redeploying: `docker rm -f $(docker ps -a --filter "name=slyng" -q)`.
 - Don't use `container_name` in compose — let Dokploy manage naming.
 
 ---
 
 ## Syr Instance Requirements
 
-For Syren to work with a Syr instance, the Syr instance needs:
+For Slyng to work with a Syr instance, the Syr instance needs:
 
 1. `csrf: { checkOrigin: false }` in `svelte.config.js`
 2. `Authorization: Bearer` support in `hooks.server.ts`

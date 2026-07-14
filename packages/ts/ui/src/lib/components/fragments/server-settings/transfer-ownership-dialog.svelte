@@ -1,15 +1,15 @@
 <script lang="ts">
-	import * as Dialog from '@syren/ui/dialog';
-	import * as Avatar from '@syren/ui/avatar';
-	import { Button } from '@syren/ui/button';
-	import { Input } from '@syren/ui/input';
+	import * as Dialog from '@slyng/ui/dialog';
+	import * as Avatar from '@slyng/ui/avatar';
+	import { Button } from '@slyng/ui/button';
+	import { Input } from '@slyng/ui/input';
 	import { AlertTriangle } from '@lucide/svelte';
 	import { toast } from 'svelte-sonner';
-	import { api } from '@syren/app-core/api';
-	import { getMembers } from '@syren/app-core/stores/members.svelte';
-	import { getServerState } from '@syren/app-core/stores/servers.svelte';
-	import { resolveProfile, displayName, federatedHandle } from '@syren/app-core/stores/profiles.svelte';
-	import { proxied } from '@syren/app-core/utils/proxy';
+	import { api } from '@slyng/app-core/api';
+	import { getMembers } from '@slyng/app-core/stores/members.svelte';
+	import { getServerState } from '@slyng/app-core/stores/servers.svelte';
+	import { resolveProfile, displayName, federatedHandle } from '@slyng/app-core/stores/profiles.svelte';
+	import { proxied } from '@slyng/app-core/utils/proxy';
 
 	const {
 		open,

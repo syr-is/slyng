@@ -10,7 +10,7 @@ import type {
 	InstanceLimitsPatch,
 	InstanceUsersPage,
 	OwnedUploadsPage
-} from '@syren/types';
+} from '@slyng/types';
 
 let limits = $state<InstanceLimits | null>(null);
 let isAdmin = $state(false);

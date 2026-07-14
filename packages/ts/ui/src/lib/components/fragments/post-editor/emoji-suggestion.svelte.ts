@@ -1,6 +1,6 @@
 // `:`-triggered emoji/sticker autocomplete for the post editor. Ported from
 // pendi's chat editor, with the catalog rewired from pendi's `emojiCatalog` to
-// syren's `resolveEmojis(did, instance)` store (the caller's OWN hosted emoji
+// slyng's `resolveEmojis(did, instance)` store (the caller's OWN hosted emoji
 // set). Local emoji hosting lands in P6 — until then `resolveEmojis` returns an
 // empty bundle for a local account and the popup simply never opens, which is a
 // graceful no-op, not a break.
@@ -9,9 +9,9 @@
 // controller; <EmojiSuggestionPopup> (rendered inside post-editor.svelte) reads it.
 import { Extension } from '@tiptap/core';
 import Suggestion from '@tiptap/suggestion';
-import { getAuth } from '@syren/app-core/stores/auth.svelte';
-import { resolveEmojis, type EmojiEntry } from '@syren/app-core/stores/emojis.svelte';
-import { proxied } from '@syren/app-core/utils/proxy';
+import { getAuth } from '@slyng/app-core/stores/auth.svelte';
+import { resolveEmojis, type EmojiEntry } from '@slyng/app-core/stores/emojis.svelte';
+import { proxied } from '@slyng/app-core/utils/proxy';
 
 const auth = getAuth();
 
@@ -108,7 +108,7 @@ export function EmojiSuggestion() {
 					startOfLine: false,
 					// `:query` → emoji; `::query` → sticker. With a single ':' trigger the
 					// second colon lands in `query` as a leading ':', so strip it for
-					// searching. Syntax (`:` vs `::`) drives size, mirroring syr/syren.
+					// searching. Syntax (`:` vs `::`) drives size, mirroring syr/slyng.
 					items: ({ query }) => {
 						const q = query.startsWith(':') ? query.slice(1) : query;
 						return searchEmojis(q, 10);

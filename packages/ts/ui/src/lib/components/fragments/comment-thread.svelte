@@ -1,14 +1,14 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { SvelteSet, SvelteMap } from 'svelte/reactivity';
-	import { Button } from '@syren/ui/button';
+	import { Button } from '@slyng/ui/button';
 	import { LoaderCircle, MessageSquare, Reply, Pencil, Trash2, EyeOff } from '@lucide/svelte';
 	import { toast } from 'svelte-sonner';
-	import { getAuth } from '@syren/app-core/stores/auth.svelte';
-	import { getRelations } from '@syren/app-core/stores/relations.svelte';
-	import { ensureFollowGraph } from '@syren/app-core/stores/follows.svelte';
-	import { resolveProfile, displayName } from '@syren/app-core/stores/profiles.svelte';
-	import { proxied } from '@syren/app-core/utils/proxy';
+	import { getAuth } from '@slyng/app-core/stores/auth.svelte';
+	import { getRelations } from '@slyng/app-core/stores/relations.svelte';
+	import { ensureFollowGraph } from '@slyng/app-core/stores/follows.svelte';
+	import { resolveProfile, displayName } from '@slyng/app-core/stores/profiles.svelte';
+	import { proxied } from '@slyng/app-core/utils/proxy';
 	import {
 		fetchComments,
 		fetchReactionsForThread,
@@ -21,8 +21,8 @@
 		type PublicComment,
 		type PublicReaction,
 		type FanoutTarget
-	} from '@syren/app-core/upload/interactions';
-	import type { ReactionCreate, ReactionParentType } from '@syren/types';
+	} from '@slyng/app-core/upload/interactions';
+	import type { ReactionCreate, ReactionParentType } from '@slyng/types';
 	import ReactionBar from './reaction-bar.svelte';
 
 	/**

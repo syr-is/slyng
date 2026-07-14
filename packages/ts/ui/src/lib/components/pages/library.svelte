@@ -1,6 +1,6 @@
 <script lang="ts">
 	// Personal file library (P7) — folders, uploads, storage quota + share links,
-	// all hosted on this syren instance. Owner-only management surface; the
+	// all hosted on this slyng instance. Owner-only management surface; the
 	// federation read is GET /api/public/uploads/:did. Files upload into whatever
 	// folder is currently open (presign → PUT → complete).
 	import {
@@ -22,10 +22,10 @@
 		HardDrive
 	} from '@lucide/svelte';
 	import { toast } from 'svelte-sonner';
-	import { Button } from '@syren/ui/button';
-	import { Input } from '@syren/ui/input';
-	import * as Dialog from '@syren/ui/dialog';
-	import { proxied } from '@syren/app-core/utils/proxy';
+	import { Button } from '@slyng/ui/button';
+	import { Input } from '@slyng/ui/input';
+	import * as Dialog from '@slyng/ui/dialog';
+	import { proxied } from '@slyng/app-core/utils/proxy';
 	import {
 		getStorageUsage,
 		listFolders,
@@ -39,8 +39,8 @@
 		type OwnedFolder,
 		type OwnedUpload,
 		type StorageUsage
-	} from '@syren/app-core/upload/library';
-	import { getInstance, loadInstanceLimits } from '@syren/app-core/stores/instance.svelte';
+	} from '@slyng/app-core/upload/library';
+	import { getInstance, loadInstanceLimits } from '@slyng/app-core/stores/instance.svelte';
 	import PaginatedTable from '../fragments/paginated-table.svelte';
 
 	const instance = getInstance();

@@ -1,9 +1,9 @@
 <script lang="ts">
-	import * as Dialog from '@syren/ui/dialog';
-	import { Button } from '@syren/ui/button';
+	import * as Dialog from '@slyng/ui/dialog';
+	import { Button } from '@slyng/ui/button';
 	import { Trash2 } from '@lucide/svelte';
 	import { toast } from 'svelte-sonner';
-	import { api } from '@syren/app-core/api';
+	import { api } from '@slyng/app-core/api';
 
 	const {
 		open,

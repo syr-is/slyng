@@ -1,17 +1,17 @@
 <script lang="ts">
 	import { onDestroy } from 'svelte';
-	import * as Avatar from '@syren/ui/avatar';
+	import * as Avatar from '@slyng/ui/avatar';
 	import { Crown, UserMinus, Ban } from '@lucide/svelte';
-	import { WsOp, Permissions } from '@syren/types';
-	import { onWsEvent } from '@syren/app-core/stores/ws.svelte';
-	import * as Tooltip from '@syren/ui/tooltip';
-	import { api } from '@syren/app-core/api';
+	import { WsOp, Permissions } from '@slyng/types';
+	import { onWsEvent } from '@slyng/app-core/stores/ws.svelte';
+	import * as Tooltip from '@slyng/ui/tooltip';
+	import { api } from '@slyng/app-core/api';
 	import MemberActionDialog from './member-action-dialog.svelte';
-	import { resolveProfile, displayName, federatedHandle } from '@syren/app-core/stores/profiles.svelte';
-	import { getRoles, type RoleData } from '@syren/app-core/stores/roles.svelte';
-	import { getPerms } from '@syren/app-core/stores/perms.svelte';
-	import { getServerState } from '@syren/app-core/stores/servers.svelte';
-	import { proxied } from '@syren/app-core/utils/proxy';
+	import { resolveProfile, displayName, federatedHandle } from '@slyng/app-core/stores/profiles.svelte';
+	import { getRoles, type RoleData } from '@slyng/app-core/stores/roles.svelte';
+	import { getPerms } from '@slyng/app-core/stores/perms.svelte';
+	import { getServerState } from '@slyng/app-core/stores/servers.svelte';
+	import { proxied } from '@slyng/app-core/utils/proxy';
 	import PaginatedTable from '../paginated-table.svelte';
 	import MemberRolesPopover from '../member-roles-popover.svelte';
 

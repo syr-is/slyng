@@ -1,9 +1,9 @@
 <script lang="ts">
-	import * as Avatar from '@syren/ui/avatar';
+	import * as Avatar from '@slyng/ui/avatar';
 	import { FileText, Image as ImageIcon } from '@lucide/svelte';
-	import type { Post } from '@syren/app-core/stores/posts.svelte';
-	import { resolveProfile, displayName, federatedHandle } from '@syren/app-core/stores/profiles.svelte';
-	import { proxied } from '@syren/app-core/utils/proxy';
+	import type { Post } from '@slyng/app-core/stores/posts.svelte';
+	import { resolveProfile, displayName, federatedHandle } from '@slyng/app-core/stores/profiles.svelte';
+	import { proxied } from '@slyng/app-core/utils/proxy';
 	import SafeMedia from './safe-media.svelte';
 	import ProfileHoverCard from './profile-hover-card.svelte';
 

@@ -1,11 +1,11 @@
 /**
  * Owned blog/media posts — ported from syr's `posts.ts`.
  *
- * Wire-shape parity with syr so federated consumers parse syren-hosted posts
+ * Wire-shape parity with syr so federated consumers parse slyng-hosted posts
  * unchanged. The one deliberate divergence from syr is the signing MODEL, not
  * the payload: syr signs post mutations on the CLIENT (the browser holds the
- * key) and ships a `signed_mutation` envelope. Syren local accounts are
- * server-custody (syren holds the Aegis seed), so the server signs the
+ * key) and ships a `signed_mutation` envelope. Slyng local accounts are
+ * server-custody (slyng holds the Aegis seed), so the server signs the
  * canonical `post@v1` payload with the account's self-delegation key — exactly
  * as `ProfileService` signs `profile@v1`. The signed payload SHAPE still
  * matches syr, so a remote verifier chains signature → delegate key →

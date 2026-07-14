@@ -1,11 +1,11 @@
 <script lang="ts">
-	import * as Avatar from '@syren/ui/avatar';
+	import * as Avatar from '@slyng/ui/avatar';
 	import { RotateCcw, Ban } from '@lucide/svelte';
 	import { toast } from 'svelte-sonner';
-	import { api } from '@syren/app-core/api';
-	import { resolveProfile, displayName, federatedHandle } from '@syren/app-core/stores/profiles.svelte';
-	import { getPerms } from '@syren/app-core/stores/perms.svelte';
-	import { proxied } from '@syren/app-core/utils/proxy';
+	import { api } from '@slyng/app-core/api';
+	import { resolveProfile, displayName, federatedHandle } from '@slyng/app-core/stores/profiles.svelte';
+	import { getPerms } from '@slyng/app-core/stores/perms.svelte';
+	import { proxied } from '@slyng/app-core/utils/proxy';
 	import PaginatedTable from '../paginated-table.svelte';
 
 	interface BanRow {

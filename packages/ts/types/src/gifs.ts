@@ -2,13 +2,13 @@ import { z } from 'zod';
 
 /**
  * Personal GIF library hosting (P6). Owner uploads GIFs (optionally tagged);
- * the public list is the federation surface syren's `gifs.svelte` store
+ * the public list is the federation surface slyng's `gifs.svelte` store
  * consumes — `{ did, local_id, url, thumbnail_url?, tags?, size?, mime_type? }`
  * rows, filtered by an optional `search`. Owned composite-id content:
  * `gif:{ created_by: <did>, id: <ulid> }`.
  *
  * Wire contract ported from syr (packages/ts/types/src/gifs.ts) and, for the
- * public shape, from what syren's gif store already parses.
+ * public shape, from what slyng's gif store already parses.
  */
 
 export const GIF_ALLOWED_MIME = ['image/gif', 'image/webp', 'video/mp4'] as const;
@@ -56,7 +56,7 @@ export const OwnedGifSchema = z.object({
 });
 export type OwnedGif = z.infer<typeof OwnedGifSchema>;
 
-/** Public GIF entry — the exact shape syren's gif store reads. */
+/** Public GIF entry — the exact shape slyng's gif store reads. */
 export const PublicGifSchema = z.object({
 	did: z.string(),
 	local_id: z.string(),

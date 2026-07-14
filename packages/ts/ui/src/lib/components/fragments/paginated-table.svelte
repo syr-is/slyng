@@ -25,8 +25,8 @@
 		Filter,
 		X
 	} from '@lucide/svelte';
-	import { Input } from '@syren/ui/input';
-	import { Button } from '@syren/ui/button';
+	import { Input } from '@slyng/ui/input';
+	import { Button } from '@slyng/ui/button';
 
 	type FilterDef =
 		| { key: string; kind: 'text'; label: string; placeholder?: string; mono?: boolean }

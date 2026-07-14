@@ -1,9 +1,9 @@
 <script lang="ts">
 	import { onDestroy } from 'svelte';
-	import * as Sheet from '@syren/ui/sheet';
-	import * as Avatar from '@syren/ui/avatar';
-	import { Button } from '@syren/ui/button';
-	import { Separator } from '@syren/ui/separator';
+	import * as Sheet from '@slyng/ui/sheet';
+	import * as Avatar from '@slyng/ui/avatar';
+	import { Button } from '@slyng/ui/button';
+	import { Separator } from '@slyng/ui/separator';
 	import {
 		Crown,
 		UserMinus,
@@ -25,16 +25,16 @@
 	import { Check, X, Minus } from '@lucide/svelte';
 	import { toast } from 'svelte-sonner';
 	import { goto } from '$app/navigation';
-	import { WsOp, Permissions } from '@syren/types';
-	import { api } from '@syren/app-core/api';
-	import { onWsEvent } from '@syren/app-core/stores/ws.svelte';
-	import { resolveProfile, displayName, federatedHandle } from '@syren/app-core/stores/profiles.svelte';
-	import { getMembers } from '@syren/app-core/stores/members.svelte';
-	import { getRoles } from '@syren/app-core/stores/roles.svelte';
-	import { getServerState } from '@syren/app-core/stores/servers.svelte';
-	import { getPerms } from '@syren/app-core/stores/perms.svelte';
-	import { getAuth } from '@syren/app-core/stores/auth.svelte';
-	import { proxied } from '@syren/app-core/utils/proxy';
+	import { WsOp, Permissions } from '@slyng/types';
+	import { api } from '@slyng/app-core/api';
+	import { onWsEvent } from '@slyng/app-core/stores/ws.svelte';
+	import { resolveProfile, displayName, federatedHandle } from '@slyng/app-core/stores/profiles.svelte';
+	import { getMembers } from '@slyng/app-core/stores/members.svelte';
+	import { getRoles } from '@slyng/app-core/stores/roles.svelte';
+	import { getServerState } from '@slyng/app-core/stores/servers.svelte';
+	import { getPerms } from '@slyng/app-core/stores/perms.svelte';
+	import { getAuth } from '@slyng/app-core/stores/auth.svelte';
+	import { proxied } from '@slyng/app-core/utils/proxy';
 	import PaginatedTable from './paginated-table.svelte';
 	import MemberActionDialog from './server-settings/member-action-dialog.svelte';
 	import PurgeMessagesDialog from './server-settings/purge-messages-dialog.svelte';
@@ -446,7 +446,7 @@
 <Sheet.Root open={true} onOpenChange={(v) => { if (!v) onClose(); }}>
 	<Sheet.Content
 		side="right"
-		class="flex w-full flex-col gap-0 p-0 pt-[var(--syren-sai-top,env(safe-area-inset-top,0px))] pb-[var(--syren-sai-bottom,env(safe-area-inset-bottom,0px))] sm:max-w-xl"
+		class="flex w-full flex-col gap-0 p-0 pt-[var(--slyng-sai-top,env(safe-area-inset-top,0px))] pb-[var(--slyng-sai-bottom,env(safe-area-inset-bottom,0px))] sm:max-w-xl"
 		ontouchstart={onTouchStart}
 		ontouchend={onTouchEnd}
 		ontouchcancel={onTouchCancel}

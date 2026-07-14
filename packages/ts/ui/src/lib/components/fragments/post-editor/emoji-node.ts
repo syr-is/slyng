@@ -2,7 +2,7 @@
 // chat editor. Renders an <img> inside the editor (so the composer shows the art
 // live) and serializes back to `:shortcode:` / `::shortcode::` in the post
 // Markdown (via @tiptap/markdown's `renderMarkdown` hook), so the stored text
-// agrees with what the read-side renderer (`@syren/app-core/utils/emoji-render`)
+// agrees with what the read-side renderer (`@slyng/app-core/utils/emoji-render`)
 // resolves. `sticker` drives both the render size and `:` vs `::` serialization.
 //
 // The `url` handed to `insertEmoji` is already `proxied()` by the editor before

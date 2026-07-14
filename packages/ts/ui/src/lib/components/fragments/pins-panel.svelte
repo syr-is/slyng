@@ -1,13 +1,13 @@
 <script lang="ts">
-	import * as Dialog from '@syren/ui/dialog';
-	import * as Avatar from '@syren/ui/avatar';
+	import * as Dialog from '@slyng/ui/dialog';
+	import * as Avatar from '@slyng/ui/avatar';
 	import { PinOff, Pin, Loader2 } from '@lucide/svelte';
 	import { toast } from 'svelte-sonner';
-	import { WsOp } from '@syren/types';
-	import { api } from '@syren/app-core/api';
-	import { onWsEvent } from '@syren/app-core/stores/ws.svelte';
-	import { resolveProfile, displayName } from '@syren/app-core/stores/profiles.svelte';
-	import { proxied } from '@syren/app-core/utils/proxy';
+	import { WsOp } from '@slyng/types';
+	import { api } from '@slyng/app-core/api';
+	import { onWsEvent } from '@slyng/app-core/stores/ws.svelte';
+	import { resolveProfile, displayName } from '@slyng/app-core/stores/profiles.svelte';
+	import { proxied } from '@slyng/app-core/utils/proxy';
 
 	interface PinnedMsg {
 		id: string;

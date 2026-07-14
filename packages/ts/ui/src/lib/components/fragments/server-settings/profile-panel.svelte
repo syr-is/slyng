@@ -1,10 +1,10 @@
 <script lang="ts">
-	import { Button } from '@syren/ui/button';
-	import { Input } from '@syren/ui/input';
+	import { Button } from '@slyng/ui/button';
+	import { Input } from '@slyng/ui/input';
 	import { toast } from 'svelte-sonner';
-	import { api } from '@syren/app-core/api';
-	import { getServerState, upsertServer } from '@syren/app-core/stores/servers.svelte';
-	import { getPerms } from '@syren/app-core/stores/perms.svelte';
+	import { api } from '@slyng/app-core/api';
+	import { getServerState, upsertServer } from '@slyng/app-core/stores/servers.svelte';
+	import { getPerms } from '@slyng/app-core/stores/perms.svelte';
 	import ImageField from '../image-field.svelte';
 
 	const { serverId }: { serverId: string } = $props();

@@ -1,5 +1,5 @@
 /**
- * `idpFetch` — the single authed-fetch chokepoint for syren's local
+ * `idpFetch` — the single authed-fetch chokepoint for slyng's local
  * identity-provider surface (consent, delegations, profile editing,
  * stories/posts/emoji/library authoring).
  *
@@ -8,7 +8,7 @@
  * consumes with plain fetch. Mirroring every IdP route through the Rust
  * client (plus a Tauri command each for native) would triple the surface
  * for endpoints whose contract is owned by the syr protocol, not by
- * syren's Rust types. Instead the host registers a session-token
+ * slyng's Rust types. Instead the host registers a session-token
  * provider at boot (web: the WASM client's localStorage key; native: the
  * Tauri `session_token` command) and every IdP call flows through here
  * with `credentials: 'include'` + `Authorization: Bearer`.

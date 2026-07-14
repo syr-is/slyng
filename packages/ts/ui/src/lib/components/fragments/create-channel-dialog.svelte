@@ -1,12 +1,12 @@
 <script lang="ts">
-	import * as Dialog from '@syren/ui/dialog';
-	import { Button } from '@syren/ui/button';
-	import { Input } from '@syren/ui/input';
-	import * as Form from '@syren/ui/form';
+	import * as Dialog from '@slyng/ui/dialog';
+	import { Button } from '@slyng/ui/button';
+	import { Input } from '@slyng/ui/input';
+	import * as Form from '@slyng/ui/form';
 	import { superForm, defaults } from 'sveltekit-superforms';
 	import { zod4, zod4Client } from 'sveltekit-superforms/adapters';
 	import { z } from 'zod';
-	import { CreateChannelInputSchema } from '@syren/types';
+	import { CreateChannelInputSchema } from '@slyng/types';
 
 	const {
 		open,

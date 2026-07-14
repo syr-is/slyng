@@ -3,14 +3,14 @@
 	import { toggleMode } from 'mode-watcher';
 	import { toast } from 'svelte-sonner';
 	import { goto } from '$app/navigation';
-	import { WsOp, type VoiceState } from '@syren/types';
-	import { apiUrl } from '@syren/app-core/host';
-	import { onWsEvent } from '@syren/app-core/stores/ws.svelte';
-	import { setPageSidebar } from '@syren/ui/fragments/swipe-layout';
-	import ChannelSidebar from '@syren/ui/fragments/channel-sidebar.svelte';
-	import InviteDialog from '@syren/ui/fragments/invite-dialog.svelte';
-	import ModerationSheet from '@syren/ui/fragments/moderation-sheet.svelte';
-	import { getModerationTarget, closeModeration } from '@syren/app-core/stores/moderation-target.svelte';
+	import { WsOp, type VoiceState } from '@slyng/types';
+	import { apiUrl } from '@slyng/app-core/host';
+	import { onWsEvent } from '@slyng/app-core/stores/ws.svelte';
+	import { setPageSidebar } from '@slyng/ui/fragments/swipe-layout';
+	import ChannelSidebar from '@slyng/ui/fragments/channel-sidebar.svelte';
+	import InviteDialog from '@slyng/ui/fragments/invite-dialog.svelte';
+	import ModerationSheet from '@slyng/ui/fragments/moderation-sheet.svelte';
+	import { getModerationTarget, closeModeration } from '@slyng/app-core/stores/moderation-target.svelte';
 	import {
 		getServerState,
 		setActiveServer,
@@ -18,16 +18,16 @@
 		setServerChannels,
 		setServerCategories,
 		upsertServer
-	} from '@syren/app-core/stores/servers.svelte';
-	import { setServerPerms, clearServerPerms } from '@syren/app-core/stores/perms.svelte';
-	import { setRoles, clearRoles } from '@syren/app-core/stores/roles.svelte';
-	import { setMembers, clearMembers, getMembers } from '@syren/app-core/stores/members.svelte';
-	import { clearMessages } from '@syren/app-core/stores/messages.svelte';
-	import { watchProfiles, unwatchProfiles } from '@syren/app-core/stores/profiles.svelte';
-	import { setChannelUsers, clearChannelUsers } from '@syren/app-core/voice/voice-state.svelte';
-	import { subscribeChannels, unsubscribeChannels } from '@syren/app-core/stores/ws.svelte';
-	import { getAuth } from '@syren/app-core/stores/auth.svelte';
-	import { api } from '@syren/app-core/api';
+	} from '@slyng/app-core/stores/servers.svelte';
+	import { setServerPerms, clearServerPerms } from '@slyng/app-core/stores/perms.svelte';
+	import { setRoles, clearRoles } from '@slyng/app-core/stores/roles.svelte';
+	import { setMembers, clearMembers, getMembers } from '@slyng/app-core/stores/members.svelte';
+	import { clearMessages } from '@slyng/app-core/stores/messages.svelte';
+	import { watchProfiles, unwatchProfiles } from '@slyng/app-core/stores/profiles.svelte';
+	import { setChannelUsers, clearChannelUsers } from '@slyng/app-core/voice/voice-state.svelte';
+	import { subscribeChannels, unsubscribeChannels } from '@slyng/app-core/stores/ws.svelte';
+	import { getAuth } from '@slyng/app-core/stores/auth.svelte';
+	import { api } from '@slyng/app-core/api';
 	import { page } from '$app/state';
 
 	let { children } = $props();

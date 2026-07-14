@@ -9,7 +9,7 @@ import type {
   AegisBundle,
 } from "./types.js";
 
-let wasm: Awaited<typeof import("@syren/idp-crypto/wasm")> | null = null;
+let wasm: Awaited<typeof import("@slyng/idp-crypto/wasm")> | null = null;
 let wasmInitPromise: Promise<void> | null = null;
 
 /**
@@ -24,7 +24,7 @@ export async function initCryptoWasm(): Promise<void> {
     if (typeof globalThis.WebAssembly === "undefined") {
       throw new Error("WebAssembly is not supported in this environment");
     }
-    const mod = await import("@syren/idp-crypto/wasm");
+    const mod = await import("@slyng/idp-crypto/wasm");
     // Node build loads WASM synchronously; web build has async default init
     if (typeof mod.default === "function") {
       await mod.default();

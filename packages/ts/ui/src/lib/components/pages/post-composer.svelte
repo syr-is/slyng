@@ -7,18 +7,18 @@
 	import { onMount } from 'svelte';
 	import { page } from '$app/state';
 	import { goto, replaceState } from '$app/navigation';
-	import { getAuth } from '@syren/app-core/stores/auth.svelte';
+	import { getAuth } from '@slyng/app-core/stores/auth.svelte';
 	import {
 		createPost,
 		updatePost,
 		getOwnPost,
 		uploadPostAsset,
 		type OwnedPost
-	} from '@syren/app-core/upload/idp-post';
-	import { proxied } from '@syren/app-core/utils/proxy';
+	} from '@slyng/app-core/upload/idp-post';
+	import { proxied } from '@slyng/app-core/utils/proxy';
 	import { toast } from 'svelte-sonner';
-	import { Button } from '@syren/ui/button';
-	import { Input } from '@syren/ui/input';
+	import { Button } from '@slyng/ui/button';
+	import { Input } from '@slyng/ui/input';
 	import { ArrowLeft, LoaderCircle, Eye, Pencil, ImagePlus, X, FileText, Images } from '@lucide/svelte';
 	import PostEditor from '../fragments/post-editor/post-editor.svelte';
 

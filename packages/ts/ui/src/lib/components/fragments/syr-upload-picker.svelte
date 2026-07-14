@@ -1,11 +1,11 @@
 <script lang="ts">
-	import * as Dialog from '@syren/ui/dialog';
-	import { Button } from '@syren/ui/button';
+	import * as Dialog from '@slyng/ui/dialog';
+	import { Button } from '@slyng/ui/button';
 	import { Loader2, ImageIcon, VideoIcon, FileIcon } from '@lucide/svelte';
 	import { toast } from 'svelte-sonner';
-	import { getAuth } from '@syren/app-core/stores/auth.svelte';
-	import type { Attachment } from '@syren/app-core/upload/upload-client';
-	import { apiUrl } from '@syren/app-core/host';
+	import { getAuth } from '@slyng/app-core/stores/auth.svelte';
+	import type { Attachment } from '@slyng/app-core/upload/upload-client';
+	import { apiUrl } from '@slyng/app-core/host';
 
 	interface SyrUpload {
 		id: string;
@@ -44,7 +44,7 @@
 		loading = true;
 		error = null;
 		try {
-			// Proxy through syren API — direct cross-origin fetch won't send syr cookies
+			// Proxy through slyng API — direct cross-origin fetch won't send syr cookies
 			const syrPath = '/api/uploads?limit=60&sort_field=created_at&sort_order=desc';
 			const res = await fetch(
 				apiUrl(`/syr-proxy?path=${encodeURIComponent(syrPath)}`),
@@ -87,7 +87,7 @@
 		<Dialog.Header>
 			<Dialog.Title>Attach from your syr uploads</Dialog.Title>
 			<Dialog.Description>
-				Files already on your syr instance. Pick one to reference it directly — syren
+				Files already on your syr instance. Pick one to reference it directly — slyng
 				won't re-upload or copy it.
 			</Dialog.Description>
 		</Dialog.Header>

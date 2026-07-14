@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { Check, ChevronDown } from '@lucide/svelte';
-	import * as DropdownMenu from '@syren/ui/dropdown-menu';
-	import { Button } from '@syren/ui/button';
+	import * as DropdownMenu from '@slyng/ui/dropdown-menu';
+	import { Button } from '@slyng/ui/button';
 
 	const {
 		devices,

@@ -1,12 +1,12 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { toast } from 'svelte-sonner';
-	import { Button } from '@syren/ui/button';
+	import { Button } from '@slyng/ui/button';
 	import { Loader2, ShieldOff } from '@lucide/svelte';
-	import * as Tooltip from '@syren/ui/tooltip';
-	import { getAuth } from '@syren/app-core/stores/auth.svelte';
-	import { idpJson } from '@syren/app-core/idp-fetch';
-	import type { PlatformDelegationInfo } from '@syren/types';
+	import * as Tooltip from '@slyng/ui/tooltip';
+	import { getAuth } from '@slyng/app-core/stores/auth.svelte';
+	import { idpJson } from '@slyng/app-core/idp-fetch';
+	import type { PlatformDelegationInfo } from '@slyng/types';
 
 	/**
 	 * Platform connections: every delegation issued for the user's DID —

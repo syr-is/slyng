@@ -1,8 +1,8 @@
 <script lang="ts">
 	import { Search } from '@lucide/svelte';
-	import { getAuth } from '@syren/app-core/stores/auth.svelte';
-	import { resolveEmojis, type EmojiEntry } from '@syren/app-core/stores/emojis.svelte';
-	import { proxied } from '@syren/app-core/utils/proxy';
+	import { getAuth } from '@slyng/app-core/stores/auth.svelte';
+	import { resolveEmojis, type EmojiEntry } from '@slyng/app-core/stores/emojis.svelte';
+	import { proxied } from '@slyng/app-core/utils/proxy';
 
 	const {
 		onSelect,

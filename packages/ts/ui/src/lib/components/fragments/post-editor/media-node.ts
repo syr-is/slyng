@@ -1,6 +1,6 @@
 // A TipTap block node for an embedded image / video in a post. Ported from
 // pendi's journal media-node. Unlike pendi (which stored a durable `library:<id>`
-// ref resolved to a fresh presigned url), syren posts embed PLAIN, STABLE public
+// ref resolved to a fresh presigned url), slyng posts embed PLAIN, STABLE public
 // S3 urls — so `ref` is just the https url and the hydration pass fills the
 // transient `url`/`video` from it (see post-editor.svelte). The node itself is
 // ref-format-agnostic, so it needs no change: it stores `ref`, renders once the
@@ -16,7 +16,7 @@
 import { Node, mergeAttributes } from '@tiptap/core';
 
 export interface MediaInsert {
-	/** Durable reference — a plain external/S3 https url in syren. */
+	/** Durable reference — a plain external/S3 https url in slyng. */
 	ref: string;
 	/** Display url known at insert time (skips the first resolve). */
 	url?: string;

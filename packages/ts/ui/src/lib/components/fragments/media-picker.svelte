@@ -1,15 +1,15 @@
 <script lang="ts">
-	import * as Popover from '@syren/ui/popover';
-	import { Input } from '@syren/ui/input';
-	import { buttonVariants } from '@syren/ui/button';
-	import { cn } from '@syren/ui/utils';
+	import * as Popover from '@slyng/ui/popover';
+	import { Input } from '@slyng/ui/input';
+	import { buttonVariants } from '@slyng/ui/button';
+	import { cn } from '@slyng/ui/utils';
 	import { tick } from 'svelte';
 	import { Sticker, Search, LoaderCircle, ImageOff, Bookmark } from '@lucide/svelte';
-	import type { ClipFeedEntry, ClipItem, ClipKind } from '@syren/types';
-	import { clips } from '@syren/app-core/stores/clips.svelte';
-	import { getAuth } from '@syren/app-core/stores/auth.svelte';
-	import { resolveGifs } from '@syren/app-core/stores/gifs.svelte';
-	import { proxied } from '@syren/app-core/utils/proxy';
+	import type { ClipFeedEntry, ClipItem, ClipKind } from '@slyng/types';
+	import { clips } from '@slyng/app-core/stores/clips.svelte';
+	import { getAuth } from '@slyng/app-core/stores/auth.svelte';
+	import { resolveGifs } from '@slyng/app-core/stores/gifs.svelte';
+	import { proxied } from '@slyng/app-core/utils/proxy';
 	import { KLIPY_POWERED_BY } from './klipy-brand.js';
 
 	// A toolbar-anchored picker for GIFs / stickers / clips / memes (Klipy) for the

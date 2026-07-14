@@ -2,12 +2,12 @@ import { z } from 'zod';
 
 /**
  * Custom-emoji / sticker hosting (P6). Owner uploads an image under a
- * shortcode; the public list is the federation surface syren's `emojis.svelte`
+ * shortcode; the public list is the federation surface slyng's `emojis.svelte`
  * store consumes — `{ shortcode, url, is_sticker }` rows + a `has_more` flag.
  * Owned composite-id content: `emoji:{ created_by: <did>, id: <ulid> }`.
  *
  * Wire contract ported from syr (packages/ts/types/src/emojis.ts) and, for the
- * public shape, from what syren's emoji store already parses.
+ * public shape, from what slyng's emoji store already parses.
  */
 
 /** Discord/syr-style shortcode: letters, digits, underscores; 2–32 chars. */

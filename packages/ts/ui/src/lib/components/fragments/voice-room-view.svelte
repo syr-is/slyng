@@ -3,19 +3,19 @@
 	import { SvelteMap } from 'svelte/reactivity';
 	import { Volume2, MicOff, HeadphoneOff, Maximize2, Minimize2 } from '@lucide/svelte';
 	import { toast } from 'svelte-sonner';
-	import { Button } from '@syren/ui/button';
-	import * as Avatar from '@syren/ui/avatar';
-	import { getVoiceState, getChannelUsersFor } from '@syren/app-core/voice/voice-state.svelte';
+	import { Button } from '@slyng/ui/button';
+	import * as Avatar from '@slyng/ui/avatar';
+	import { getVoiceState, getChannelUsersFor } from '@slyng/app-core/voice/voice-state.svelte';
 	import {
 		joinVoiceChannel, onRemoteVideo, onLocalVideo, MicPermissionError,
 		isCameraOn, isScreenSharing, isSpeaking,
 		getLocalCameraStream, getLocalScreenStream,
 		type VideoSource, type VideoStreamKey
-	} from '@syren/app-core/voice/livekit-engine';
-	import { attachStream } from '@syren/app-core/utils/attach-stream';
-	import { resolveProfile, displayName } from '@syren/app-core/stores/profiles.svelte';
-	import { getAuth } from '@syren/app-core/stores/auth.svelte';
-	import { proxied } from '@syren/app-core/utils/proxy';
+	} from '@slyng/app-core/voice/livekit-engine';
+	import { attachStream } from '@slyng/app-core/utils/attach-stream';
+	import { resolveProfile, displayName } from '@slyng/app-core/stores/profiles.svelte';
+	import { getAuth } from '@slyng/app-core/stores/auth.svelte';
+	import { proxied } from '@slyng/app-core/utils/proxy';
 
 	const {
 		channelId,

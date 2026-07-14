@@ -2,8 +2,8 @@
  * Members for the active server. Auto-syncs via WS MEMBER_UPDATE / MEMBER_REMOVE.
  */
 
-import { WsOp } from '@syren/types';
-import type { ServerMember } from '@syren/client';
+import { WsOp } from '@slyng/types';
+import type { ServerMember } from '@slyng/client';
 import { onWsEvent } from './ws.svelte';
 import { recordIdString } from '../utils/record-id';
 import { normalizeMember } from './normalize';

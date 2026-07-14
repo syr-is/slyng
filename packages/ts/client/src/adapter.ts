@@ -1,9 +1,9 @@
 /**
  * Thin namespace adapter over the wasm-pack-emitted `Client` from
- * `@syren/client/wasm`.
+ * `@slyng/client/wasm`.
  *
  * All types come straight from the WASM build's auto-generated `.d.ts`
- * (which is in turn auto-derived from the Rust types in `syren-types`
+ * (which is in turn auto-derived from the Rust types in `slyng-types`
  * via `tsify-next`). There are zero hand-rolled interfaces here, zero
  * `as Promise<…>` casts. The only thing this file does is rename the
  * snake_case methods on the wasm Client into the namespace shape every
@@ -11,7 +11,7 @@
  *
  * If a method ever appears in `Client` but not below, the type system
  * will refuse to call it through `api.*` — that's intentional. New
- * methods get added in `syren-client/src/<domain>.rs`, surfaced in
+ * methods get added in `slyng-client/src/<domain>.rs`, surfaced in
  * `wasm.rs`, then plumbed through the matching namespace below.
  */
 
@@ -60,7 +60,7 @@ import type {
 	UserResolveResult,
 	VoiceTokenResponse,
 	Client as WasmClient,
-} from '@syren/client/wasm';
+} from '@slyng/client/wasm';
 
 // ── Boundary-normalized type overrides ───────────────────────────────
 //
@@ -94,9 +94,9 @@ export type PageAuditLog = Omit<WasmPageAuditLog, 'items'> & {
 };
 
 // Re-export the wasm-emitted types so consumers can `import type
-// { Server } from '@syren/client'` without reaching into
+// { Server } from '@slyng/client'` without reaching into
 // `dist/wasm/web/`. Adding more here is purely a convenience —
-// the canonical source is always `@syren/client/wasm`.
+// the canonical source is always `@slyng/client/wasm`.
 export type {
 	AllowDms,
 	AllowFriendRequests,
@@ -185,15 +185,15 @@ export type {
 	VisibleChannelSummary,
 	VoiceState,
 	VoiceTokenResponse,
-} from '@syren/client/wasm';
+} from '@slyng/client/wasm';
 
 // ── Public client surface ────────────────────────────────────────────
 
 /** Top-level shape every consumer talks through. Implementations exist
- *  for both web (WASM-backed via `initSyrenClient`) and native
+ *  for both web (WASM-backed via `initSlyngClient`) and native
  *  (Tauri-IPC-backed via Phase 7's `createNativeApi`). Both speak the
- *  same types because both source them from `@syren/client/wasm`. */
-export interface SyrenClient {
+ *  same types because both source them from `@slyng/client/wasm`. */
+export interface SlyngClient {
 	auth: {
 		me(): Promise<Identity>;
 		login(instanceUrl: string, redirect?: string): Promise<LoginResponse>;
@@ -321,7 +321,7 @@ export interface SyrenClient {
 export type WsState = 'disconnected' | 'connecting' | 'connected' | 'identified';
 
 /** Platform-agnostic realtime surface. WASM-backed on web (built via
- *  `createSyrenRealtime`); Tauri-IPC-backed on native (built per-app). */
+ *  `createSlyngRealtime`); Tauri-IPC-backed on native (built per-app). */
 export interface RealtimeHandle {
 	connect(): Promise<void>;
 	disconnect(): Promise<void>;
@@ -365,7 +365,7 @@ async function loadWasm(): Promise<WasmExports> {
 			// Plain dynamic import so the host bundler can statically
 			// discover the dependency and emit the matching `.wasm`
 			// asset alongside the JS.
-			const mod = (await import('@syren/client/wasm')) as unknown as WasmExports;
+			const mod = (await import('@slyng/client/wasm')) as unknown as WasmExports;
 			if (typeof mod.default === 'function') {
 				await (mod.default as () => Promise<unknown>)();
 			}
@@ -373,16 +373,16 @@ async function loadWasm(): Promise<WasmExports> {
 		})();
 	}
 	await initPromise;
-	if (!wasm) throw new Error('@syren/client: WASM failed to initialise');
+	if (!wasm) throw new Error('@slyng/client: WASM failed to initialise');
 	return wasm;
 }
 
-export async function initSyrenClient(
+export async function initSlyngClient(
 	baseUrl: string,
 	opts: { sessionKey?: string } = {},
-): Promise<SyrenClient> {
+): Promise<SlyngClient> {
 	const m = await loadWasm();
-	const inner = new m.Client(baseUrl, opts.sessionKey ?? 'syren_session');
+	const inner = new m.Client(baseUrl, opts.sessionKey ?? 'slyng_session');
 	return wrap(inner);
 }
 
@@ -390,13 +390,13 @@ export async function initSyrenClient(
  *  `Client` (sharing the same `LocalStorageStore` key as the api one
  *  by default), so IDENTIFY rides the same bearer the HTTP layer uses.
  *  Web's `+layout.ts` calls this once at boot and registers the result
- *  via `setRealtime(...)` in `@syren/app-core/realtime`. */
-export async function createSyrenRealtime(
+ *  via `setRealtime(...)` in `@slyng/app-core/realtime`. */
+export async function createSlyngRealtime(
 	baseUrl: string,
 	opts: { sessionKey?: string } = {},
 ): Promise<RealtimeHandle> {
 	const m = await loadWasm();
-	const inner = new m.Client(baseUrl, opts.sessionKey ?? 'syren_session');
+	const inner = new m.Client(baseUrl, opts.sessionKey ?? 'slyng_session');
 	const realtime = new m.Realtime(inner);
 	const frameSubs = new Set<(op: number, d: unknown) => void>();
 	const stateSubs = new Set<(s: WsState) => void>();
@@ -492,7 +492,7 @@ function normalized<T>(p: Promise<unknown>): Promise<T> {
 // snapshot, audit log, member audit log — return types with `HashMap`
 // fields that need Map→object normalization. See `normalizeMaps` above.
 
-function wrap(c: WasmClient): SyrenClient {
+function wrap(c: WasmClient): SlyngClient {
 	return {
 		auth: {
 			me: () => c.me(),

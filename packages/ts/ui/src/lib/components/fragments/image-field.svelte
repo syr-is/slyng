@@ -1,9 +1,9 @@
 <script lang="ts">
-	import { Button } from '@syren/ui/button';
+	import { Button } from '@slyng/ui/button';
 	import { Upload, Cloud, X, Loader2, ImageIcon } from '@lucide/svelte';
 	import { toast } from 'svelte-sonner';
-	import { uploadFile, type Attachment } from '@syren/app-core/upload/upload-client';
-	import { proxied } from '@syren/app-core/utils/proxy';
+	import { uploadFile, type Attachment } from '@slyng/app-core/upload/upload-client';
+	import { proxied } from '@slyng/app-core/utils/proxy';
 	import SyrUploadPicker from './syr-upload-picker.svelte';
 
 	const {

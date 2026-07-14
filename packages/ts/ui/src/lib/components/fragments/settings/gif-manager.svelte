@@ -1,14 +1,14 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { toast } from 'svelte-sonner';
-	import { Button } from '@syren/ui/button';
-	import { Input } from '@syren/ui/input';
+	import { Button } from '@slyng/ui/button';
+	import { Input } from '@slyng/ui/input';
 	import { Loader2, Plus, Trash2 } from '@lucide/svelte';
-	import { MAX_GIF_BYTES } from '@syren/types';
-	import { getAuth } from '@syren/app-core/stores/auth.svelte';
-	import { invalidateGifs } from '@syren/app-core/stores/gifs.svelte';
-	import { proxied } from '@syren/app-core/utils/proxy';
-	import { listGifs, uploadGif, deleteGif, type OwnedGif } from '@syren/app-core/upload/idp-media';
+	import { MAX_GIF_BYTES } from '@slyng/types';
+	import { getAuth } from '@slyng/app-core/stores/auth.svelte';
+	import { invalidateGifs } from '@slyng/app-core/stores/gifs.svelte';
+	import { proxied } from '@slyng/app-core/utils/proxy';
+	import { listGifs, uploadGif, deleteGif, type OwnedGif } from '@slyng/app-core/upload/idp-media';
 
 	/**
 	 * Personal-GIF manager (P6). Upload GIFs (optionally tagged for search), list,

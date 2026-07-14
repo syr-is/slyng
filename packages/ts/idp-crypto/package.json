@@ -1,7 +1,7 @@
 {
-  "name": "@syren/idp-crypto",
+  "name": "@slyng/idp-crypto",
   "version": "0.0.1",
-  "description": "syr identity crypto (Ed25519, did:syr, JCS, Aegis, Sigil) for syren's IdP. TS layer ported from syr's @syr-is/crypto; WASM built from the vendored syr crates.",
+  "description": "syr identity crypto (Ed25519, did:syr, JCS, Aegis, Sigil) for slyng's IdP. TS layer ported from syr's @syr-is/crypto; WASM built from the vendored syr crates.",
   "main": "./dist/index.js",
   "module": "./dist/index.mjs",
   "types": "./dist/index.d.ts",
@@ -16,14 +16,14 @@
       "default": "./dist/index.mjs"
     },
     "./wasm": {
-      "types": "./dist/wasm/web/syren_idp_crypto.d.ts",
+      "types": "./dist/wasm/web/slyng_idp_crypto.d.ts",
       "node": {
-        "import": "./dist/wasm/node/syren_idp_crypto_esm.mjs",
-        "require": "./dist/wasm/node/syren_idp_crypto.js",
-        "default": "./dist/wasm/node/syren_idp_crypto.js"
+        "import": "./dist/wasm/node/slyng_idp_crypto_esm.mjs",
+        "require": "./dist/wasm/node/slyng_idp_crypto.js",
+        "default": "./dist/wasm/node/slyng_idp_crypto.js"
       },
-      "import": "./dist/wasm/web/syren_idp_crypto.js",
-      "default": "./dist/wasm/web/syren_idp_crypto.js"
+      "import": "./dist/wasm/web/slyng_idp_crypto.js",
+      "default": "./dist/wasm/web/slyng_idp_crypto.js"
     }
   },
   "files": [
@@ -33,8 +33,8 @@
   "scripts": {
     "build": "pnpm run build:wasm && tsup",
     "build:wasm": "pnpm run build:wasm:web && pnpm run build:wasm:node && pnpm run build:wasm:node:esm",
-    "build:wasm:web": "cd ../../rust/syren-idp-crypto && wasm-pack build --release --target web --out-dir ../../ts/idp-crypto/dist/wasm/web --no-pack",
-    "build:wasm:node": "cd ../../rust/syren-idp-crypto && wasm-pack build --release --target nodejs --out-dir ../../ts/idp-crypto/dist/wasm/node --no-pack",
+    "build:wasm:web": "cd ../../rust/slyng-idp-crypto && wasm-pack build --release --target web --out-dir ../../ts/idp-crypto/dist/wasm/web --no-pack",
+    "build:wasm:node": "cd ../../rust/slyng-idp-crypto && wasm-pack build --release --target nodejs --out-dir ../../ts/idp-crypto/dist/wasm/node --no-pack",
     "build:wasm:node:esm": "node scripts/generate-node-esm-wrapper.mjs",
     "check": "pnpm run build:wasm && tsc --noEmit",
     "test": "vitest run",

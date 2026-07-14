@@ -2,7 +2,7 @@
  * Clip picker (GIFs / stickers / clips / memes via Klipy) — ported from pendi's
  * `@pendi/types`. A server-proxied, key-gated media picker for the post editor.
  * The Klipy key is server-only (it's a path segment in Klipy's URL), so the
- * browser only ever talks to syren's `/api/clips` proxy. Availability is
+ * browser only ever talks to slyng's `/api/clips` proxy. Availability is
  * reported IN the response (`available` / `aliveKinds`) so the UI shows a
  * precise "needs a key" state without a separate capability call.
  */

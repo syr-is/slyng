@@ -2,11 +2,11 @@
 	import { Popover } from 'bits-ui';
 	import { SmilePlus } from '@lucide/svelte';
 	import { toast } from 'svelte-sonner';
-	import { getAuth } from '@syren/app-core/stores/auth.svelte';
-	import { resolveEmojis } from '@syren/app-core/stores/emojis.svelte';
-	import { proxied } from '@syren/app-core/utils/proxy';
-	import { groupReactions, type ReactionGroup, type PublicReaction } from '@syren/app-core/upload/interactions';
-	import type { ReactionCreate, ReactionParentType } from '@syren/types';
+	import { getAuth } from '@slyng/app-core/stores/auth.svelte';
+	import { resolveEmojis } from '@slyng/app-core/stores/emojis.svelte';
+	import { proxied } from '@slyng/app-core/utils/proxy';
+	import { groupReactions, type ReactionGroup, type PublicReaction } from '@slyng/app-core/upload/interactions';
+	import type { ReactionCreate, ReactionParentType } from '@slyng/types';
 	import EmojiPicker from './emoji-picker.svelte';
 
 	/**

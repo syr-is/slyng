@@ -1,0 +1,27 @@
+[package]
+name = "slyng-idp-crypto"
+version = "0.1.0"
+edition = "2021"
+description = "WASM exports for Syr crypto (keys, encoding, sigil, aegis, did) — vendored from syr's syr-crypto-wasm"
+license = "MIT"
+
+[lib]
+crate-type = ["cdylib"]
+
+# Disable wasm-opt — the wasm-opt bundled with wasm-pack predates the
+# bulk-memory ops newer rustc emits and fails validation. Same workaround
+# as slyng-client.
+[package.metadata.wasm-pack.profile.release]
+wasm-opt = false
+
+[dependencies]
+syr-crypto-core = { path = "../syr-crypto-core" }
+syr-crypto-sigil = { path = "../syr-crypto-sigil" }
+syr-crypto-aegis = { path = "../syr-crypto-aegis" }
+syr-did = { path = "../syr-did" }
+wasm-bindgen = "0.2"
+js-sys = "0.3"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+serde-wasm-bindgen = "0.6"
+getrandom = { version = "0.2", features = ["js"] }

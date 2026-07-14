@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { VideoOff } from '@lucide/svelte';
-	import { attachStream } from '@syren/app-core/utils/attach-stream';
+	import { attachStream } from '@slyng/app-core/utils/attach-stream';
 
 	const {
 		stream,

@@ -1,5 +1,5 @@
 {
-	"name": "@syren/ui",
+	"name": "@slyng/ui",
 	"version": "0.0.1",
 	"type": "module",
 	"svelte": "./dist/index.js",
@@ -151,8 +151,8 @@
 	"dependencies": {
 		"@floating-ui/dom": "^1.7.6",
 		"@lucide/svelte": "^0.564.0",
-		"@syren/app-core": "workspace:*",
-		"@syren/types": "workspace:*",
+		"@slyng/app-core": "workspace:*",
+		"@slyng/types": "workspace:*",
 		"@tiptap/core": "^3.27.4",
 		"@tiptap/markdown": "^3.27.4",
 		"@tiptap/pm": "^3.27.4",

@@ -1,8 +1,8 @@
 <script lang="ts">
 	import type { Snippet } from 'svelte';
 	import { Popover } from 'bits-ui';
-	import * as Avatar from '@syren/ui/avatar';
-	import { Button } from '@syren/ui/button';
+	import * as Avatar from '@slyng/ui/avatar';
+	import { Button } from '@slyng/ui/button';
 	import {
 		Crown,
 		ExternalLink,
@@ -19,26 +19,26 @@
 		X,
 		Check
 	} from '@lucide/svelte';
-	import * as DropdownMenu from '@syren/ui/dropdown-menu';
+	import * as DropdownMenu from '@slyng/ui/dropdown-menu';
 	import { toast } from 'svelte-sonner';
 	import { goto } from '$app/navigation';
-	import { api } from '@syren/app-core/api';
-	import { getRelations } from '@syren/app-core/stores/relations.svelte';
-	import { resolveProfile, displayName, federatedHandle } from '@syren/app-core/stores/profiles.svelte';
-	import { resolveStories } from '@syren/app-core/stores/stories.svelte';
-	import { proxied } from '@syren/app-core/utils/proxy';
+	import { api } from '@slyng/app-core/api';
+	import { getRelations } from '@slyng/app-core/stores/relations.svelte';
+	import { resolveProfile, displayName, federatedHandle } from '@slyng/app-core/stores/profiles.svelte';
+	import { resolveStories } from '@slyng/app-core/stores/stories.svelte';
+	import { proxied } from '@slyng/app-core/utils/proxy';
 	import StoryViewer from './story-viewer.svelte';
 	import SafeLink from './safe-link.svelte';
 	import FollowButton from './follow-button.svelte';
 	import { getActiveProfileCard, setActiveProfileCard } from './active-profile-card.svelte.js';
 	import { getPaneState } from './swipe-layout/swipe-pane.svelte.js';
-	import { getMembers, type MemberData } from '@syren/app-core/stores/members.svelte';
-	import { getRoles, type RoleData } from '@syren/app-core/stores/roles.svelte';
-	import { getServerState } from '@syren/app-core/stores/servers.svelte';
-	import { getPresenceData, type PresenceStatus } from '@syren/app-core/stores/presence.svelte';
-	import { getPerms } from '@syren/app-core/stores/perms.svelte';
-	import { getAuth } from '@syren/app-core/stores/auth.svelte';
-	import { openModeration } from '@syren/app-core/stores/moderation-target.svelte';
+	import { getMembers, type MemberData } from '@slyng/app-core/stores/members.svelte';
+	import { getRoles, type RoleData } from '@slyng/app-core/stores/roles.svelte';
+	import { getServerState } from '@slyng/app-core/stores/servers.svelte';
+	import { getPresenceData, type PresenceStatus } from '@slyng/app-core/stores/presence.svelte';
+	import { getPerms } from '@slyng/app-core/stores/perms.svelte';
+	import { getAuth } from '@slyng/app-core/stores/auth.svelte';
+	import { openModeration } from '@slyng/app-core/stores/moderation-target.svelte';
 
 	const STATUS_COLORS: Record<PresenceStatus, string> = {
 		online: 'bg-green-500',

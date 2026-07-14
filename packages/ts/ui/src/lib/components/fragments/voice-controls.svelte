@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { Mic, MicOff, Headphones, HeadphoneOff, PhoneOff, Monitor, MonitorOff, Video, VideoOff } from '@lucide/svelte';
 	import { toast } from 'svelte-sonner';
-	import { getVoiceState, setSelfMute, setSelfDeaf } from '@syren/app-core/voice/voice-state.svelte';
+	import { getVoiceState, setSelfMute, setSelfDeaf } from '@slyng/app-core/voice/voice-state.svelte';
 	import {
 		toggleMute,
 		toggleDeafen,
@@ -15,7 +15,7 @@
 		isCameraOn,
 		ScreenSharePermissionError,
 		CameraPermissionError
-	} from '@syren/app-core/voice/livekit-engine';
+	} from '@slyng/app-core/voice/livekit-engine';
 
 	const voice = getVoiceState();
 

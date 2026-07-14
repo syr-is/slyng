@@ -1,16 +1,16 @@
 <script lang="ts">
-	import * as Avatar from '@syren/ui/avatar';
+	import * as Avatar from '@slyng/ui/avatar';
 	import { Reply, Pencil, Trash2, SmilePlus, FileIcon, Pin, PinOff, X, Check, Crown, Eye, EyeOff, Ban } from '@lucide/svelte';
 	import EmojiPicker from './emoji-picker.svelte';
 	import ImageLightbox from './image-lightbox.svelte';
-	import { resolveProfile, displayName } from '@syren/app-core/stores/profiles.svelte';
-	import { getMembers } from '@syren/app-core/stores/members.svelte';
-	import { getRoles } from '@syren/app-core/stores/roles.svelte';
-	import { resolveEmojis } from '@syren/app-core/stores/emojis.svelte';
-	import { getMessages } from '@syren/app-core/stores/messages.svelte';
-	import { getRelations } from '@syren/app-core/stores/relations.svelte';
-	import { renderEmojis, isStickerOnly } from '@syren/app-core/utils/emoji-render';
-	import { proxied } from '@syren/app-core/utils/proxy';
+	import { resolveProfile, displayName } from '@slyng/app-core/stores/profiles.svelte';
+	import { getMembers } from '@slyng/app-core/stores/members.svelte';
+	import { getRoles } from '@slyng/app-core/stores/roles.svelte';
+	import { resolveEmojis } from '@slyng/app-core/stores/emojis.svelte';
+	import { getMessages } from '@slyng/app-core/stores/messages.svelte';
+	import { getRelations } from '@slyng/app-core/stores/relations.svelte';
+	import { renderEmojis, isStickerOnly } from '@slyng/app-core/utils/emoji-render';
+	import { proxied } from '@slyng/app-core/utils/proxy';
 	import ProfileHoverCard from './profile-hover-card.svelte';
 	import SafeMedia from './safe-media.svelte';
 	import { IsMobile } from '../ui/sidebar/is-mobile.svelte.js';

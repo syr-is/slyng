@@ -1,0 +1,285 @@
+import { HttpException, Injectable, Logger } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
+import { zipSync, strToU8 } from 'fflate';
+import { createHash } from 'node:crypto';
+import { canonicalize, encodeMultibase, sign } from '@slyng/idp-crypto';
+import { extractLocalId } from '@slyng/types';
+import type { IdentityExportManifest, IdentityExportCounts } from '@slyng/types';
+import type { RecordId } from 'surrealdb';
+import { IdpCryptoService } from './idp-crypto.service';
+import { IdpStorageService } from './idp-storage.service';
+import {
+	IdentityRepository,
+	IdpProfileRepository,
+	LocalAccountRepository
+} from './idp.repository';
+import { PostRepository } from './idp-post.repository';
+import { EmojiRepository, GifRepository } from './idp-media.repository';
+import { LibraryUploadRepository } from './idp-content.repository';
+import { CommentRepository, ReactionRepository, FollowRepository } from './idp-interaction.repository';
+
+interface ExportedRecord {
+	local_id: string;
+	record: Record<string, unknown>;
+}
+
+/**
+ * Identity export (P11): a portable, root-signed `.zip` of an identity's
+ * owned content. Every owned record is composite-keyed
+ * (`table:{created_by: <did>, id}`), so the DID is baked into each key —
+ * re-import is conflict-free. Local S3 assets are bundled by their key so a
+ * new host can re-host them under the same path. Aegis (password) accounts
+ * also export the encrypted seed bundle so re-import restores login with the
+ * same password; the whole thing is signed by the root key.
+ */
+@Injectable()
+export class IdentityExportService {
+	private readonly logger = new Logger(IdentityExportService.name);
+
+	constructor(
+		private readonly config: ConfigService,
+		private readonly crypto: IdpCryptoService,
+		private readonly storage: IdpStorageService,
+		private readonly accounts: LocalAccountRepository,
+		private readonly identities: IdentityRepository,
+		private readonly profiles: IdpProfileRepository,
+		private readonly posts: PostRepository,
+		private readonly emojis: EmojiRepository,
+		private readonly gifs: GifRepository,
+		private readonly uploads: LibraryUploadRepository,
+		private readonly comments: CommentRepository,
+		private readonly reactions: ReactionRepository,
+		private readonly follows: FollowRepository
+	) {}
+
+	/**
+	 * Build a signed export bundle for `did`. Requires the account password —
+	 * it unlocks the Aegis seed to sign the bundle digest (and proves
+	 * ownership). Self-custody accounts (no server-held seed) can't be
+	 * exported server-side; they'd sign on their device.
+	 */
+	async exportIdentity(did: string, password: string): Promise<{ zip: Uint8Array; filename: string }> {
+		const account = await this.accounts.findByDid(did);
+		if (!account) throw new HttpException('Account not found', 404);
+		const identity = await this.identities.findByDid(did);
+		if (!identity) throw new HttpException('Identity not found', 404);
+		const profile = await this.profiles.findByAccountId(account.id);
+
+		const hasAegis = !!(
+			identity.aegis_salt &&
+			identity.aegis_nonce &&
+			identity.aegis_ct &&
+			identity.aegis_tag
+		);
+		if (!hasAegis) {
+			throw new HttpException(
+				'Export requires a password account (the root seed signs the bundle). Self-custody export is device-signed.',
+				400
+			);
+		}
+
+		// Root sign fn — decrypts the seed with the password (401 on wrong pw).
+		const bundle = this.crypto.aegisBundleFromIdentity(identity);
+		const rootSign = (statement: string) =>
+			this.crypto.withSeed({ bundle, password, action: (seed) => sign(statement, seed) });
+		// Fail fast on a bad password before doing all the gathering work.
+		try {
+			await rootSign('export-probe');
+		} catch {
+			throw new HttpException('Incorrect password', 401);
+		}
+
+		// ── Gather owned content ──────────────────────────────────────────
+		const [postRows, emojiRows, gifRows, uploadRows, commentRows, reactionRows, followRows] =
+			await Promise.all([
+				this.posts.findByOwnerDid(did),
+				this.emojis.findByOwnerDid(did),
+				this.gifs.findByOwnerDid(did),
+				this.uploads.findByOwnerDid(did),
+				this.comments.findByOwnerDid(did),
+				this.reactions.findByOwnerDid(did),
+				this.follows.findByOwnerDid(did)
+			]);
+		const storyRows = uploadRows.filter((u) => u.is_story === true);
+		const libraryRows = uploadRows.filter((u) => u.is_story !== true);
+
+		const files: Record<string, Uint8Array> = {};
+		const addJson = (name: string, value: unknown) => {
+			files[name] = strToU8(JSON.stringify(value, null, 0));
+		};
+
+		addJson('records/posts.json', postRows.map((r) => this.toExport(r.id, r)));
+		addJson('records/emojis.json', emojiRows.map((r) => this.toExport(r.id, r)));
+		addJson('records/gifs.json', gifRows.map((r) => this.toExport(r.id, r)));
+		addJson('records/stories.json', storyRows.map((r) => this.toExport(r.id, r)));
+		addJson('records/uploads.json', libraryRows.map((r) => this.toExport(r.id, r)));
+		addJson('records/comments.json', commentRows.map((r) => this.toExport(r.id, r)));
+		addJson('records/reactions.json', reactionRows.map((r) => this.toExport(r.id, r)));
+		addJson('records/follows.json', followRows.map((r) => this.toExport(r.id, r)));
+
+		if (profile) {
+			addJson('profile.json', {
+				display_name: profile.display_name ?? null,
+				bio: profile.bio ?? null,
+				avatar_url: profile.avatar_url ?? null,
+				banner_url: profile.banner_url ?? null,
+				content_signature: profile.content_signature ?? null,
+				signed_payload_json: profile.signed_payload_json ?? null,
+				signing_device_public_key: profile.signing_device_public_key ?? null
+			});
+		}
+
+		// The encrypted seed (Aegis) so re-import restores password login.
+		addJson('identity.json', {
+			did,
+			public_key: identity.public_key,
+			aegis: {
+				salt: identity.aegis_salt,
+				nonce: identity.aegis_nonce,
+				ct: identity.aegis_ct,
+				tag: identity.aegis_tag,
+				kdf: {
+					mem: identity.aegis_kdf_mem,
+					it: identity.aegis_kdf_it,
+					par: identity.aegis_kdf_par
+				}
+			}
+		});
+
+		// ── Bundle local S3 assets by key ─────────────────────────────────
+		const assetKeys = new Set<string>();
+		const collect = (rows: Array<Record<string, unknown>>) => {
+			for (const row of rows) {
+				for (const url of this.assetUrls(row)) {
+					const key = this.urlToLocalKey(url);
+					if (key) assetKeys.add(key);
+				}
+			}
+		};
+		collect(postRows);
+		collect(emojiRows);
+		collect(gifRows);
+		collect(uploadRows);
+		if (profile) collect([profile]);
+
+		const assetIndex: Array<{ key: string; mime: string }> = [];
+		for (const key of assetKeys) {
+			const bytes = await this.storage.getObjectBuffer(key);
+			if (!bytes) {
+				this.logger.warn(`Export ${did.slice(0, 16)}…: asset missing, skipping ${key}`);
+				continue;
+			}
+			files[`assets/${key}`] = new Uint8Array(bytes);
+			assetIndex.push({ key, mime: this.mimeFromKey(key) });
+		}
+		addJson('assets.json', assetIndex);
+
+		// ── Digest + manifest + signature ─────────────────────────────────
+		const counts: IdentityExportCounts = {
+			posts: postRows.length,
+			stories: storyRows.length,
+			emojis: emojiRows.length,
+			gifs: gifRows.length,
+			uploads: libraryRows.length,
+			comments: commentRows.length,
+			reactions: reactionRows.length,
+			follows: followRows.length,
+			registries: 0,
+			assets: assetIndex.length
+		};
+		const contentDigest = this.digestFiles(files);
+		const exportedAt = new Date().toISOString();
+		const manifest: IdentityExportManifest = {
+			version: 1,
+			did,
+			public_key: identity.public_key,
+			username: account.username,
+			host: this.getPublicUrl(),
+			exported_at: exportedAt,
+			includes_seed: true,
+			counts,
+			content_digest: contentDigest
+		};
+		addJson('manifest.json', manifest);
+
+		const signaturePayload = canonicalize({ did, content_digest: contentDigest, exported_at: exportedAt });
+		const signature = encodeMultibase(await rootSign(signaturePayload));
+		files['export.sig'] = strToU8(signature);
+
+		const zip = zipSync(files, { level: 6 });
+		const stamp = exportedAt.replace(/[:.]/g, '-');
+		this.logger.log(`Exported ${did.slice(0, 24)}… (${zip.length} bytes, ${assetIndex.length} assets)`);
+		return { zip, filename: `slyng-identity-${account.username}-${stamp}.zip` };
+	}
+
+	private getPublicUrl(): string {
+		return this.config.get('PUBLIC_URL', 'http://localhost:5174').replace(/\/+$/, '');
+	}
+
+	/** `{ local_id, record }` with the composite `id` and non-portable RecordId
+	 * links stripped; Dates serialize to ISO via JSON. */
+	private toExport(id: RecordId, row: Record<string, unknown>): ExportedRecord {
+		const { id: _id, folder_id: _folder, ...rest } = row;
+		void _id;
+		void _folder;
+		return { local_id: extractLocalId(id), record: rest };
+	}
+
+	/** Candidate asset URLs on a row across every known asset field. */
+	private assetUrls(row: Record<string, unknown>): string[] {
+		const out: string[] = [];
+		const push = (v: unknown) => {
+			if (typeof v === 'string' && v) out.push(v);
+		};
+		push(row.url);
+		push(row.avatar_url);
+		push(row.banner_url);
+		push(row.thumbnail_url);
+		push(row.image_url);
+		if (Array.isArray(row.media_urls)) for (const m of row.media_urls) push(m);
+		return out;
+	}
+
+	/** Strip the local S3 public base + query to get the object key, or null
+	 * if the URL is foreign (a federated reference we don't own). */
+	private urlToLocalKey(url: string): string | null {
+		const base = this.storage.getPublicBase();
+		const clean = url.split('?')[0];
+		if (!clean.startsWith(base + '/')) return null;
+		return clean.slice(base.length + 1);
+	}
+
+	private mimeFromKey(key: string): string {
+		const ext = key.split('.').pop()?.toLowerCase() ?? '';
+		const map: Record<string, string> = {
+			jpg: 'image/jpeg',
+			jpeg: 'image/jpeg',
+			png: 'image/png',
+			webp: 'image/webp',
+			gif: 'image/gif',
+			mp4: 'video/mp4',
+			webm: 'video/webm',
+			svg: 'image/svg+xml'
+		};
+		return map[ext] ?? 'application/octet-stream';
+	}
+
+	/** SHA-256 over every file except the manifest + signature, in sorted
+	 * filename order. Each entry is length-prefixed (name length + byte length,
+	 * u32 BE) so no boundary shift between name and content can collide.
+	 * Import's `digestFiles` MUST stay byte-identical to this. */
+	private digestFiles(files: Record<string, Uint8Array>): string {
+		const hash = createHash('sha256');
+		for (const name of Object.keys(files).sort()) {
+			if (name === 'manifest.json' || name === 'export.sig') continue;
+			const nameBuf = Buffer.from(name, 'utf8');
+			const lens = Buffer.alloc(8);
+			lens.writeUInt32BE(nameBuf.length, 0);
+			lens.writeUInt32BE(files[name].length, 4);
+			hash.update(lens);
+			hash.update(nameBuf);
+			hash.update(files[name]);
+		}
+		return hash.digest('hex');
+	}
+}

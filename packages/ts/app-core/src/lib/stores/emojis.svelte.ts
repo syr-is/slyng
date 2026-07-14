@@ -4,11 +4,11 @@
  * Each DID's emoji list is cached in a SvelteMap so any component calling
  * `resolveEmojis(did, instance_url)` inside a `$derived` re-renders when the
  * fetch lands. The PROFILE_UPDATE WS event invalidates a specific user's set
- * so additions/removals on the syr side propagate to syren clients.
+ * so additions/removals on the syr side propagate to slyng clients.
  */
 
 import { SvelteMap } from 'svelte/reactivity';
-import { WsOp } from '@syren/types';
+import { WsOp } from '@slyng/types';
 import { onWsEvent } from './ws.svelte';
 import { resolveManifest } from './profiles.svelte';
 import { proxied } from '../utils/proxy';

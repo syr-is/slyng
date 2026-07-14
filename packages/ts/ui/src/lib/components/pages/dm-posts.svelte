@@ -6,21 +6,21 @@
 	// else's it's read-only, and their avatar opens the story viewer if they have
 	// an active 24h reel. `/u/[param]` stays the separate public/federation profile.
 	import { ExternalLink, Plus } from '@lucide/svelte';
-	import * as Avatar from '@syren/ui/avatar';
-	import * as Dialog from '@syren/ui/dialog';
-	import { Button } from '@syren/ui/button';
+	import * as Avatar from '@slyng/ui/avatar';
+	import * as Dialog from '@slyng/ui/dialog';
+	import { Button } from '@slyng/ui/button';
 	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
-	import { getAuth } from '@syren/app-core/stores/auth.svelte';
-	import { resolveProfile, displayName, federatedHandle } from '@syren/app-core/stores/profiles.svelte';
-	import { resolvePosts, loadMorePosts } from '@syren/app-core/stores/posts.svelte';
-	import { resolveStories, invalidateStories } from '@syren/app-core/stores/stories.svelte';
-	import { getRelations } from '@syren/app-core/stores/relations.svelte';
-	import { proxied } from '@syren/app-core/utils/proxy';
-	import PostFeed from '@syren/ui/fragments/post-feed.svelte';
-	import SafeLink from '@syren/ui/fragments/safe-link.svelte';
-	import StoryViewer from '@syren/ui/fragments/story-viewer.svelte';
-	import StoryComposer from '@syren/ui/fragments/settings/story-composer.svelte';
+	import { getAuth } from '@slyng/app-core/stores/auth.svelte';
+	import { resolveProfile, displayName, federatedHandle } from '@slyng/app-core/stores/profiles.svelte';
+	import { resolvePosts, loadMorePosts } from '@slyng/app-core/stores/posts.svelte';
+	import { resolveStories, invalidateStories } from '@slyng/app-core/stores/stories.svelte';
+	import { getRelations } from '@slyng/app-core/stores/relations.svelte';
+	import { proxied } from '@slyng/app-core/utils/proxy';
+	import PostFeed from '@slyng/ui/fragments/post-feed.svelte';
+	import SafeLink from '@slyng/ui/fragments/safe-link.svelte';
+	import StoryViewer from '@slyng/ui/fragments/story-viewer.svelte';
+	import StoryComposer from '@slyng/ui/fragments/settings/story-composer.svelte';
 
 	const relations = getRelations();
 	const auth = getAuth();

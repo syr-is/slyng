@@ -8,9 +8,9 @@ import { dirname, resolve } from 'node:path';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const distNode = resolve(__dirname, '..', 'dist', 'wasm', 'node');
-const cjsPath = resolve(distNode, 'syren_client.js');
-const dtsPath = resolve(distNode, 'syren_client.d.ts');
-const outPath = resolve(distNode, 'syren_client_esm.mjs');
+const cjsPath = resolve(distNode, 'slyng_client.js');
+const dtsPath = resolve(distNode, 'slyng_client.d.ts');
+const outPath = resolve(distNode, 'slyng_client_esm.mjs');
 
 if (!existsSync(cjsPath)) {
 	console.error(`expected ${cjsPath} to exist (run build:wasm:node first)`);
@@ -28,7 +28,7 @@ for (const m of dts.matchAll(/^export\s+(?:declare\s+)?(?:class|function|const|l
 const lines = [
 	'import { createRequire } from "module";',
 	'const require = createRequire(import.meta.url);',
-	'const mod = require("./syren_client.js");',
+	'const mod = require("./slyng_client.js");',
 	'',
 	...[...names].sort().map((n) => `export const ${n} = mod.${n};`),
 	'export default mod;',

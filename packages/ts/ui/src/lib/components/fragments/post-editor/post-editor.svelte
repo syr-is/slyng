@@ -1,9 +1,9 @@
 <script lang="ts">
 	// The post WYSIWYG editor — a TipTap surface with a visible formatting toolbar
 	// (StarterKit: headings, lists, quote, code, rules, bold/italic/underline/
-	// strike), syren's custom emoji/sticker node + `:`-autocomplete, image/video
+	// strike), slyng's custom emoji/sticker node + `:`-autocomplete, image/video
 	// upload, and a custom media node. Ported from pendi's journal-editor, with
-	// pendi's `library:<id>` indirection removed — syren posts embed PLAIN, STABLE
+	// pendi's `library:<id>` indirection removed — slyng posts embed PLAIN, STABLE
 	// public S3 urls, so a media `ref` IS its url. Serializes to Markdown; emits
 	// `onChange(markdown)` on every edit for the compose surface to autosave.
 	import { onMount, onDestroy, type Snippet } from 'svelte';
@@ -26,17 +26,17 @@
 		ImagePlus,
 		LoaderCircle
 	} from '@lucide/svelte';
-	import { getAuth } from '@syren/app-core/stores/auth.svelte';
-	import { resolveEmojis } from '@syren/app-core/stores/emojis.svelte';
-	import { proxied } from '@syren/app-core/utils/proxy';
-	import { uploadPostAsset } from '@syren/app-core/upload/idp-post';
+	import { getAuth } from '@slyng/app-core/stores/auth.svelte';
+	import { resolveEmojis } from '@slyng/app-core/stores/emojis.svelte';
+	import { proxied } from '@slyng/app-core/utils/proxy';
+	import { uploadPostAsset } from '@slyng/app-core/upload/idp-post';
 	import { toast } from 'svelte-sonner';
 	import { EmojiNode } from './emoji-node.js';
 	import { EmojiSuggestion } from './emoji-suggestion.svelte.js';
 	import EmojiSuggestionPopup from './emoji-suggestion-popup.svelte';
 	import { MediaNode, type MediaReplacement } from './media-node.js';
 	import MediaPicker from '../media-picker.svelte';
-	import type { ClipItem } from '@syren/types';
+	import type { ClipItem } from '@slyng/types';
 
 	let {
 		content = '',
@@ -111,7 +111,7 @@
 		const tr = editor.state.tr;
 		let changed = false;
 
-		// Media: a syren ref is a plain https url — fill url + re-derive the video
+		// Media: a slyng ref is a plain https url — fill url + re-derive the video
 		// flag from the extension (the `![](url)` markdown doesn't carry it).
 		editor.state.doc.descendants((node, pos) => {
 			if (node.type.name !== 'media' || node.attrs.url) return;

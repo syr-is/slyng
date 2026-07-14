@@ -1,10 +1,10 @@
 <script lang="ts">
-	import * as DropdownMenu from '@syren/ui/dropdown-menu';
+	import * as DropdownMenu from '@slyng/ui/dropdown-menu';
 	import { Smile, Circle } from '@lucide/svelte';
-	import { Input } from '@syren/ui/input';
-	import { Button } from '@syren/ui/button';
-	import { getPresenceData, updateMyPresence, type PresenceStatus } from '@syren/app-core/stores/presence.svelte';
-	import { setExplicitStatus } from '@syren/app-core/stores/idle.svelte';
+	import { Input } from '@slyng/ui/input';
+	import { Button } from '@slyng/ui/button';
+	import { getPresenceData, updateMyPresence, type PresenceStatus } from '@slyng/app-core/stores/presence.svelte';
+	import { setExplicitStatus } from '@slyng/app-core/stores/idle.svelte';
 
 	const { did }: { did: string } = $props();
 

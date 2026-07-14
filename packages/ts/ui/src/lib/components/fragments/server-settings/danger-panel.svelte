@@ -1,10 +1,10 @@
 <script lang="ts">
 	import { toast } from 'svelte-sonner';
 	import { goto } from '$app/navigation';
-	import { Button } from '@syren/ui/button';
-	import { Separator } from '@syren/ui/separator';
-	import { api } from '@syren/app-core/api';
-	import { getServerState, setServers } from '@syren/app-core/stores/servers.svelte';
+	import { Button } from '@slyng/ui/button';
+	import { Separator } from '@slyng/ui/separator';
+	import { api } from '@slyng/app-core/api';
+	import { getServerState, setServers } from '@slyng/app-core/stores/servers.svelte';
 	import TransferOwnershipDialog from './transfer-ownership-dialog.svelte';
 
 	const { serverId }: { serverId: string } = $props();

@@ -3,8 +3,8 @@
  * via CHANNEL_CREATE / CHANNEL_UPDATE / CHANNEL_DELETE WS events.
  */
 
-import { WsOp } from '@syren/types';
-import type { Server, Channel, ChannelCategory } from '@syren/client';
+import { WsOp } from '@slyng/types';
+import type { Server, Channel, ChannelCategory } from '@slyng/client';
 import { onWsEvent } from './ws.svelte';
 import { getAuth } from './auth.svelte';
 import { normalizeServer, normalizeChannel, normalizeCategory } from './normalize';

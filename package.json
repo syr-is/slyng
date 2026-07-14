@@ -1,14 +1,14 @@
 {
-	"name": "syren",
+	"name": "slyng",
 	"version": "1.0.0",
-	"description": "Syren - A syr-based chat application",
+	"description": "Slyng - A syr-based chat application",
 	"private": true,
 	"scripts": {
 		"prepare": "husky",
 		"dev": "turbo dev",
-		"dev:syren": "pnpm --filter @syren/web dev",
-		"dev:api": "pnpm --filter @syren/api dev",
-		"dev:native": "pnpm --filter @syren/native tauri:dev",
+		"dev:slyng": "pnpm --filter @slyng/web dev",
+		"dev:api": "pnpm --filter @slyng/api dev",
+		"dev:native": "pnpm --filter @slyng/native tauri:dev",
 		"build": "turbo build",
 		"preview": "turbo preview",
 		"format": "turbo format",
@@ -22,9 +22,9 @@
 	"license": "ISC",
 	"packageManager": "pnpm@10.29.3",
 	"dependencies": {
-		"@syren/app-core": "workspace:*",
-		"@syren/types": "workspace:*",
-		"@syren/ui": "workspace:*"
+		"@slyng/app-core": "workspace:*",
+		"@slyng/types": "workspace:*",
+		"@slyng/ui": "workspace:*"
 	},
 	"devDependencies": {
 		"husky": "^9.1.7",
@@ -39,7 +39,7 @@
 	},
 	"pnpm": {
 		"onlyBuiltDependencies": [
-			"@syren/types",
+			"@slyng/types",
 			"@tailwindcss/oxide",
 			"esbuild"
 		]

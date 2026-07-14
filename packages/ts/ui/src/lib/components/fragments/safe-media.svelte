@@ -6,7 +6,7 @@
 		originHost,
 		formatBytes,
 		type ProxyInfo
-	} from '@syren/app-core/utils/proxy';
+	} from '@slyng/app-core/utils/proxy';
 
 	const {
 		src,
@@ -80,13 +80,13 @@
 		<div class="flex items-start gap-2">
 			<AlertTriangle class="mt-0.5 h-4 w-4 shrink-0 text-amber-500" />
 			<div class="min-w-0 flex-1">
-				<p class="font-medium text-foreground">File too large for syren proxy</p>
+				<p class="font-medium text-foreground">File too large for slyng proxy</p>
 				<p class="mt-1 text-muted-foreground">
 					This file is
 					<span class="font-medium text-foreground">
 						{state.info.size != null ? formatBytes(state.info.size) : 'larger than the cap'}
 					</span>
-					— syren only proxies up to
+					— slyng only proxies up to
 					<span class="font-medium text-foreground">{formatBytes(state.info.max)}</span>.
 				</p>
 				<p class="mt-1 text-muted-foreground">

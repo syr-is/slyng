@@ -1,26 +1,26 @@
 <script lang="ts">
 	import { Hash, Volume2, ChevronDown, ChevronRight, Settings, UserPlus, MoreVertical, ScrollText, LogOut } from '@lucide/svelte';
 	import { goto } from '$app/navigation';
-	import { Separator } from '@syren/ui/separator';
-	import { Button } from '@syren/ui/button';
-	import * as DropdownMenu from '@syren/ui/dropdown-menu';
-	import * as Dialog from '@syren/ui/dialog';
-	import { getAuth } from '@syren/app-core/stores/auth.svelte';
+	import { Separator } from '@slyng/ui/separator';
+	import { Button } from '@slyng/ui/button';
+	import * as DropdownMenu from '@slyng/ui/dropdown-menu';
+	import * as Dialog from '@slyng/ui/dialog';
+	import { getAuth } from '@slyng/app-core/stores/auth.svelte';
 	import NavUser from './nav-user.svelte';
 	import VoiceControls from './voice-controls.svelte';
 	import VoiceChannelUsers from './voice-channel-users.svelte';
-	import { proxied } from '@syren/app-core/utils/proxy';
+	import { proxied } from '@slyng/app-core/utils/proxy';
 	import {
 		getServerState,
 		setServerChannels,
 		removeServer,
 		setActiveServer
-	} from '@syren/app-core/stores/servers.svelte';
-	import { getPerms, clearServerPerms } from '@syren/app-core/stores/perms.svelte';
-	import { clearMembers } from '@syren/app-core/stores/members.svelte';
-	import { clearRoles } from '@syren/app-core/stores/roles.svelte';
-	import { getVoiceState } from '@syren/app-core/voice/voice-state.svelte';
-	import { api } from '@syren/app-core/api';
+	} from '@slyng/app-core/stores/servers.svelte';
+	import { getPerms, clearServerPerms } from '@slyng/app-core/stores/perms.svelte';
+	import { clearMembers } from '@slyng/app-core/stores/members.svelte';
+	import { clearRoles } from '@slyng/app-core/stores/roles.svelte';
+	import { getVoiceState } from '@slyng/app-core/voice/voice-state.svelte';
+	import { api } from '@slyng/app-core/api';
 	import { toast } from 'svelte-sonner';
 	import { page } from '$app/state';
 

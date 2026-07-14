@@ -1,12 +1,12 @@
-# `@syren/types`
+# `@slyng/types`
 
-Shared types and Zod schemas for the syren chat platform.
+Shared types and Zod schemas for the slyng chat platform.
 
 > **Every entity type and Zod schema in this package is generated from
-> Rust.** The canonical source of truth is `packages/rust/syren-types/`
+> Rust.** The canonical source of truth is `packages/rust/slyng-types/`
 > — Rust structs annotated with `#[derive(ZodSchema, Tsify, Serialize,
 > Deserialize)]`. The TypeScript code in `src/generated.ts` is
-> machine-emitted from those structs by `cargo run -p syren-types
+> machine-emitted from those structs by `cargo run -p slyng-types
 > --bin generate-zod`.
 >
 > **Don't edit `src/generated.ts` by hand.** Edit the Rust struct and
@@ -19,7 +19,7 @@ Shared types and Zod schemas for the syren chat platform.
 | `src/generated.ts` | **No — generated** | Every entity schema (`ServerSchema`, `ChannelSchema`, …), every input shape (`CreateServerInputSchema`, `BanMemberInputSchema`, …), every WS payload, every pagination wrapper, plus the inferred TS types via `z.infer`. |
 | `src/codecs.ts` | Yes | `stringToRecordId`, `isoDatetimeToDate`. Bidirectional Zod codecs. Not derivable from a Rust shape — they encode runtime conversion behaviour. |
 | `src/permission.ts` | Yes | `Permissions` bitmask constants, `DEFAULT_PERMISSIONS`, `hasPermission` / `addPermission` / `removePermission`. Not data shapes — bitwise helpers. |
-| `src/ws.ts` | Yes | `WsOp` numeric dictionary in `UPPERCASE_SNAKE_CASE` form. Mirrors `packages/rust/syren-types/src/ws.rs::WsOp`, but kept in this hand-rolled shape because every existing consumer (api gateway, app-core stores, ui components) addresses ops as `WsOp.MESSAGE_CREATE` / etc. |
+| `src/ws.ts` | Yes | `WsOp` numeric dictionary in `UPPERCASE_SNAKE_CASE` form. Mirrors `packages/rust/slyng-types/src/ws.rs::WsOp`, but kept in this hand-rolled shape because every existing consumer (api gateway, app-core stores, ui components) addresses ops as `WsOp.MESSAGE_CREATE` / etc. |
 | `src/index.ts` | Yes | Barrel re-export of the four files above. |
 
 That's the whole package. Everything that describes the wire shape of
@@ -29,7 +29,7 @@ an entity, an input body, or a WS payload comes through Rust.
 
 ### Editing a type
 
-1. Open the matching Rust file in `packages/rust/syren-types/src/`
+1. Open the matching Rust file in `packages/rust/slyng-types/src/`
    (e.g. `server.rs` for `Server`, `CreateServerInput`, etc.).
 2. Add or modify the struct. Make sure it has the four derives:
    ```rust
@@ -38,7 +38,7 @@ an entity, an input body, or a WS payload comes through Rust.
    #[cfg_attr(target_arch = "wasm32", tsify(into_wasm_abi, from_wasm_abi))]
    ```
 3. If the struct is new, register it in
-   `packages/rust/syren-types/src/bin/generate-zod.rs` so the codegen
+   `packages/rust/slyng-types/src/bin/generate-zod.rs` so the codegen
    knows to emit it:
    ```rust
    g.add_schema::<MyNewInput>("MyNewInput");
@@ -58,7 +58,7 @@ an entity, an input body, or a WS payload comes through Rust.
 `pnpm build` is intentionally **just** `tsup`. It does **not** call
 `pnpm gen`. Two reasons:
 
-1. **Docker images.** `apps/syren/api` (and the syren web image) build
+1. **Docker images.** `apps/slyng/api` (and the slyng web image) build
    in a Node-only Alpine container with no Rust toolchain. Calling
    cargo there fails with `cargo: not found`.
 2. **CI determinism.** The committed `generated.ts` is what runs in
@@ -94,7 +94,7 @@ The Rust source has `WsOp` as a numeric enum (`Identify = 1, Heartbeat
 (`WsOp.Identify`). But every existing call site in this codebase
 addresses ops as `WsOp.IDENTIFY`, `WsOp.MESSAGE_CREATE`, etc.
 
-Renaming ~40 call sites across `apps/syren/api`, `packages/ts/ui`, and
+Renaming ~40 call sites across `apps/slyng/api`, `packages/ts/ui`, and
 `packages/ts/app-core` for cosmetic alignment isn't worth it. So
 `src/ws.ts` keeps the dictionary form by hand. The numeric values are
 the wire contract; they match Rust's `WsOp` exactly. The Rust source

@@ -1,13 +1,13 @@
 <script lang="ts">
 	import { toast } from 'svelte-sonner';
-	import { Button } from '@syren/ui/button';
-	import * as Dialog from '@syren/ui/dialog';
+	import { Button } from '@slyng/ui/button';
+	import * as Dialog from '@slyng/ui/dialog';
 	import { Loader2, Download, Upload, KeyRound } from '@lucide/svelte';
 	import {
 		exportIdentity,
 		importIdentity
-	} from '@syren/app-core/upload/identity-migration';
-	import type { IdentityImportResult } from '@syren/types';
+	} from '@slyng/app-core/upload/identity-migration';
+	import type { IdentityImportResult } from '@slyng/types';
 
 	/**
 	 * Identity import / export (P11). Export downloads a root-signed `.zip` of

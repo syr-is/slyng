@@ -1,8 +1,8 @@
 <script lang="ts">
 	import { onMount, onDestroy } from 'svelte';
-	import * as Dialog from '@syren/ui/dialog';
+	import * as Dialog from '@slyng/ui/dialog';
 	import { X, ChevronLeft, ChevronRight, Maximize2, Minimize2 } from '@lucide/svelte';
-	import { proxied } from '@syren/app-core/utils/proxy';
+	import { proxied } from '@slyng/app-core/utils/proxy';
 
 	interface LightboxItem {
 		url: string;

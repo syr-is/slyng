@@ -1,8 +1,8 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { toast } from 'svelte-sonner';
-	import { Button } from '@syren/ui/button';
-	import * as Dialog from '@syren/ui/dialog';
+	import { Button } from '@slyng/ui/button';
+	import * as Dialog from '@slyng/ui/dialog';
 	import {
 		Loader2,
 		Plus,
@@ -23,8 +23,8 @@
 		syncRegistries,
 		retryOutboxJob,
 		cancelOutboxJob
-	} from '@syren/app-core/stores/registry.svelte';
-	import type { OwnedOutboxJob, OwnedRegistry } from '@syren/types';
+	} from '@slyng/app-core/stores/registry.svelte';
+	import type { OwnedOutboxJob, OwnedRegistry } from '@slyng/types';
 
 	/**
 	 * Discovery registries (P9): the registries this identity announces its

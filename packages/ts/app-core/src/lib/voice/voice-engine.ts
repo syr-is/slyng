@@ -9,7 +9,7 @@
  * - No renegotiation, no rollback, no glare
  */
 
-import { WsOp } from '@syren/types';
+import { WsOp } from '@slyng/types';
 import { send, onWsEvent, subscribeChannels, unsubscribeChannels } from '../stores/ws.svelte';
 import { setVoiceChannel, setSelfMute, setSelfDeaf, addLocalUserToChannel, removeLocalUser } from './voice-state.svelte';
 import { audioConstraints, videoConstraints } from '../stores/media-settings.svelte';

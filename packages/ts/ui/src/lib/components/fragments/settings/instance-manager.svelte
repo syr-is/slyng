@@ -1,14 +1,14 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { toast } from 'svelte-sonner';
-	import { Button } from '@syren/ui/button';
-	import { Input } from '@syren/ui/input';
+	import { Button } from '@slyng/ui/button';
+	import { Input } from '@slyng/ui/input';
 	import { Loader2, Save, HardDrive, FileUp } from '@lucide/svelte';
 	import {
 		getInstance,
 		loadInstanceLimits,
 		saveInstanceLimits
-	} from '@syren/app-core/stores/instance.svelte';
+	} from '@slyng/app-core/stores/instance.svelte';
 
 	/**
 	 * Instance admin control surface. Sets the two platform-wide upload limits:

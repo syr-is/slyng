@@ -1,9 +1,9 @@
 <script lang="ts">
-	import * as Dialog from '@syren/ui/dialog';
-	import { Button } from '@syren/ui/button';
-	import { Input } from '@syren/ui/input';
+	import * as Dialog from '@slyng/ui/dialog';
+	import { Button } from '@slyng/ui/button';
+	import { Input } from '@slyng/ui/input';
 	import { toast } from 'svelte-sonner';
-	import { api } from '@syren/app-core/api';
+	import { api } from '@slyng/app-core/api';
 
 	const {
 		open,

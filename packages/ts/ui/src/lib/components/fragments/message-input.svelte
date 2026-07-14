@@ -1,13 +1,13 @@
 <script lang="ts">
 	import { Plus, Smile, Send, X, FileIcon, ImageIcon, Loader2, Cloud, Reply } from '@lucide/svelte';
 	import { toast } from 'svelte-sonner';
-	import { sendTyping } from '@syren/app-core/stores/ws.svelte';
+	import { sendTyping } from '@slyng/app-core/stores/ws.svelte';
 	import EmojiPicker from './emoji-picker.svelte';
 	import MediaPicker from './media-picker.svelte';
 	import SyrUploadPicker from './syr-upload-picker.svelte';
-	import type { ClipItem } from '@syren/types';
-	import { uploadFile, type Attachment, type UploadHandle } from '@syren/app-core/upload/upload-client';
-	import { proxied } from '@syren/app-core/utils/proxy';
+	import type { ClipItem } from '@slyng/types';
+	import { uploadFile, type Attachment, type UploadHandle } from '@slyng/app-core/upload/upload-client';
+	import { proxied } from '@slyng/app-core/utils/proxy';
 
 	const {
 		channelId,

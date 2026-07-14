@@ -1,23 +1,23 @@
 <script lang="ts">
 	import { Hash, Volume2, GripVertical, Plus, Pencil, Trash2, FolderPlus, ChevronDown, ChevronRight, Shield } from '@lucide/svelte';
 	import { toast } from 'svelte-sonner';
-	import { Button } from '@syren/ui/button';
-	import { Input } from '@syren/ui/input';
-	import * as Dialog from '@syren/ui/dialog';
-	import * as Form from '@syren/ui/form';
+	import { Button } from '@slyng/ui/button';
+	import { Input } from '@slyng/ui/input';
+	import * as Dialog from '@slyng/ui/dialog';
+	import * as Form from '@slyng/ui/form';
 	import { superForm, defaults } from 'sveltekit-superforms';
 	import { zod4, zod4Client } from 'sveltekit-superforms/adapters';
 	import { z } from 'zod';
-	import { CreateCategoryInputSchema } from '@syren/types';
-	import { api } from '@syren/app-core/api';
+	import { CreateCategoryInputSchema } from '@slyng/types';
+	import { api } from '@slyng/app-core/api';
 	import {
 		getServerState,
 		setServerChannels,
 		setServerCategories,
 		reorderChannels,
 		reorderCategories
-	} from '@syren/app-core/stores/servers.svelte';
-	import { getPerms } from '@syren/app-core/stores/perms.svelte';
+	} from '@slyng/app-core/stores/servers.svelte';
+	import { getPerms } from '@slyng/app-core/stores/perms.svelte';
 	import ChannelEditDialog from '../channel-edit-dialog.svelte';
 	import CreateChannelDialog from '../create-channel-dialog.svelte';
 	import ChannelPermissionEditor from '../channel-permission-editor.svelte';

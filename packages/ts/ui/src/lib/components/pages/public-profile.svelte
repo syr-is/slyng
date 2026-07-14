@@ -1,11 +1,11 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { page } from '$app/state';
-	import * as Avatar from '@syren/ui/avatar';
+	import * as Avatar from '@slyng/ui/avatar';
 	import { Loader2, BadgeCheck } from '@lucide/svelte';
-	import { apiUrl } from '@syren/app-core/host';
-	import { proxied } from '@syren/app-core/utils/proxy';
-	import type { PublicProfileData } from '@syren/types';
+	import { apiUrl } from '@slyng/app-core/host';
+	import { proxied } from '@slyng/app-core/utils/proxy';
+	import type { PublicProfileData } from '@slyng/types';
 	import FollowButton from '../fragments/follow-button.svelte';
 
 	/**
@@ -58,7 +58,7 @@
 		<div class="flex flex-1 flex-col items-center justify-center gap-2 p-4 text-center">
 			<h1 class="text-xl font-semibold text-foreground">{error ?? 'Profile not found'}</h1>
 			<a href="/" class="text-sm text-muted-foreground underline underline-offset-4">
-				Back to Syren
+				Back to Slyng
 			</a>
 		</div>
 	{:else}
@@ -113,8 +113,8 @@
 
 				<div class="mt-8 border-t border-border pt-4">
 					<p class="text-xs text-muted-foreground">
-						Hosted on this Syren instance ·
-						<a href="/" class="underline underline-offset-4 hover:text-foreground">Open Syren</a>
+						Hosted on this Slyng instance ·
+						<a href="/" class="underline underline-offset-4 hover:text-foreground">Open Slyng</a>
 					</p>
 				</div>
 			</div>

@@ -1,6 +1,6 @@
-# Syren — AI Collaboration Guide
+# Slyng — AI Collaboration Guide
 
-This is the single source of truth for AI coding agents working on syren. `CLAUDE.md`, `GEMINI.md`, `AGENTS.md`, and `.cursorrules` symlink to this file — update it here and every tool sees the change.
+This file (`AI.md`) is the single source of truth for AI coding agents working on slyng; the agent-specific configuration files (`CLAUDE.md`, `GEMINI.md`, `AGENTS.md`, `.cursorrules`) are symlinks to it — update it here and every tool sees the change.
 
 ---
 
@@ -12,18 +12,18 @@ Federated real-time chat on the **syr platform**. Users authenticate via their s
 
 | Path | Role |
 |---|---|
-| `apps/syren/web` | SvelteKit SPA (adapter-static). **No SSR, no server files — pure client.** |
-| `apps/syren/native` | Tauri 2 + SvelteKit shell. Same SPA, runtime-configurable API host (`@tauri-apps/plugin-store`), first-run setup screen at `/setup`. |
-| `apps/syren/api` | NestJS API + WS gateway. |
+| `apps/slyng/web` | SvelteKit SPA (adapter-static). **No SSR, no server files — pure client.** |
+| `apps/slyng/native` | Tauri 2 + SvelteKit shell. Same SPA, runtime-configurable API host (`@tauri-apps/plugin-store`), first-run setup screen at `/setup`. |
+| `apps/slyng/api` | NestJS API + WS gateway. |
 | `packages/ts/types` | Zod v4 schemas + shared constants. Dual CJS/ESM build via tsup so `RecordId` class identity survives across the ESM/CJS boundary. |
-| `packages/ts/ui` | shadcn-svelte / bits-ui components as `@syren/ui`. Primitives in `components/ui/`; cross-app composed components in `components/fragments/` (e.g. `swipe-layout`). |
-| `packages/ts/app-core` | Runtime-configurable API host helpers (`@syren/app-core/host`). Future home for shared API client / WS / stores extracted from the web app. |
+| `packages/ts/ui` | shadcn-svelte / bits-ui components as `@slyng/ui`. Primitives in `components/ui/`; cross-app composed components in `components/fragments/` (e.g. `swipe-layout`). |
+| `packages/ts/app-core` | Runtime-configurable API host helpers (`@slyng/app-core/host`). Future home for shared API client / WS / stores extracted from the web app. |
 
 ## Stack
 
 - **Frontend**: Svelte 5 (runes only — `$state`, `$derived`, `$effect`; **no legacy writable/readable stores**), SvelteKit 2, Tailwind 4, shadcn-svelte.
 - **Backend**: NestJS 11, `@nestjs/platform-ws`, SurrealDB via schemaless tables + repository pattern.
-- **Validation**: Zod v4 everywhere; schemas live in `@syren/types`.
+- **Validation**: Zod v4 everywhere; schemas live in `@slyng/types`.
 - **Federation**: syr `.well-known/syr/<did>` manifest → profile / stories / emojis / GIFs / `public_hash` endpoints. Fetches always go through `proxied()` (see below).
 - **Media**: SeaweedFS (S3-compatible) for uploads, presign → PUT → finalize.
 - **Voice**: WebRTC mesh. Gateway is a signaling relay only.
@@ -32,7 +32,7 @@ Federated real-time chat on the **syr platform**. Users authenticate via their s
 
 ```bash
 pnpm dev          # everything in dev mode (turbo)
-pnpm dev:syren    # the chat stack only
+pnpm dev:slyng    # the chat stack only
 pnpm build        # build all packages + apps
 pnpm check        # type-check all workspaces (svelte-check + tsc)
 pnpm lint
@@ -40,7 +40,7 @@ pnpm format
 docker compose up -d   # SurrealDB + SeaweedFS on dev ports
 ```
 
-Always run `pnpm --filter @syren/types build` after editing `packages/ts/types/` before building api/app.
+Always run `pnpm --filter @slyng/types build` after editing `packages/ts/types/` before building api/app.
 
 ---
 
@@ -99,7 +99,7 @@ Every client-side fetch or render of a remote asset (avatar, banner, profile JSO
 - user-initiated outbound `<SafeLink>` clicks (opt-in external navigation)
 - backend `ProfileWatcher` polls (server-side; no browser)
 
-The proxy is auth-gated (`syren_session` cookie), 100 MB cap, SSRF guard. Oversize assets render a "Load directly" opt-in via `<SafeMedia>` — the user explicitly consents to the IP leak.
+The proxy is auth-gated (`slyng_session` cookie), 100 MB cap, SSRF guard. Oversize assets render a "Load directly" opt-in via `<SafeMedia>` — the user explicitly consents to the IP leak.
 
 ### 8. Profile data is never stored
 
@@ -109,9 +109,9 @@ If you're tempted to add a column to the user table for a profile field, don't.
 
 ### 8a. API host is runtime-configurable
 
-Never hardcode `/api` or `window.location.origin` in client code. Use `apiUrl(path)` and `wsOrigin()` from `@syren/app-core/host`. The web app calls `setHost('')` (same-origin) in its root `+layout.ts`; the native app calls `setHost(<user-chosen URL>)` after reading from Tauri's store. Every `fetch()` against the syren API passes `credentials: 'include'` so cookies flow cross-origin from the Tauri webview.
+Never hardcode `/api` or `window.location.origin` in client code. Use `apiUrl(path)` and `wsOrigin()` from `@slyng/app-core/host`. The web app calls `setHost('')` (same-origin) in its root `+layout.ts`; the native app calls `setHost(<user-chosen URL>)` after reading from Tauri's store. Every `fetch()` against the slyng API passes `credentials: 'include'` so cookies flow cross-origin from the Tauri webview.
 
-When adding shared cross-app components (used by both web and native), put them in `packages/ts/ui/src/lib/components/fragments/<name>/` and add a corresponding `./fragments/<name>` subpath export in `packages/ts/ui/package.json`. Stick to UI-level components there — non-UI logic (stores, api/ws clients) belongs in `@syren/app-core`.
+When adding shared cross-app components (used by both web and native), put them in `packages/ts/ui/src/lib/components/fragments/<name>/` and add a corresponding `./fragments/<name>` subpath export in `packages/ts/ui/package.json`. Stick to UI-level components there — non-UI logic (stores, api/ws clients) belongs in `@slyng/app-core`.
 
 ### 9. Copy syr patterns rather than reinvent
 
@@ -140,7 +140,7 @@ No `prompt()`, no `confirm()`, no `alert()`. No `// TODO: implement later`. No h
 
 ### 14. Types build order
 
-`types` → `api` / `app`. Any schema change requires `pnpm --filter @syren/types build` before the consumer build succeeds. Remember: `@syren/types` is dual-published (CJS + ESM) so NestJS CJS and SvelteKit ESM share the same `RecordId` class identity — `instanceof` checks work across the boundary. Don't break this.
+`types` → `api` / `app`. Any schema change requires `pnpm --filter @slyng/types build` before the consumer build succeeds. Remember: `@slyng/types` is dual-published (CJS + ESM) so NestJS CJS and SvelteKit ESM share the same `RecordId` class identity — `instanceof` checks work across the boundary. Don't break this.
 
 ### 15. No secrets in commits
 
@@ -153,7 +153,7 @@ No `prompt()`, no `confirm()`, no `alert()`. No `// TODO: implement later`. No h
 ### Auth guard stack (request order)
 
 ```
-AuthGuard            → validates `syren_session` cookie, attaches req.user
+AuthGuard            → validates `slyng_session` cookie, attaches req.user
 ServerAccessGuard    → 403 if banned or non-member (resolves serverId from :serverId / :channelId / :roleId)
 PermissionGuard      → reads @RequirePermission('FLAG') + RoleService.hasPermission
 [ route handler ]

@@ -1,5 +1,5 @@
 <script lang="ts">
-	import * as DropdownMenu from '@syren/ui/dropdown-menu';
+	import * as DropdownMenu from '@slyng/ui/dropdown-menu';
 	import { Shield } from '@lucide/svelte';
 	import RoleToggleList from './role-toggle-list.svelte';
 

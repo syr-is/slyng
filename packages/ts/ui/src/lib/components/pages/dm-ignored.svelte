@@ -1,14 +1,14 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import * as Avatar from '@syren/ui/avatar';
+	import * as Avatar from '@slyng/ui/avatar';
 	import { EyeOff, Check, X, MessageSquare } from '@lucide/svelte';
 	import { toast } from 'svelte-sonner';
 	import { goto } from '$app/navigation';
-	import { api } from '@syren/app-core/api';
-	import { normalizeDmChannel } from '@syren/app-core/stores/normalize';
-	import { getRelations } from '@syren/app-core/stores/relations.svelte';
-	import { resolveProfile, displayName, federatedHandle } from '@syren/app-core/stores/profiles.svelte';
-	import { proxied } from '@syren/app-core/utils/proxy';
+	import { api } from '@slyng/app-core/api';
+	import { normalizeDmChannel } from '@slyng/app-core/stores/normalize';
+	import { getRelations } from '@slyng/app-core/stores/relations.svelte';
+	import { resolveProfile, displayName, federatedHandle } from '@slyng/app-core/stores/profiles.svelte';
+	import { proxied } from '@slyng/app-core/utils/proxy';
 
 	const relations = getRelations();
 	let dms = $state<

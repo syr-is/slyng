@@ -2,14 +2,14 @@
 	import { onDestroy, onMount } from 'svelte';
 	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
-	import * as Avatar from '@syren/ui/avatar';
-	import { Button } from '@syren/ui/button';
-	import { Input } from '@syren/ui/input';
+	import * as Avatar from '@slyng/ui/avatar';
+	import { Button } from '@slyng/ui/button';
+	import { Input } from '@slyng/ui/input';
 	import { Loader2, ShieldCheck, KeyRound } from '@lucide/svelte';
-	import { idpJson } from '@syren/app-core/idp-fetch';
-	import { checkAuth } from '@syren/app-core/stores/auth.svelte';
-	import { proxied } from '@syren/app-core/utils/proxy';
-	import SynerQr from '@syren/ui/fragments/syner-qr.svelte';
+	import { idpJson } from '@slyng/app-core/idp-fetch';
+	import { checkAuth } from '@slyng/app-core/stores/auth.svelte';
+	import { proxied } from '@slyng/app-core/utils/proxy';
+	import SynerQr from '@slyng/ui/fragments/syner-qr.svelte';
 
 	/**
 	 * Platform consent page — the IdP-side approval screen external
@@ -182,7 +182,7 @@
 		<div class="w-full max-w-md space-y-3 rounded-lg border border-border bg-card p-6 text-center">
 			<h1 class="text-lg font-semibold text-foreground">Consent request unavailable</h1>
 			<p class="text-sm text-destructive">{error}</p>
-			<Button variant="ghost" onclick={() => goto('/channels/@me')}>Back to Syren</Button>
+			<Button variant="ghost" onclick={() => goto('/channels/@me')}>Back to Slyng</Button>
 		</div>
 	{:else if info}
 		<div class="w-full max-w-md space-y-5 rounded-lg border border-border bg-card p-6 shadow-sm">

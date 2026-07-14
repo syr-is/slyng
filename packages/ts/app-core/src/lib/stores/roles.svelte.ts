@@ -2,8 +2,8 @@
  * Roles for the active server. Auto-syncs via WS ROLE_CREATE/UPDATE/DELETE.
  */
 
-import { WsOp } from '@syren/types';
-import type { ServerRole } from '@syren/client';
+import { WsOp } from '@slyng/types';
+import type { ServerRole } from '@slyng/client';
 import { onWsEvent } from './ws.svelte';
 import { recordIdString } from '../utils/record-id';
 import { normalizeRole } from './normalize';

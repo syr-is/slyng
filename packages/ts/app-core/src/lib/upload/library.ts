@@ -2,7 +2,7 @@
  * Client helpers for the personal file library (P7): folders, uploads, storage
  * quota, and share links. Same authed IdP path as the story/emoji/GIF helpers —
  * presign → direct S3 PUT → complete. Only meaningful for local accounts hosted
- * on this syren instance. Owner routes live under `/library/*` (distinct from
+ * on this slyng instance. Owner routes live under `/library/*` (distinct from
  * the chat `uploads` controller).
  */
 
@@ -16,7 +16,7 @@ import type {
 	OwnedUploadsPage,
 	ShareLinkResponse,
 	StorageUsage
-} from '@syren/types';
+} from '@slyng/types';
 
 interface Envelope<T> {
 	status: string;

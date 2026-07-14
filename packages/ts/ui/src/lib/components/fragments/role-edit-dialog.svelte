@@ -1,12 +1,12 @@
 <script lang="ts">
-	import * as Dialog from '@syren/ui/dialog';
-	import { Button } from '@syren/ui/button';
-	import { Input } from '@syren/ui/input';
+	import * as Dialog from '@slyng/ui/dialog';
+	import { Button } from '@slyng/ui/button';
+	import { Input } from '@slyng/ui/input';
 	import { Check, Minus, X, Lock } from '@lucide/svelte';
 	import { toast } from 'svelte-sonner';
-	import { Permissions } from '@syren/types';
-	import { api } from '@syren/app-core/api';
-	import { getPerms } from '@syren/app-core/stores/perms.svelte';
+	import { Permissions } from '@slyng/types';
+	import { api } from '@slyng/app-core/api';
+	import { getPerms } from '@slyng/app-core/stores/perms.svelte';
 
 	type Role = {
 		id?: string;

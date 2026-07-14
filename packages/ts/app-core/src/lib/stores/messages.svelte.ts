@@ -1,5 +1,5 @@
-import { WsOp } from '@syren/types';
-import type { Message } from '@syren/client';
+import { WsOp } from '@slyng/types';
+import type { Message } from '@slyng/client';
 import { onWsEvent } from './ws.svelte';
 import { getPerms } from './perms.svelte';
 import { normalizeMessage } from './normalize';

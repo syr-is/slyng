@@ -1,11 +1,11 @@
 <script lang="ts">
 	import { MicOff, HeadphoneOff, Video } from '@lucide/svelte';
-	import * as Avatar from '@syren/ui/avatar';
-	import { resolveProfile, displayName } from '@syren/app-core/stores/profiles.svelte';
-	import { getMembers } from '@syren/app-core/stores/members.svelte';
-	import { getChannelUsersFor } from '@syren/app-core/voice/voice-state.svelte';
-	import { isSpeaking } from '@syren/app-core/voice/livekit-engine';
-	import { proxied } from '@syren/app-core/utils/proxy';
+	import * as Avatar from '@slyng/ui/avatar';
+	import { resolveProfile, displayName } from '@slyng/app-core/stores/profiles.svelte';
+	import { getMembers } from '@slyng/app-core/stores/members.svelte';
+	import { getChannelUsersFor } from '@slyng/app-core/voice/voice-state.svelte';
+	import { isSpeaking } from '@slyng/app-core/voice/livekit-engine';
+	import { proxied } from '@slyng/app-core/utils/proxy';
 
 	const { channelId }: { channelId: string } = $props();
 

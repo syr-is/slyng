@@ -5,7 +5,7 @@
  */
 
 import { SvelteMap } from 'svelte/reactivity';
-import { WsOp } from '@syren/types';
+import { WsOp } from '@slyng/types';
 import { onWsEvent } from './ws.svelte';
 import { resolveManifest } from './profiles.svelte';
 import { proxied } from '../utils/proxy';

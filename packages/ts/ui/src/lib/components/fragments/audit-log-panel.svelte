@@ -1,8 +1,8 @@
 <script lang="ts">
 	import { onDestroy } from 'svelte';
-	import { WsOp, AuditActionSchema } from '@syren/types';
-	import { onWsEvent } from '@syren/app-core/stores/ws.svelte';
-	import { api } from '@syren/app-core/api';
+	import { WsOp, AuditActionSchema } from '@slyng/types';
+	import { onWsEvent } from '@slyng/app-core/stores/ws.svelte';
+	import { api } from '@slyng/app-core/api';
 	import PaginatedTable from './paginated-table.svelte';
 	import AuditEventRow from './audit-event-row.svelte';
 

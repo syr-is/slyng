@@ -2,7 +2,7 @@
  * Client helpers for authoring owned posts (P5). Same raw-fetch IdP path as
  * `idp-upload.ts` (session cookie + Bearer via `idpJson`), except the direct S3
  * PUT which goes straight to the presigned URL. Only meaningful for local
- * accounts hosted on this syren instance. The server signs each post's
+ * accounts hosted on this slyng instance. The server signs each post's
  * `post@v1` payload with the account's self-delegation key — the client never
  * touches signing keys.
  */
@@ -16,7 +16,7 @@ import type {
 	PostVisibility,
 	MediaDisplayMode,
 	PostContentType
-} from '@syren/types';
+} from '@slyng/types';
 
 interface Envelope<T> {
 	status: string;

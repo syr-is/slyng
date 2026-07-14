@@ -7,13 +7,13 @@
 	import Copy from '@lucide/svelte/icons/copy';
 	import Check from '@lucide/svelte/icons/check';
 	import { goto } from '$app/navigation';
-	import * as Avatar from '@syren/ui/avatar';
-	import * as DropdownMenu from '@syren/ui/dropdown-menu';
-	import { Button } from '@syren/ui/button';
+	import * as Avatar from '@slyng/ui/avatar';
+	import * as DropdownMenu from '@slyng/ui/dropdown-menu';
+	import { Button } from '@slyng/ui/button';
 	import { toast } from 'svelte-sonner';
-	import { resolveProfile, displayName, federatedHandle } from '@syren/app-core/stores/profiles.svelte';
-	import { proxied } from '@syren/app-core/utils/proxy';
-	import { getPresenceData } from '@syren/app-core/stores/presence.svelte';
+	import { resolveProfile, displayName, federatedHandle } from '@slyng/app-core/stores/profiles.svelte';
+	import { proxied } from '@slyng/app-core/utils/proxy';
+	import { getPresenceData } from '@slyng/app-core/stores/presence.svelte';
 	import StatusPicker from './status-picker.svelte';
 
 	const {

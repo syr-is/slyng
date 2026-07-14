@@ -2,7 +2,7 @@
  * Federated media proxy helpers.
  *
  * All remote (cross-origin) URLs rendered in the UI or fetched via `fetch()`
- * should be wrapped with `proxied()` so the browser talks to syren's backend
+ * should be wrapped with `proxied()` so the browser talks to slyng's backend
  * instead of hitting the remote syr instance directly. That keeps the remote
  * from logging end-user IPs on every avatar / emoji / story / profile load.
  *

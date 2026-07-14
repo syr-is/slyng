@@ -8,7 +8,7 @@
  */
 
 import { SvelteMap, SvelteSet } from 'svelte/reactivity';
-import { WsOp } from '@syren/types';
+import { WsOp } from '@slyng/types';
 import { onWsEvent } from './ws.svelte';
 import { getAuth } from './auth.svelte';
 import { api } from '../api';
@@ -105,7 +105,7 @@ export async function loadRelations(): Promise<void> {
 		for (const r of snap.outgoing ?? []) outgoing.set(r.did, { created_at: r.created_at });
 		// Rebuild the instance map to match the snapshot — drop stale entries
 		// for DIDs no longer in the relations surface. `snap.instances` is
-		// a plain `Record<string, string>` here: the @syren/client adapter
+		// a plain `Record<string, string>` here: the @slyng/client adapter
 		// normalizes WASM-side JS Maps to plain objects at the boundary,
 		// so we can use `Object.entries` without worrying about whether
 		// the Rust type was a `HashMap`. See `normalizeMaps` in

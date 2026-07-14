@@ -1,20 +1,20 @@
 <script lang="ts">
-	import * as Avatar from '@syren/ui/avatar';
-	import { Button } from '@syren/ui/button';
-	import { Input } from '@syren/ui/input';
-	import * as Form from '@syren/ui/form';
+	import * as Avatar from '@slyng/ui/avatar';
+	import { Button } from '@slyng/ui/button';
+	import { Input } from '@slyng/ui/input';
+	import * as Form from '@slyng/ui/form';
 	import { Check, X, Clock, Search, Loader2, UserPlus } from '@lucide/svelte';
 	import { toast } from 'svelte-sonner';
 	import { superForm, defaults } from 'sveltekit-superforms';
 	import { zod4, zod4Client } from 'sveltekit-superforms/adapters';
 	import { z } from 'zod';
-	import { FriendSendInputSchema } from '@syren/types';
-	import { api } from '@syren/app-core/api';
-	import { normalizeResolvedUser } from '@syren/app-core/stores/normalize';
-	import { getRelations } from '@syren/app-core/stores/relations.svelte';
-	import { resolveProfile, displayName, federatedHandle } from '@syren/app-core/stores/profiles.svelte';
-	import { proxied } from '@syren/app-core/utils/proxy';
-	import { formatAgo } from '@syren/app-core/utils/date';
+	import { FriendSendInputSchema } from '@slyng/types';
+	import { api } from '@slyng/app-core/api';
+	import { normalizeResolvedUser } from '@slyng/app-core/stores/normalize';
+	import { getRelations } from '@slyng/app-core/stores/relations.svelte';
+	import { resolveProfile, displayName, federatedHandle } from '@slyng/app-core/stores/profiles.svelte';
+	import { proxied } from '@slyng/app-core/utils/proxy';
+	import { formatAgo } from '@slyng/app-core/utils/date';
 
 	const relations = getRelations();
 	// Incoming + outgoing request lists. `relations.ignored` hides ignored-user
@@ -146,7 +146,7 @@
 	async function sendRequest() {
 		if (!sendResolved || sending) return;
 		if (!sendResolved.registered) {
-			toast.error("This user hasn't joined Syren yet");
+			toast.error("This user hasn't joined Slyng yet");
 			return;
 		}
 		// Validate the body against the canonical Rust-derived schema.
@@ -251,7 +251,7 @@
 							<span
 								class="shrink-0 rounded bg-amber-500/15 px-2 py-0.5 text-[10px] font-medium text-amber-600 dark:text-amber-400"
 							>
-								Not on Syren
+								Not on Slyng
 							</span>
 						{/if}
 						<Button

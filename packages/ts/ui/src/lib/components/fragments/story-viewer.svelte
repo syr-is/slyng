@@ -1,11 +1,11 @@
 <script lang="ts">
 	import { onMount, onDestroy } from 'svelte';
-	import * as Dialog from '@syren/ui/dialog';
-	import * as Avatar from '@syren/ui/avatar';
+	import * as Dialog from '@slyng/ui/dialog';
+	import * as Avatar from '@slyng/ui/avatar';
 	import { X, ChevronLeft, ChevronRight, Pause, Play, Volume2, VolumeX } from '@lucide/svelte';
-	import { resolveProfile, displayName, federatedHandle } from '@syren/app-core/stores/profiles.svelte';
-	import { resolveStories } from '@syren/app-core/stores/stories.svelte';
-	import { proxied } from '@syren/app-core/utils/proxy';
+	import { resolveProfile, displayName, federatedHandle } from '@slyng/app-core/stores/profiles.svelte';
+	import { resolveStories } from '@slyng/app-core/stores/stories.svelte';
+	import { proxied } from '@slyng/app-core/utils/proxy';
 
 	const IMAGE_DURATION_MS = 5000;
 

@@ -3,7 +3,7 @@
  * edits, avatar/banner uploads, and stories. Every call flows through
  * `idpJson` (session cookie + Bearer), except the raw S3 PUT which goes
  * straight to the presigned URL. Only meaningful for local accounts —
- * accounts hosted on this syren instance (`isLocalIdentity`).
+ * accounts hosted on this slyng instance (`isLocalIdentity`).
  */
 
 import { idpJson } from '../idp-fetch.js';

@@ -1,5 +1,5 @@
 <script lang="ts">
-	import * as Avatar from '@syren/ui/avatar';
+	import * as Avatar from '@slyng/ui/avatar';
 	import {
 		Ban,
 		UserMinus,
@@ -18,11 +18,11 @@
 		Crown
 	} from '@lucide/svelte';
 	import { toast } from 'svelte-sonner';
-	import { api } from '@syren/app-core/api';
-	import { resolveProfile, displayName } from '@syren/app-core/stores/profiles.svelte';
-	import { getMembers } from '@syren/app-core/stores/members.svelte';
-	import { getPerms } from '@syren/app-core/stores/perms.svelte';
-	import { proxied } from '@syren/app-core/utils/proxy';
+	import { api } from '@slyng/app-core/api';
+	import { resolveProfile, displayName } from '@slyng/app-core/stores/profiles.svelte';
+	import { getMembers } from '@slyng/app-core/stores/members.svelte';
+	import { getPerms } from '@slyng/app-core/stores/perms.svelte';
+	import { proxied } from '@slyng/app-core/utils/proxy';
 	import HardDeleteConfirmDialog from './server-settings/hard-delete-confirm-dialog.svelte';
 
 	interface Row {

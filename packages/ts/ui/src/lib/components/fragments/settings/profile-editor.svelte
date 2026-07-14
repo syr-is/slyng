@@ -1,22 +1,22 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { toast } from 'svelte-sonner';
-	import { Button } from '@syren/ui/button';
-	import { Input } from '@syren/ui/input';
-	import { Label } from '@syren/ui/label';
-	import * as Avatar from '@syren/ui/avatar';
+	import { Button } from '@slyng/ui/button';
+	import { Input } from '@slyng/ui/input';
+	import { Label } from '@slyng/ui/label';
+	import * as Avatar from '@slyng/ui/avatar';
 	import { Loader2, Save, Upload, ImageIcon } from '@lucide/svelte';
-	import { proxied } from '@syren/app-core/utils/proxy';
+	import { proxied } from '@slyng/app-core/utils/proxy';
 	import {
 		isLocalIdentity,
 		getLocalProfile,
 		updateProfile,
 		uploadProfileAsset
-	} from '@syren/app-core/upload/idp-upload';
+	} from '@slyng/app-core/upload/idp-upload';
 	import StoryComposer from './story-composer.svelte';
 
 	/**
-	 * In-app profile editor for accounts hosted on this syren instance.
+	 * In-app profile editor for accounts hosted on this slyng instance.
 	 * Self-gates: renders only when the identity is local (`isLocalIdentity`).
 	 * For federated identities it renders nothing — the parent keeps showing
 	 * the read-only card + "Edit on syr".

@@ -26,7 +26,7 @@ import type {
 	PublicReaction,
 	ReactionToggleResponse,
 	ReactionParentType
-} from '@syren/types';
+} from '@slyng/types';
 
 interface Envelope<T> {
 	status: string;
@@ -123,12 +123,12 @@ async function readPage<T>(url: string): Promise<Page<T>> {
 // ── syr-compatible fan-out (consuming remote content) ───────────────
 // Displaying a post's interactions is the union of two reads:
 //   1. by-target aggregation on the CONTENT-HOST instance — every interaction
-//      hosted there (a syren enrichment; 404s harmlessly on a plain syr host).
+//      hosted there (a slyng enrichment; 404s harmlessly on a plain syr host).
 //   2. per-author fan-out over `{viewer} ∪ {followed DIDs}`, each queried on its
 //      OWN instance filtered to this post — this is syr's native model and the
 //      only source when the host is a real syr instance (or the actor lives on
 //      a different instance than the content).
-// Merged + deduped by `did:local_id`. This makes syren a fully-compliant syr
+// Merged + deduped by `did:local_id`. This makes slyng a fully-compliant syr
 // CONSUMER, not just a compliant emitter.
 
 export interface FanoutTarget {
@@ -227,7 +227,7 @@ export async function fetchReactionsForThread(
 	};
 
 	await Promise.all([
-		// Host by-target — one call per target (skips silently on a non-syren host).
+		// Host by-target — one call per target (skips silently on a non-slyng host).
 		...targets.map((t) =>
 			hostBase
 				? fetchThreadReactions(hostBase, t.type, t.did, t.id)

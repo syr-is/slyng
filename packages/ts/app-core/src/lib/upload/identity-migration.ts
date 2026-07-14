@@ -6,7 +6,7 @@
 
 import { idpFetch } from '../idp-fetch.js';
 import { apiUrl } from '../host.js';
-import type { IdentityImportResult } from '@syren/types';
+import type { IdentityImportResult } from '@slyng/types';
 
 async function errorFrom(res: Response, fallback: string): Promise<string> {
 	const body = (await res.json().catch(() => null)) as
@@ -25,7 +25,7 @@ export async function exportIdentity(password: string): Promise<void> {
 
 	const blob = await res.blob();
 	const cd = res.headers.get('Content-Disposition') ?? '';
-	const filename = /filename="([^"]+)"/.exec(cd)?.[1] ?? 'syren-identity.zip';
+	const filename = /filename="([^"]+)"/.exec(cd)?.[1] ?? 'slyng-identity.zip';
 	const url = URL.createObjectURL(blob);
 	try {
 		const a = document.createElement('a');

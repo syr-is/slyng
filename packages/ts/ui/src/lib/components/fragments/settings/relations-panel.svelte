@@ -1,11 +1,11 @@
 <script lang="ts">
-	import * as Avatar from '@syren/ui/avatar';
+	import * as Avatar from '@slyng/ui/avatar';
 	import { Ban, UserX } from '@lucide/svelte';
 	import { toast } from 'svelte-sonner';
-	import { api } from '@syren/app-core/api';
-	import { getRelations } from '@syren/app-core/stores/relations.svelte';
-	import { resolveProfile, displayName, federatedHandle } from '@syren/app-core/stores/profiles.svelte';
-	import { proxied } from '@syren/app-core/utils/proxy';
+	import { api } from '@slyng/app-core/api';
+	import { getRelations } from '@slyng/app-core/stores/relations.svelte';
+	import { resolveProfile, displayName, federatedHandle } from '@slyng/app-core/stores/profiles.svelte';
+	import { proxied } from '@slyng/app-core/utils/proxy';
 	import PaginatedTable from '../paginated-table.svelte';
 
 	const relations = getRelations();

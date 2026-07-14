@@ -1,32 +1,32 @@
 /**
- * `@syren/client` — typed namespace adapter over the wasm-pack-emitted
+ * `@slyng/client` — typed namespace adapter over the wasm-pack-emitted
  * Rust client. Every entity / endpoint type is auto-derived from
- * `syren-types` (the source-of-truth Rust crate) via tsify-next.
+ * `slyng-types` (the source-of-truth Rust crate) via tsify-next.
  *
  * Usage:
  *
- *     import { initSyrenClient } from '@syren/client';
+ *     import { initSlyngClient } from '@slyng/client';
  *
- *     const client = await initSyrenClient('https://app.slyng.gg');
+ *     const client = await initSlyngClient('https://app.slyng.gg');
  *     await client.auth.login('https://app.syr.is');
  *     const me = await client.auth.me();
  *     const servers = await client.servers.list();
  *
  * Types are also re-exported here for convenience:
  *
- *     import type { Server, Channel, Message } from '@syren/client';
+ *     import type { Server, Channel, Message } from '@slyng/client';
  *
- * The canonical source for any type is `@syren/client/wasm` (the
+ * The canonical source for any type is `@slyng/client/wasm` (the
  * wasm-pack output). The re-exports below are a stable surface that
  * doesn't reach into `dist/wasm/web/`.
  */
 
-export { initSyrenClient, createSyrenRealtime } from './adapter.js';
-export type { SyrenClient, RealtimeHandle, WsState } from './adapter.js';
+export { initSlyngClient, createSlyngRealtime } from './adapter.js';
+export type { SlyngClient, RealtimeHandle, WsState } from './adapter.js';
 
 // Auto-derived data types from the wasm-pack `.d.ts`. Adding more
 // here is purely a convenience — every type is reachable via
-// `@syren/client/wasm` regardless.
+// `@slyng/client/wasm` regardless.
 export type {
 	AllowDms,
 	AllowFriendRequests,

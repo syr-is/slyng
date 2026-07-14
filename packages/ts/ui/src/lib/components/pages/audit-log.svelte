@@ -2,10 +2,10 @@
 	import { ArrowLeft, ScrollText, Hash, X } from '@lucide/svelte';
 	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
-	import { Button } from '@syren/ui/button';
-	import { getServerState } from '@syren/app-core/stores/servers.svelte';
-	import { getPerms } from '@syren/app-core/stores/perms.svelte';
-	import AuditLogPanel from '@syren/ui/fragments/audit-log-panel.svelte';
+	import { Button } from '@slyng/ui/button';
+	import { getServerState } from '@slyng/app-core/stores/servers.svelte';
+	import { getPerms } from '@slyng/app-core/stores/perms.svelte';
+	import AuditLogPanel from '@slyng/ui/fragments/audit-log-panel.svelte';
 
 	const serverState = getServerState();
 	const perms = getPerms();

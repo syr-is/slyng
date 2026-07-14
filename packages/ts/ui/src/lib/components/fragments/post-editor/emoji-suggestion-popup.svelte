@@ -2,9 +2,9 @@
 	// Renders the `:`-autocomplete dropdown for the post editor, positioned at the
 	// caret via floating-ui. Reads the shared reactive suggestion controller
 	// (driven by the @tiptap/suggestion render() hooks). Ported from pendi;
-	// emoji urls are proxied and the sticker flag is syren's `is_sticker`.
+	// emoji urls are proxied and the sticker flag is slyng's `is_sticker`.
 	import { computePosition, flip, shift, offset } from '@floating-ui/dom';
-	import { proxied } from '@syren/app-core/utils/proxy';
+	import { proxied } from '@slyng/app-core/utils/proxy';
 	import { emojiSuggestion } from './emoji-suggestion.svelte.js';
 
 	let el = $state<HTMLDivElement | null>(null);

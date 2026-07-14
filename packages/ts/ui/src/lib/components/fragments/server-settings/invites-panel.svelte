@@ -1,13 +1,13 @@
 <script lang="ts">
-	import * as Avatar from '@syren/ui/avatar';
+	import * as Avatar from '@slyng/ui/avatar';
 	import { Copy, Check, Trash2, Globe, AtSign, Server, Pencil, X } from '@lucide/svelte';
 	import { toast } from 'svelte-sonner';
-	import { api } from '@syren/app-core/api';
-	import { getAuth } from '@syren/app-core/stores/auth.svelte';
-	import { getPerms } from '@syren/app-core/stores/perms.svelte';
-	import { resolveProfile, displayName } from '@syren/app-core/stores/profiles.svelte';
-	import { getMembers } from '@syren/app-core/stores/members.svelte';
-	import { proxied } from '@syren/app-core/utils/proxy';
+	import { api } from '@slyng/app-core/api';
+	import { getAuth } from '@slyng/app-core/stores/auth.svelte';
+	import { getPerms } from '@slyng/app-core/stores/perms.svelte';
+	import { resolveProfile, displayName } from '@slyng/app-core/stores/profiles.svelte';
+	import { getMembers } from '@slyng/app-core/stores/members.svelte';
+	import { proxied } from '@slyng/app-core/utils/proxy';
 	import PaginatedTable from '../paginated-table.svelte';
 	import CreateInviteForm from './create-invite-form.svelte';
 

@@ -1,8 +1,8 @@
 <script lang="ts">
 	import { Search, X } from '@lucide/svelte';
-	import { getAuth } from '@syren/app-core/stores/auth.svelte';
-	import { resolveGifs, type GifEntry } from '@syren/app-core/stores/gifs.svelte';
-	import { proxied } from '@syren/app-core/utils/proxy';
+	import { getAuth } from '@slyng/app-core/stores/auth.svelte';
+	import { resolveGifs, type GifEntry } from '@slyng/app-core/stores/gifs.svelte';
+	import { proxied } from '@slyng/app-core/utils/proxy';
 
 	const {
 		onSelect,

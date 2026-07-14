@@ -2,9 +2,9 @@
 	import { onDestroy } from 'svelte';
 	import { SvelteMap } from 'svelte/reactivity';
 	import { Maximize2, Minimize2, X } from '@lucide/svelte';
-	import { onRemoteVideo, type VideoStreamKey, type VideoSource } from '@syren/app-core/voice/livekit-engine';
-	import { resolveProfile, displayName } from '@syren/app-core/stores/profiles.svelte';
-	import { attachStream } from '@syren/app-core/utils/attach-stream';
+	import { onRemoteVideo, type VideoStreamKey, type VideoSource } from '@slyng/app-core/voice/livekit-engine';
+	import { resolveProfile, displayName } from '@slyng/app-core/stores/profiles.svelte';
+	import { attachStream } from '@slyng/app-core/utils/attach-stream';
 
 	/**
 	 * Renders incoming screen-share video streams from voice-channel peers.
