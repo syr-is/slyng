@@ -37,7 +37,46 @@ import {
 	EditMessageInputSchema,
 	ExchangeRequestSchema,
 	FriendSendInputSchema,
+	LocalLoginRequestSchema,
+	LocalProfilePatchSchema,
+	LocalRegisterRequestSchema,
 	LoginRequestSchema,
+	FullProfilePatchSchema,
+	ProfileAssetPresignSchema,
+	PostCreateSchema,
+	PostUpdateSchema,
+	PostAssetPresignSchema,
+	EmojiPresignSchema,
+	EmojiCompleteSchema,
+	GifPresignSchema,
+	GifCompleteSchema,
+	FolderCreateSchema,
+	FolderUpdateSchema,
+	LibraryPresignSchema,
+	UploadPatchSchema,
+	ShareLinkRequestSchema,
+	InstanceLimitsPatchSchema,
+	CommentCreateSchema,
+	CommentUpdateSchema,
+	ReactionCreateSchema,
+	FollowCreateSchema,
+	FollowVisibilitySchema,
+	RegistryAddSchema,
+	RegistrySyncSchema,
+	DelegationVerifyRequestSchema,
+	IndependentLoginChallengeRequestSchema,
+	IndependentLoginVerifyRequestSchema,
+	IdentityExportRequestSchema,
+	RegisterWithImportSchema,
+	UploadCreateSchema,
+	UploadCompleteSchema,
+	PlatformChallengeRequestSchema,
+	PlatformConsentApproveSchema,
+	PlatformConsentDirectSchema,
+	PlatformRegistrationRequestSchema,
+	PlatformRevokeRequestSchema,
+	PlatformSignRequestSchema,
+	PlatformTokenRequestSchema,
 	MarkChannelReadInputSchema,
 	PinMessageInputSchema,
 	PurgeMessagesInputSchema,
@@ -65,6 +104,65 @@ function dto<S extends z.ZodTypeAny>(schema: S): new () => z.infer<S> {
 
 export class LoginDto extends dto(LoginRequestSchema) {}
 export class ExchangeDto extends dto(ExchangeRequestSchema) {}
+export class LocalRegisterDto extends dto(LocalRegisterRequestSchema) {}
+export class LocalLoginDto extends dto(LocalLoginRequestSchema) {}
+export class LocalProfilePatchDto extends dto(LocalProfilePatchSchema) {}
+
+// ── Local profile hosting + stories (IdP) ───────────────────────────
+
+export class FullProfilePatchDto extends dto(FullProfilePatchSchema) {}
+export class ProfileAssetPresignDto extends dto(ProfileAssetPresignSchema) {}
+export class StoryPresignDto extends dto(UploadCreateSchema) {}
+export class StoryCompleteDto extends dto(UploadCompleteSchema) {}
+
+// ── Posts (IdP) ─────────────────────────────────────────────────────
+
+export class PostCreateDto extends dto(PostCreateSchema) {}
+export class PostUpdateDto extends dto(PostUpdateSchema) {}
+export class PostAssetPresignDto extends dto(PostAssetPresignSchema) {}
+export class EmojiPresignDto extends dto(EmojiPresignSchema) {}
+export class EmojiCompleteDto extends dto(EmojiCompleteSchema) {}
+export class GifPresignDto extends dto(GifPresignSchema) {}
+export class GifCompleteDto extends dto(GifCompleteSchema) {}
+
+// ── IdP library (P7) ────────────────────────────────────────────────
+export class FolderCreateDto extends dto(FolderCreateSchema) {}
+export class FolderUpdateDto extends dto(FolderUpdateSchema) {}
+export class LibraryPresignDto extends dto(LibraryPresignSchema) {}
+export class LibraryCompleteDto extends dto(UploadCompleteSchema) {}
+export class UploadPatchDto extends dto(UploadPatchSchema) {}
+export class ShareLinkDto extends dto(ShareLinkRequestSchema) {}
+export class InstanceLimitsPatchDto extends dto(InstanceLimitsPatchSchema) {}
+
+// ── Comments / reactions / follows (P8) ─────────────────────────────
+export class CommentCreateDto extends dto(CommentCreateSchema) {}
+export class CommentUpdateDto extends dto(CommentUpdateSchema) {}
+export class ReactionCreateDto extends dto(ReactionCreateSchema) {}
+export class FollowCreateDto extends dto(FollowCreateSchema) {}
+export class FollowVisibilityDto extends dto(FollowVisibilitySchema) {}
+
+// ── Registry / outbox (P9) ──────────────────────────────────────────
+export class RegistryAddDto extends dto(RegistryAddSchema) {}
+export class RegistrySyncDto extends dto(RegistrySyncSchema) {}
+
+// ── Platform delegation (IdP server side) ───────────────────────────
+
+export class PlatformRegisterDto extends dto(PlatformRegistrationRequestSchema) {}
+export class PlatformTokenDto extends dto(PlatformTokenRequestSchema) {}
+export class PlatformSignDto extends dto(PlatformSignRequestSchema) {}
+export class PlatformChallengeDto extends dto(PlatformChallengeRequestSchema) {}
+export class PlatformRevokeDto extends dto(PlatformRevokeRequestSchema) {}
+export class PlatformConsentDirectDto extends dto(PlatformConsentDirectSchema) {}
+export class PlatformConsentApproveDto extends dto(PlatformConsentApproveSchema) {}
+
+// ── Syner self-custody (P10) ────────────────────────────────────────
+export class DelegationVerifyDto extends dto(DelegationVerifyRequestSchema) {}
+export class IndependentLoginChallengeDto extends dto(IndependentLoginChallengeRequestSchema) {}
+export class IndependentLoginVerifyDto extends dto(IndependentLoginVerifyRequestSchema) {}
+
+// ── Identity import / export (P11) ──────────────────────────────────
+export class IdentityExportDto extends dto(IdentityExportRequestSchema) {}
+export class RegisterWithImportDto extends dto(RegisterWithImportSchema) {}
 
 // ── Server ──────────────────────────────────────────────────────────
 

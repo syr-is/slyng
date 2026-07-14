@@ -3,8 +3,10 @@
  */
 
 import { WsOp } from '@syren/types';
+import type { ServerRole } from '@syren/client';
 import { onWsEvent } from './ws.svelte';
 import { recordIdString } from '../utils/record-id';
+import { normalizeRole } from './normalize';
 
 export interface RoleData {
 	id: string;
@@ -30,9 +32,9 @@ export function getRoles() {
 	};
 }
 
-export function setRoles(serverId: string | null, list: RoleData[]) {
+export function setRoles(serverId: string | null, list: ServerRole[]) {
 	activeServerId = serverId;
-	roles = [...list].sort((a, b) => b.position - a.position); // highest first
+	roles = list.map(normalizeRole).sort((a, b) => b.position - a.position); // highest first
 }
 
 export function clearRoles() {

@@ -11,6 +11,7 @@
 	import { z } from 'zod';
 	import { CreateDmInputSchema } from '@syren/types';
 	import { api } from '@syren/app-core/api';
+	import { normalizeResolvedUser } from '@syren/app-core/stores/normalize';
 	import { resolveProfile, displayName, federatedHandle } from '@syren/app-core/stores/profiles.svelte';
 	import { proxied } from '@syren/app-core/utils/proxy';
 
@@ -74,7 +75,7 @@
 			}
 			resolved = null;
 			try {
-				resolved = await api.users.resolve(q);
+				resolved = normalizeResolvedUser(await api.users.resolve(q));
 			} catch (err) {
 				toast.error(err instanceof Error ? err.message : 'Could not find user');
 			}

@@ -28,6 +28,28 @@ import {
 	UserIgnoreRepository
 } from '../relation/relation.repository';
 import { PermissionOverrideRepository } from '../permission-override/override.repository';
+import {
+	LocalAccountRepository,
+	IdentityRepository,
+	DelegatedKeyRepository,
+	IdpProfileRepository
+} from '../idp/idp.repository';
+import {
+	LibraryUploadRepository,
+	FolderRepository
+} from '../idp/idp-content.repository';
+import { PostRepository } from '../idp/idp-post.repository';
+import { EmojiRepository, GifRepository } from '../idp/idp-media.repository';
+import {
+	CommentRepository,
+	ReactionRepository,
+	FollowRepository
+} from '../idp/idp-interaction.repository';
+import {
+	IdentityRegistryRepository,
+	OutboxRepository
+} from '../idp/idp-registry.repository';
+import { IdpAuditRepository } from '../idp/idp-audit.repository';
 
 const repositories = [
 	ServerRepository,
@@ -50,7 +72,22 @@ const repositories = [
 	FriendshipRepository,
 	UserBlockRepository,
 	UserIgnoreRepository,
-	PermissionOverrideRepository
+	PermissionOverrideRepository,
+	LocalAccountRepository,
+	IdentityRepository,
+	DelegatedKeyRepository,
+	IdpProfileRepository,
+	LibraryUploadRepository,
+	FolderRepository,
+	PostRepository,
+	EmojiRepository,
+	GifRepository,
+	CommentRepository,
+	ReactionRepository,
+	FollowRepository,
+	IdentityRegistryRepository,
+	OutboxRepository,
+	IdpAuditRepository
 ];
 
 @Global()

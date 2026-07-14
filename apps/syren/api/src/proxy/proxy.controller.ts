@@ -37,6 +37,17 @@ export class ProxyController {
 
 	private readonly allowPrivate: boolean;
 
+	// Self-origin → internal-address rewrites. A local user's profile / avatar /
+	// story lives at our OWN PUBLIC_URL (or S3_PUBLIC_URL), but those are
+	// browser-facing origins (a LAN IP, a host-mapped S3 port) that the API
+	// process often can't reach server-side — inside Docker the container can't
+	// hairpin back to the host's LAN IP, and the S3 public port isn't mapped
+	// into the container. So when the proxy is asked to fetch one of our own
+	// origins, it rewrites to a loopback/service address it can always reach:
+	// PUBLIC_URL → the API on 127.0.0.1 (it serves /api and /.well-known
+	// itself), S3_PUBLIC_URL → the container-internal S3_ENDPOINT.
+	private readonly selfRewrites: { publicOrigin: string; internalBase: string }[] = [];
+
 	constructor(private readonly config: ConfigService) {
 		this.maxBytes = Number(this.config.get<string>('PROXY_MAX_BYTES', '104857600'));
 		this.timeoutMs = Number(this.config.get<string>('PROXY_TIMEOUT_MS', '10000'));
@@ -49,9 +60,46 @@ export class ProxyController {
 			explicit != null
 				? explicit === 'true' || explicit === '1'
 				: nodeEnv !== 'production';
+
+		const apiPort = this.config.get<string | number>('SYREN_API_PORT', 5175);
+		this.addSelfRewrite(this.config.get<string>('PUBLIC_URL'), `http://127.0.0.1:${apiPort}`);
+		// S3 assets stay self-allowlisted either way. When S3_ENDPOINT is set we
+		// rewrite the public S3 origin to it (the container reaches S3 only by
+		// service name); otherwise register an identity rewrite so the origin is
+		// still allowlisted and fetched as-is.
+		const s3Public = this.config.get<string>('S3_PUBLIC_URL');
+		let s3Internal = s3Public;
+		const s3Endpoint = this.config.get<string>('S3_ENDPOINT');
+		if (s3Endpoint && s3Public) {
+			try {
+				s3Internal = new URL(s3Endpoint).origin;
+			} catch {
+				/* malformed S3_ENDPOINT — fall back to the public origin */
+			}
+		}
+		if (s3Public) {
+			try {
+				this.addSelfRewrite(s3Public, new URL(s3Internal!).origin);
+			} catch {
+				/* malformed S3_PUBLIC_URL — skip */
+			}
+		}
+
 		this.logger.log(
-			`Proxy up — maxBytes=${this.maxBytes} timeoutMs=${this.timeoutMs} allowPrivate=${this.allowPrivate}`
+			`Proxy up — maxBytes=${this.maxBytes} timeoutMs=${this.timeoutMs} allowPrivate=${this.allowPrivate} selfRewrites=${this.selfRewrites.length}`
 		);
+	}
+
+	private addSelfRewrite(publicUrl: string | undefined, internalBase: string) {
+		if (!publicUrl) return;
+		try {
+			const origin = new URL(publicUrl).origin;
+			if (!this.selfRewrites.some((r) => r.publicOrigin === origin)) {
+				this.selfRewrites.push({ publicOrigin: origin, internalBase });
+			}
+		} catch {
+			/* malformed config value — skip */
+		}
 	}
 
 	/**
@@ -69,13 +117,14 @@ export class ProxyController {
 
 		const parsed = this.validateUrl(target);
 		if (!parsed) throw new HttpException('Invalid or disallowed URL', HttpStatus.FORBIDDEN);
+		const fetchUrl = this.toInternal(parsed);
 
 		const ctrl = new AbortController();
 		const timer = setTimeout(() => ctrl.abort(), this.timeoutMs);
 
 		let upstream: globalThis.Response;
 		try {
-			upstream = await fetch(parsed.toString(), {
+			upstream = await fetch(fetchUrl.toString(), {
 				signal: ctrl.signal,
 				redirect: 'follow',
 				headers: this.forwardHeaders(req)
@@ -160,12 +209,13 @@ export class ProxyController {
 
 		const parsed = this.validateUrl(target);
 		if (!parsed) throw new HttpException('Invalid or disallowed URL', HttpStatus.FORBIDDEN);
+		const fetchUrl = this.toInternal(parsed);
 
 		const ctrl = new AbortController();
 		const timer = setTimeout(() => ctrl.abort(), this.timeoutMs);
 
 		try {
-			const head = await fetch(parsed.toString(), {
+			const head = await fetch(fetchUrl.toString(), {
 				method: 'HEAD',
 				signal: ctrl.signal,
 				redirect: 'follow',
@@ -250,8 +300,33 @@ export class ProxyController {
 		}
 		if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return null;
 		if (!parsed.hostname) return null;
+		// Self-origin allowlist: this instance's own PUBLIC_URL / S3_PUBLIC_URL.
+		// Local users' assets live at our own origin, and the native app
+		// (tauri:// origin) reaches them through this proxy — even when that
+		// origin is loopback or a LAN IP the SSRF policy would reject.
+		if (this.isSelfOrigin(parsed)) return parsed;
 		if (!this.isPublicHost(parsed.hostname)) return null;
 		return parsed;
+	}
+
+	private isSelfOrigin(url: URL): boolean {
+		return this.selfRewrites.some((r) => r.publicOrigin === url.origin);
+	}
+
+	/**
+	 * Rewrite a self-origin URL to the internal address the API can actually
+	 * reach server-side. Non-self URLs pass through unchanged. Path + query are
+	 * preserved; only the origin swaps.
+	 */
+	private toInternal(url: URL): URL {
+		for (const { publicOrigin, internalBase } of this.selfRewrites) {
+			if (url.origin !== publicOrigin) continue;
+			const rewritten = new URL(internalBase);
+			rewritten.pathname = url.pathname;
+			rewritten.search = url.search;
+			return rewritten;
+		}
+		return url;
 	}
 
 	private isPublicHost(host: string): boolean {

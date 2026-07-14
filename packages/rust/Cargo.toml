@@ -1,6 +1,16 @@
 [workspace]
 resolver = "2"
-members = ["syren-types", "syren-client"]
+members = [
+    "syren-types",
+    "syren-client",
+    # Vendored from syr (packages/rust/*) — keep names/content in sync with upstream
+    "syr-crypto-core",
+    "syr-crypto-aegis",
+    "syr-crypto-sigil",
+    "syr-did",
+    # syren's build of syr's syr-crypto-wasm exports
+    "syren-idp-crypto",
+]
 
 [workspace.package]
 edition = "2021"

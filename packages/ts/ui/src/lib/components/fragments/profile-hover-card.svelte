@@ -29,6 +29,7 @@
 	import { proxied } from '@syren/app-core/utils/proxy';
 	import StoryViewer from './story-viewer.svelte';
 	import SafeLink from './safe-link.svelte';
+	import FollowButton from './follow-button.svelte';
 	import { getActiveProfileCard, setActiveProfileCard } from './active-profile-card.svelte.js';
 	import { getPaneState } from './swipe-layout/swipe-pane.svelte.js';
 	import { getMembers, type MemberData } from '@syren/app-core/stores/members.svelte';
@@ -454,6 +455,9 @@
 			{/if}
 
 			{#if !isSelf}
+				<div class="pt-1">
+					<FollowButton {did} provider={resolvedInstance} size="sm" class="w-full" />
+				</div>
 				<div class="flex items-center gap-1 pt-1">
 					<div class="flex-1">
 						{#if relationState === 'friend' || relationState === 'friend_ignored'}

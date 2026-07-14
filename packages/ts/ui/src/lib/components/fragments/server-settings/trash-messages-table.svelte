@@ -35,15 +35,20 @@
 		q?: string;
 		filters: Record<string, unknown>;
 	}) {
-		return api.servers.trashMessages(serverId, {
-			limit: params.limit,
-			offset: params.offset,
-			q: params.q,
-			sender_id: (params.filters.sender_id as string | undefined) ?? undefined,
-			deleted_by: (params.filters.deleted_by as string | undefined) ?? undefined,
-			since: (params.filters.since as string | undefined) ?? undefined,
-			until: (params.filters.until as string | undefined) ?? undefined
-		});
+		return api.servers
+			.trashMessages(serverId, {
+				limit: params.limit,
+				offset: params.offset,
+				q: params.q,
+				sender_id: (params.filters.sender_id as string | undefined) ?? undefined,
+				deleted_by: (params.filters.deleted_by as string | undefined) ?? undefined,
+				since: (params.filters.since as string | undefined) ?? undefined,
+				until: (params.filters.until as string | undefined) ?? undefined
+			})
+			.then((p) => ({
+				items: p.items.map((m) => ({ ...m, channel_name: m.channel_name ?? null })),
+				total: p.total
+			}));
 	}
 
 	async function restore(row: TrashedMessage) {

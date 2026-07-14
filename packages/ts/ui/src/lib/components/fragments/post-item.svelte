@@ -35,6 +35,12 @@
 	}
 
 	const hasMedia = $derived(post.type === 'media' && !!post.media_urls?.length);
+
+	/** Public read view for this post, carrying the host instance so it resolves. */
+	const postHref = $derived(
+		`/p/${encodeURIComponent(did)}/${encodeURIComponent(post.local_id)}` +
+			(instanceUrl ? `?instance=${encodeURIComponent(instanceUrl)}` : '')
+	);
 </script>
 
 <article class="rounded-lg border border-border bg-card">
@@ -63,15 +69,18 @@
 		{/if}
 	</div>
 
-	<!-- Content -->
-	<div class="space-y-2 px-4 pb-3">
+	<!-- Content (opens the full post view) -->
+	<a href={postHref} class="block space-y-2 px-4 pb-3 hover:bg-muted/30">
 		{#if post.title}
-			<h3 class="text-sm font-semibold text-foreground">{post.title}</h3>
+			<h3 class="text-sm font-semibold text-foreground hover:underline">{post.title}</h3>
 		{/if}
 		{#if post.description}
 			<p class="whitespace-pre-wrap text-sm text-foreground/90">{post.description}</p>
 		{/if}
-	</div>
+		{#if !post.title && !post.description}
+			<span class="text-sm text-muted-foreground hover:underline">View post →</span>
+		{/if}
+	</a>
 
 	<!-- Media grid -->
 	{#if hasMedia}

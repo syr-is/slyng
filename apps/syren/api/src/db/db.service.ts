@@ -114,7 +114,103 @@ export class DbService implements OnModuleDestroy {
 			DEFINE INDEX IF NOT EXISTS idx_perm_override_scope ON TABLE permission_override COLUMNS scope_type, scope_id;
 			DEFINE INDEX IF NOT EXISTS idx_perm_override_target ON TABLE permission_override COLUMNS target_type, target_id;
 			DEFINE INDEX IF NOT EXISTS idx_perm_override_unique ON TABLE permission_override COLUMNS server_id, scope_type, scope_id, target_type, target_id UNIQUE;
+
+			-- Local identity provider (syren-as-syr-instance). Table shapes
+			-- mirror syr's (apps/syr/app/src/lib/services/db.ts) so content
+			-- stays portable between syren and dedicated syr instances.
+			DEFINE TABLE IF NOT EXISTS local_account SCHEMALESS;
+			DEFINE INDEX IF NOT EXISTS idx_local_account_username ON TABLE local_account COLUMNS username UNIQUE;
+			DEFINE INDEX IF NOT EXISTS idx_local_account_did ON TABLE local_account COLUMNS did UNIQUE;
+
+			DEFINE TABLE IF NOT EXISTS identity SCHEMALESS;
+			DEFINE INDEX IF NOT EXISTS idx_identity_did ON TABLE identity COLUMNS did UNIQUE;
+			DEFINE INDEX IF NOT EXISTS idx_identity_account ON TABLE identity COLUMNS account_id UNIQUE;
+
+			DEFINE TABLE IF NOT EXISTS delegated_key SCHEMALESS;
+			DEFINE INDEX IF NOT EXISTS idx_delegated_key_public ON TABLE delegated_key COLUMNS public_key UNIQUE;
+			DEFINE INDEX IF NOT EXISTS idx_delegated_key_did ON TABLE delegated_key COLUMNS did;
+			DEFINE INDEX IF NOT EXISTS idx_delegated_key_origin ON TABLE delegated_key COLUMNS did, scope, platform_origin;
+
+			DEFINE TABLE IF NOT EXISTS profile SCHEMALESS;
+			DEFINE INDEX IF NOT EXISTS idx_profile_account ON TABLE profile COLUMNS account_id UNIQUE;
+
+			DEFINE TABLE IF NOT EXISTS kv SCHEMALESS;
+			DEFINE INDEX IF NOT EXISTS idx_kv_type ON TABLE kv COLUMNS kv_type;
+			DEFINE INDEX IF NOT EXISTS idx_kv_expires ON TABLE kv COLUMNS expires_at;
+
+			-- Owned/portable content (composite ids: table:{created_by, id}).
+			-- Named library_upload to avoid colliding with the chat upload
+			-- table. The id.created_by subfield indexes are defined separately
+			-- below (best-effort — some SurrealDB builds reject them).
+			DEFINE TABLE IF NOT EXISTS library_upload SCHEMALESS;
+			DEFINE INDEX IF NOT EXISTS idx_library_upload_folder ON TABLE library_upload COLUMNS folder_id;
+			DEFINE INDEX IF NOT EXISTS idx_library_upload_status ON TABLE library_upload COLUMNS status;
+			DEFINE INDEX IF NOT EXISTS idx_library_upload_public ON TABLE library_upload COLUMNS is_public;
+
+			DEFINE TABLE IF NOT EXISTS folder SCHEMALESS;
+			DEFINE INDEX IF NOT EXISTS idx_folder_owner ON TABLE folder COLUMNS owner_id;
+			DEFINE INDEX IF NOT EXISTS idx_folder_owner_name ON TABLE folder COLUMNS owner_id, name, parent_id;
+
+			-- Owned blog/media posts (composite ids: post:{created_by, id}).
+			-- The id.created_by subfield index is defined separately below.
+			DEFINE TABLE IF NOT EXISTS post SCHEMALESS;
+			DEFINE INDEX IF NOT EXISTS idx_post_visibility ON TABLE post COLUMNS visibility;
+			DEFINE INDEX IF NOT EXISTS idx_post_status ON TABLE post COLUMNS status;
+
+			-- Custom emoji + personal GIFs (composite ids: {emoji,gif}:{created_by, id}).
+			DEFINE TABLE IF NOT EXISTS emoji SCHEMALESS;
+			DEFINE INDEX IF NOT EXISTS idx_emoji_status ON TABLE emoji COLUMNS status;
+			DEFINE TABLE IF NOT EXISTS gif SCHEMALESS;
+			DEFINE INDEX IF NOT EXISTS idx_gif_status ON TABLE gif COLUMNS status;
+
+			-- Interactions (P8): comments + reactions (composite ids), follows
+			-- (composite id keyed by follower did). Post/target lookups index
+			-- the flat columns; per-author + by-follower listings ride the
+			-- id.created_by subfield index defined separately below.
+			DEFINE TABLE IF NOT EXISTS comment SCHEMALESS;
+			DEFINE INDEX IF NOT EXISTS idx_comment_post ON TABLE comment COLUMNS post_did, post_id;
+			DEFINE TABLE IF NOT EXISTS reaction SCHEMALESS;
+			DEFINE INDEX IF NOT EXISTS idx_reaction_target ON TABLE reaction COLUMNS parent_type, parent_did, parent_id;
+			DEFINE TABLE IF NOT EXISTS user_follow SCHEMALESS;
+			DEFINE INDEX IF NOT EXISTS idx_user_follow_followed ON TABLE user_follow COLUMNS followed_did;
+
+			-- Registry / discovery outbox (P9). identity_registry: publication
+			-- registries the user announces to. outbox: root-signed hosting-record
+			-- push jobs (durable, retryable). Both are instance-local job/config
+			-- state (hard-deleted), not composite-id owned content.
+			DEFINE TABLE IF NOT EXISTS identity_registry SCHEMALESS;
+			DEFINE INDEX IF NOT EXISTS idx_identity_registry_did ON TABLE identity_registry COLUMNS identity_did;
+			DEFINE INDEX IF NOT EXISTS idx_identity_registry_unique ON TABLE identity_registry COLUMNS identity_did, registry_url UNIQUE;
+			DEFINE TABLE IF NOT EXISTS outbox SCHEMALESS;
+			DEFINE INDEX IF NOT EXISTS idx_outbox_actor ON TABLE outbox COLUMNS actor_did;
+			DEFINE INDEX IF NOT EXISTS idx_outbox_status_retry ON TABLE outbox COLUMNS status, next_retry_at;
+
+			-- Instance-level identity audit (distinct from server-scoped audit_log).
+			DEFINE TABLE IF NOT EXISTS idp_audit_log SCHEMALESS;
+			DEFINE INDEX IF NOT EXISTS idx_idp_audit_actor ON TABLE idp_audit_log COLUMNS actor_did, created_at;
+			DEFINE INDEX IF NOT EXISTS idx_idp_audit_action ON TABLE idp_audit_log COLUMNS action;
 		`);
+
+		// Composite-id (id.created_by) indexes speed the DID-scoped story /
+		// profile listings. Indexing a record-id subfield isn't supported on
+		// every SurrealDB build, so isolate it: an unsupported syntax logs a
+		// warning instead of aborting schema init (the queries still work via
+		// a scan until the index lands). Mirrors syr's db.ts.
+		try {
+			await this.db.query(`
+				DEFINE INDEX IF NOT EXISTS idx_library_upload_created_by ON TABLE library_upload COLUMNS id.created_by;
+					DEFINE INDEX IF NOT EXISTS idx_emoji_created_by ON TABLE emoji COLUMNS id.created_by;
+					DEFINE INDEX IF NOT EXISTS idx_gif_created_by ON TABLE gif COLUMNS id.created_by;
+					DEFINE INDEX IF NOT EXISTS idx_comment_created_by ON TABLE comment COLUMNS id.created_by;
+					DEFINE INDEX IF NOT EXISTS idx_reaction_created_by ON TABLE reaction COLUMNS id.created_by;
+					DEFINE INDEX IF NOT EXISTS idx_user_follow_created_by ON TABLE user_follow COLUMNS id.created_by;
+			`);
+		} catch (err) {
+			this.logger.warn(
+				`Could not define id.created_by indexes on composite-id tables (record-id subfield). ` +
+					`DID-scoped listings stay scan-based until added: ${(err as Error).message}`
+			);
+		}
 
 		// Backfill pre-existing rows that were created before new fields were added.
 		await this.db.query(`UPDATE server_ban SET active = true WHERE active = NONE;`);

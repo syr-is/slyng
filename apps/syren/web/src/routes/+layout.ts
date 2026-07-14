@@ -3,11 +3,19 @@ import { setHost } from '@syren/app-core/host';
 import { setApi, setApiError } from '@syren/app-core/api';
 import { setRealtime, setRealtimeError } from '@syren/app-core/realtime';
 import { setBootStage } from '@syren/app-core/boot-progress';
+import { setSessionTokenProvider } from '@syren/app-core/idp-fetch';
 import { createSyrenRealtime, initSyrenClient, type SyrenClient } from '@syren/client';
 
 // Web app is served same-origin with the API behind a `/api` reverse proxy
 // (Vite proxy in dev, nginx/Caddy in prod). Empty host = relative URLs.
 setHost('');
+
+// IdP surfaces (consent, delegations, profile/content authoring) read the
+// session token from the same localStorage key the WASM client's
+// LocalStorageStore persists to.
+setSessionTokenProvider(() =>
+	typeof localStorage === 'undefined' ? null : localStorage.getItem(SESSION_KEY)
+);
 
 export const ssr = false;
 export const prerender = false;

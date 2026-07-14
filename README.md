@@ -16,6 +16,44 @@ pnpm dev:syren         # just the chat app
 
 The app listens on `http://localhost:5174`. API on `:5175`. Adjust `.env` to bind a LAN IP if testing across devices.
 
+### App in Docker
+
+The API and web client can run in containers instead of on the host — both live behind an opt-in `app` compose profile, so a plain `docker compose up -d` still brings up infra only.
+
+**Full stack (infra + API + web):**
+
+```bash
+docker compose --profile app up -d
+```
+
+Then open the app at your `PUBLIC_URL` (e.g. `http://192.168.1.10:5174`). The API container connects to the other services by name and reads secrets + `PUBLIC_URL` from `.env`, so it matches a host-run API against the same SurrealDB — existing accounts and sessions stay valid.
+
+**Just the web client** (keep the API on the host):
+
+```bash
+SYREN_API_PROXY=http://host.docker.internal:5175 docker compose up -d syren-web
+```
+
+The web container's Vite dev proxy forwards `/api`, `/ws` and `/.well-known` to `SYREN_API_PROXY` — the containerized `syren-api` by default, or override it to point at a host-run API (`pnpm dev:api`) or any LAN address.
+
+The web app's own source hot-reloads (bind-mounted). Editing a shared package (`@syren/ui`, `@syren/app-core`, …) or the API needs a rebuild: `docker compose build syren-web syren-api`.
+
+### Local identity provider
+
+Syren can act as a full syr instance: users can sign up locally (username +
+password) and get a `did:syr` identity hosted by syren itself — no external
+syr instance required. Configure in `.env` (see `.env.example` for details):
+
+```
+SYREN_JWT_SECRET=...            # ≥32 chars — signs session/platform tokens
+PLATFORM_DELEGATE_SECRET=...    # ≥32 chars — encrypts delegate keys at rest; treat like a KMS key
+SYREN_REGISTRATION_MODE=open    # open | invite_only | closed
+```
+
+Generate secrets with `openssl rand -hex 32`. Both must stay stable across
+restarts; changing `PLATFORM_DELEGATE_SECRET` invalidates every existing
+delegation.
+
 ### LiveKit (voice/video)
 
 Voice and video use a self-hosted [LiveKit](https://livekit.io) SFU running in Docker. The `docker compose up -d` command starts it alongside SurrealDB and SeaweedFS.

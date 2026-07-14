@@ -22,6 +22,8 @@ import { AuditLogModule } from './audit-log/audit-log.module';
 import { RelationModule } from './relation/relation.module';
 import { OverrideModule } from './permission-override/override.module';
 import { CategoryModule } from './category/category.module';
+import { IdpModule } from './idp/idp.module';
+import { ClipsModule } from './clips/clips.module';
 import { join } from 'node:path';
 
 @Module({
@@ -50,7 +52,9 @@ import { join } from 'node:path';
 		AuditLogModule,
 		RelationModule,
 		OverrideModule,
-		CategoryModule
+		CategoryModule,
+		IdpModule,
+		ClipsModule
 	],
 	providers: [
 		{ provide: APP_PIPE, useClass: ZodValidationPipe },

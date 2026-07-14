@@ -1,13 +1,14 @@
 <script lang="ts">
 	import { toggleMode } from 'mode-watcher';
 	import { onDestroy, onMount } from 'svelte';
-	import { MessagesSquare, UserPlus, Users, EyeOff } from '@lucide/svelte';
+	import { MessagesSquare, UserPlus, Users, EyeOff, CircleUser, HardDrive } from '@lucide/svelte';
 	import { Separator } from '@syren/ui/separator';
 	import * as Avatar from '@syren/ui/avatar';
 	import { toast } from 'svelte-sonner';
 	import { goto } from '$app/navigation';
 	import NavUser from '@syren/ui/fragments/nav-user.svelte';
 	import { api } from '@syren/app-core/api';
+	import { normalizeDmChannel } from '@syren/app-core/stores/normalize';
 	import { setActiveServer } from '@syren/app-core/stores/servers.svelte';
 	import { clearRoles } from '@syren/app-core/stores/roles.svelte';
 	import { clearMembers } from '@syren/app-core/stores/members.svelte';
@@ -39,7 +40,7 @@
 
 	async function refreshDms() {
 		try {
-			dmChannels = await api.users.dmChannels();
+			dmChannels = (await api.users.dmChannels()).map(normalizeDmChannel);
 		} catch (err) {
 			console.error('[dm-layout] dmChannels failed', err);
 			toast.error(err instanceof Error ? err.message : 'Failed to load DMs');
@@ -125,8 +126,16 @@
 	const onPosts = $derived(page.url.pathname.startsWith('/channels/@me/posts'));
 	const onDms = $derived(!onFriends && !onRequests && !onIgnored && !onPosts);
 
+	const myDid = $derived(auth.identity?.did);
 	const tabs = $derived([
-		{ href: '/channels/@me', label: 'Direct Messages', icon: MessagesSquare, match: (p: string) => p === '/channels/@me' || /^\/channels\/@me\/(?!friends|requests|ignored|posts)/.test(p) },
+		// Your own profile + posts + stories page ("You"), pinned to the top (own DID only).
+		...(myDid
+			? [
+					{ href: `/channels/@me/posts/${encodeURIComponent(myDid)}`, label: 'You', icon: CircleUser, match: (p: string) => p.startsWith('/channels/@me/posts') },
+					{ href: '/channels/@me/library', label: 'Files', icon: HardDrive, match: (p: string) => p.startsWith('/channels/@me/library') }
+				]
+			: []),
+		{ href: '/channels/@me', label: 'Direct Messages', icon: MessagesSquare, match: (p: string) => p === '/channels/@me' || /^\/channels\/@me\/(?!friends|requests|ignored|posts|library)/.test(p) },
 		{ href: '/channels/@me/friends', label: 'Friends', icon: Users, match: (p: string) => p.startsWith('/channels/@me/friends') },
 		{ href: '/channels/@me/requests', label: 'Requests', icon: UserPlus, badge: incomingCount, match: (p: string) => p.startsWith('/channels/@me/requests') },
 		{ href: '/channels/@me/ignored', label: 'Ignored', icon: EyeOff, match: (p: string) => p.startsWith('/channels/@me/ignored') }

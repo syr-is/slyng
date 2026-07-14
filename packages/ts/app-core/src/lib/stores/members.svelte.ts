@@ -3,8 +3,10 @@
  */
 
 import { WsOp } from '@syren/types';
+import type { ServerMember } from '@syren/client';
 import { onWsEvent } from './ws.svelte';
 import { recordIdString } from '../utils/record-id';
+import { normalizeMember } from './normalize';
 
 export interface MemberData {
 	id?: string;
@@ -30,9 +32,9 @@ export function getMembers() {
 	};
 }
 
-export function setMembers(serverId: string | null, list: MemberData[]) {
+export function setMembers(serverId: string | null, list: ServerMember[]) {
 	activeServerId = serverId;
-	members = list;
+	members = list.map(normalizeMember);
 }
 
 export function clearMembers() {

@@ -40,6 +40,12 @@
 			"import": "./dist/normalize-host.js",
 			"default": "./dist/normalize-host.js"
 		},
+		"./idp-fetch": {
+			"types": "./dist/idp-fetch.d.ts",
+			"svelte": "./dist/idp-fetch.js",
+			"import": "./dist/idp-fetch.js",
+			"default": "./dist/idp-fetch.js"
+		},
 		"./stores/*": {
 			"types": "./dist/stores/*.d.ts",
 			"svelte": "./dist/stores/*.js",
@@ -70,6 +76,8 @@
 		"dev": "chokidar \"src/**/*\" -c \"pnpm build\" --initial",
 		"build": "svelte-kit sync && svelte-package",
 		"check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
+		"test": "vitest run",
+		"test:watch": "vitest",
 		"prepare": "svelte-kit sync || echo ''"
 	},
 	"peerDependencies": {
@@ -88,6 +96,7 @@
 		"svelte": "^5.39.5",
 		"svelte-check": "^4.3.2",
 		"typescript": "^5.9.2",
-		"vite": "^7.1.7"
+		"vite": "^7.1.7",
+		"vitest": "^4.0.18"
 	}
 }

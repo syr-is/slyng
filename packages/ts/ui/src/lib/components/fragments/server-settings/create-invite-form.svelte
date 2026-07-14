@@ -144,7 +144,7 @@
 			<Form.FieldErrors />
 		</Form.Field>
 		<div class="space-y-1">
-			<label class="text-xs text-muted-foreground">Scope</label>
+			<span class="text-xs text-muted-foreground">Scope</span>
 			<div class="flex gap-1">
 				{#each ['open', 'instance', 'did'] as k (k)}
 					{@const active = $formData.target_kind === k}
@@ -223,12 +223,13 @@
 
 	<div class="grid grid-cols-2 gap-3">
 		<div class="space-y-1">
-			<label class="text-xs text-muted-foreground">Max uses (0 = unlimited)</label>
-			<Input type="number" min="0" bind:value={maxUsesText} />
+			<label for="inv-max-uses" class="text-xs text-muted-foreground">Max uses (0 = unlimited)</label>
+			<Input id="inv-max-uses" type="number" min="0" bind:value={maxUsesText} />
 		</div>
 		<div class="space-y-1">
-			<label class="text-xs text-muted-foreground">Expires in</label>
+			<label for="inv-expires" class="text-xs text-muted-foreground">Expires in</label>
 			<select
+				id="inv-expires"
 				bind:value={expiresInText}
 				class="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-xs"
 			>

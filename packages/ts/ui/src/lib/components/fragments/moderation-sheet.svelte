@@ -135,7 +135,8 @@
 	async function loadStats() {
 		if (!perms.canManageMessages) return;
 		try {
-			stats = await api.servers.memberMessageStats(serverId, userId);
+			const s = await api.servers.memberMessageStats(serverId, userId);
+			stats = { total: s.total, first_at: s.first_at ?? null, last_at: s.last_at ?? null };
 		} catch {
 			stats = null;
 		}
@@ -143,7 +144,13 @@
 	async function loadBanHistory() {
 		if (!perms.canBan) return;
 		try {
-			banHistory = await api.servers.memberBanHistory(serverId, userId);
+			banHistory = (await api.servers.memberBanHistory(serverId, userId)).map((b) => ({
+				...b,
+				reason: b.reason ?? null,
+				active: b.active ?? false,
+				unbanned_at: b.unbanned_at ?? null,
+				unbanned_by: b.unbanned_by ?? null
+			}));
 			activeBan = banHistory.find((b) => b.active) ?? null;
 		} catch {
 			banHistory = [];
@@ -296,7 +303,12 @@
 		if (permTreeLoading) return;
 		permTreeLoading = true;
 		try {
-			permTreeData = await api.roles.permissionTree(serverId, userId);
+			const t = await api.roles.permissionTree(serverId, userId);
+			permTreeData = {
+				server: t.server,
+				categories: (t.categories ?? []).map((c) => ({ ...c, channels: c.channels ?? [] })),
+				uncategorized: t.uncategorized ?? []
+			};
 		} catch (err) {
 			toast.error(err instanceof Error ? err.message : 'Failed to load permission tree');
 		}

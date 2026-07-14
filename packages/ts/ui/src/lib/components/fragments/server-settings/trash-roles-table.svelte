@@ -27,7 +27,10 @@
 	async function refresh() {
 		loading = true;
 		try {
-			rows = await api.servers.trashRoles(serverId);
+			rows = (await api.servers.trashRoles(serverId)).map((r) => ({
+				...r,
+				color: r.color ?? null
+			}));
 		} catch (err) {
 			toast.error(err instanceof Error ? err.message : 'Failed to load trashed roles');
 		}

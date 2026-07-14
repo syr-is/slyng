@@ -1,0 +1,17 @@
+[package]
+name = "syr-crypto-sigil"
+version = "0.1.0"
+edition = "2021"
+description = "Sigil (PIEF) - Portable Identity Export Format"
+license = "MIT"
+
+[dependencies]
+argon2 = "0.5"
+zeroize = "1"
+unicode-normalization = "0.1"
+aes-gcm = "0.10"
+base64 = { version = "0.21", features = ["alloc"] }
+syr-crypto-core = { path = "../syr-crypto-core" }
+serde = { version = "1", features = ["derive"] }
+ed25519-dalek = "2"
+rand = "0.8"

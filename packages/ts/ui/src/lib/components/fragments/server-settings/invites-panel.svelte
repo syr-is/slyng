@@ -34,7 +34,18 @@
 	let copiedCode = $state<string | null>(null);
 
 	function load(params: { limit: number; offset: number; sort?: string; order?: 'asc' | 'desc'; q?: string }) {
-		return api.servers.listInvites(serverId, params);
+		return api.servers.listInvites(serverId, params).then((p) => ({
+			items: p.items.map((i) => ({
+				...i,
+				expires_at: i.expires_at ?? null,
+				max_uses: i.max_uses ?? 0,
+				uses: i.uses ?? 0,
+				target_kind: i.target_kind ?? 'open',
+				target_value: i.target_value ?? null,
+				label: i.label ?? null
+			})),
+			total: p.total
+		}));
 	}
 
 	async function copyLink(code: string) {

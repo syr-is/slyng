@@ -91,15 +91,18 @@ export async function loadRelations(): Promise<void> {
 	try {
 		const snap = await api.relations.snapshot();
 		friends.clear();
-		for (const d of snap.friends) friends.add(d);
+		for (const d of snap.friends ?? []) friends.add(d);
 		blocked.clear();
-		for (const d of snap.blocked) blocked.add(d);
+		for (const d of snap.blocked ?? []) blocked.add(d);
 		ignored.clear();
-		for (const d of snap.ignored) ignored.add(d);
+		for (const d of snap.ignored ?? []) ignored.add(d);
 		incoming.clear();
-		for (const r of snap.incoming) incoming.set(r.from, { created_at: r.created_at });
+		// The API wire uses `from`/`to`, but the tsify type collapses both to
+		// `did` (serde alias), so the counterpart DID is always `r.did` — the
+		// old `r.from` / `r.to` reads were undefined at runtime.
+		for (const r of snap.incoming ?? []) incoming.set(r.did, { created_at: r.created_at });
 		outgoing.clear();
-		for (const r of snap.outgoing) outgoing.set(r.to, { created_at: r.created_at });
+		for (const r of snap.outgoing ?? []) outgoing.set(r.did, { created_at: r.created_at });
 		// Rebuild the instance map to match the snapshot — drop stale entries
 		// for DIDs no longer in the relations surface. `snap.instances` is
 		// a plain `Record<string, string>` here: the @syren/client adapter
@@ -111,8 +114,8 @@ export async function loadRelations(): Promise<void> {
 		for (const [did, url] of Object.entries(snap.instances ?? {})) {
 			rememberInstance(did, url);
 		}
-		allowDms = snap.allow_dms;
-		allowFriendRequests = snap.allow_friend_requests;
+		allowDms = snap.allow_dms ?? 'open';
+		allowFriendRequests = snap.allow_friend_requests ?? 'open';
 		loaded = true;
 	} catch {
 		// Best-effort on bootstrap; UI surfaces the failure elsewhere.

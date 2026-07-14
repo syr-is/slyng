@@ -61,25 +61,38 @@
 		filters: Record<string, unknown>;
 	}) {
 		const action = (params.filters.action as string | undefined) || undefined;
-		if (mode === 'user') {
-			return api.servers.memberAuditLog(serverId, userId!, {
-				limit: params.limit,
-				offset: params.offset,
-				q: params.q,
-				action
-			});
-		}
-		return api.servers.auditLog(serverId, {
-			limit: params.limit,
-			offset: params.offset,
-			q: params.q,
-			channel_id: mode === 'channel' ? channelId : undefined,
-			action,
-			actor_id: (params.filters.actor_id as string | undefined) || undefined,
-			target_user_id: (params.filters.target_user_id as string | undefined) || undefined,
-			since: (params.filters.since as string | undefined) || undefined,
-			until: (params.filters.until as string | undefined) || undefined
-		});
+		const page =
+			mode === 'user'
+				? api.servers.memberAuditLog(serverId, userId!, {
+						limit: params.limit,
+						offset: params.offset,
+						q: params.q,
+						action
+					})
+				: api.servers.auditLog(serverId, {
+						limit: params.limit,
+						offset: params.offset,
+						q: params.q,
+						channel_id: mode === 'channel' ? channelId : undefined,
+						action,
+						actor_id: (params.filters.actor_id as string | undefined) || undefined,
+						target_user_id: (params.filters.target_user_id as string | undefined) || undefined,
+						since: (params.filters.since as string | undefined) || undefined,
+						until: (params.filters.until as string | undefined) || undefined
+					});
+		// Normalize each row's drifted optionals to the strict `Row` shape.
+		return page.then((p) => ({
+			items: p.items.map((a) => ({
+				...a,
+				target_id: a.target_id ?? null,
+				target_user_id: a.target_user_id ?? null,
+				channel_id: a.channel_id ?? null,
+				metadata: a.metadata ?? {},
+				reason: a.reason ?? null,
+				batch_id: a.batch_id ?? null
+			})),
+			total: p.total
+		}));
 	}
 
 	const columns = [{ key: 'event', label: 'Event' }];

@@ -4,19 +4,34 @@ import { defineConfig, searchForWorkspaceRoot } from 'vite';
 
 const workspaceRoot = searchForWorkspaceRoot(process.cwd());
 
+// Dev proxy target for the API. Defaults to the host-run API on :5175;
+// override with SYREN_API_PROXY so the web can run in a container and reach
+// the API on the Docker host (e.g. http://host.docker.internal:5175).
+const apiProxy = process.env.SYREN_API_PROXY || 'http://localhost:5175';
+
 export default defineConfig({
 	envDir: workspaceRoot,
 	plugins: [tailwindcss(), sveltekit()],
 	server: {
 		port: 5174,
 		strictPort: true,
+		// Bind all interfaces so the dev server is reachable from outside a
+		// container / from other devices on the LAN.
+		host: true,
+		// Reached via the machine's mDNS hostname (<host>.local) and LAN IPs,
+		// not just localhost. Vite's Host-header check 403s unknown hostnames;
+		// this is a LAN-facing dev server, so accept any host.
+		allowedHosts: true,
 		fs: {
 			allow: [searchForWorkspaceRoot(process.cwd())]
 		},
 		proxy: {
-			'/api': 'http://localhost:5175',
+			'/api': apiProxy,
+			// syr discovery endpoints — served by the API at the site root so
+			// federated consumers can resolve local identities
+			'/.well-known': apiProxy,
 			'/ws': {
-				target: 'http://localhost:5175',
+				target: apiProxy,
 				ws: true
 			}
 		}

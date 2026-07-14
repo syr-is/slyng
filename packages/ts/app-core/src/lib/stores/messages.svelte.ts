@@ -1,6 +1,8 @@
 import { WsOp } from '@syren/types';
+import type { Message } from '@syren/client';
 import { onWsEvent } from './ws.svelte';
 import { getPerms } from './perms.svelte';
+import { normalizeMessage } from './normalize';
 
 /**
  * Per-channel message cache with real-time updates.
@@ -72,9 +74,15 @@ export function getMessages() {
 	};
 }
 
-export function setCurrentChannel(channelId: string, initial: MessageData[] = []) {
+export function setCurrentChannel(
+	channelId: string,
+	initial: (Message | MessageData)[] = []
+) {
 	currentChannelId = channelId;
-	channelMessages.set(channelId, [...initial]);
+	// Normalize at the boundary: `initial` may be raw tsify `Message[]` from
+	// the API or already-normalized `MessageData[]` (the pagination merge).
+	// normalizeMessage is idempotent, so both are safe.
+	channelMessages.set(channelId, initial.map(normalizeMessage));
 	messages = channelMessages.get(channelId)!;
 }
 
@@ -93,13 +101,14 @@ export function clearMessages() {
 	messages = [];
 }
 
-export function addMessage(msg: MessageData) {
-	const channelMsgs = channelMessages.get(msg.channel_id);
+export function addMessage(msg: Message | MessageData) {
+	const m = normalizeMessage(msg);
+	const channelMsgs = channelMessages.get(m.channel_id);
 	if (!channelMsgs) return;
 	// Dedupe — sender adds locally then WS broadcast also fires
-	if (channelMsgs.some((m) => m.id === msg.id)) return;
-	channelMsgs.push(msg);
-	if (msg.channel_id === currentChannelId) {
+	if (channelMsgs.some((x) => x.id === m.id)) return;
+	channelMsgs.push(m);
+	if (m.channel_id === currentChannelId) {
 		messages = [...channelMsgs];
 	}
 }

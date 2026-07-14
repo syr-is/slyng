@@ -5,6 +5,7 @@
 	import { toast } from 'svelte-sonner';
 	import { goto } from '$app/navigation';
 	import { api } from '@syren/app-core/api';
+	import { normalizeDmChannel } from '@syren/app-core/stores/normalize';
 	import { getRelations } from '@syren/app-core/stores/relations.svelte';
 	import { resolveProfile, displayName, federatedHandle } from '@syren/app-core/stores/profiles.svelte';
 	import { proxied } from '@syren/app-core/utils/proxy';
@@ -23,7 +24,7 @@
 	async function refreshDms() {
 		try {
 			const list = await api.users.dmChannels();
-			dms = list.filter((c) => c.is_ignored);
+			dms = list.map(normalizeDmChannel).filter((c) => c.is_ignored);
 		} catch {
 			/* best-effort */
 		}

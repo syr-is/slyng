@@ -1,3 +1,15 @@
+<script module lang="ts">
+	// Exported from the module context so svelte-package can name it in the
+	// generated .d.ts. Left as a private instance-script interface, it surfaced
+	// as "Return type of exported function has or is using private name 'Column'".
+	export interface Column {
+		key: string;
+		label: string;
+		sortable?: boolean;
+		class?: string;
+	}
+</script>
+
 <script lang="ts" generics="T">
 	import type { Snippet } from 'svelte';
 	import {
@@ -15,13 +27,6 @@
 	} from '@lucide/svelte';
 	import { Input } from '@syren/ui/input';
 	import { Button } from '@syren/ui/button';
-
-	interface Column {
-		key: string;
-		label: string;
-		sortable?: boolean;
-		class?: string;
-	}
 
 	type FilterDef =
 		| { key: string; kind: 'text'; label: string; placeholder?: string; mono?: boolean }

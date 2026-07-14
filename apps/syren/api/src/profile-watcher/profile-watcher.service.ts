@@ -1,7 +1,9 @@
 import { Injectable, Inject, Optional, Logger, OnModuleInit, OnModuleDestroy, forwardRef } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { Interval } from '@nestjs/schedule';
 import { WsOp } from '@syren/types';
 import { ChatGateway } from '../gateway/chat.gateway';
+import { IdpPublicService } from '../idp/idp-public.service';
 
 interface WatchEntry {
 	instance_url: string;
@@ -37,7 +39,21 @@ export class ProfileWatcherService implements OnModuleInit, OnModuleDestroy {
 	private readonly MAX_CONCURRENT_POLLS = 8;
 	private readonly POLL_TIMEOUT_MS = 6_000;
 
-	constructor(@Optional() @Inject(forwardRef(() => ChatGateway)) private readonly gateway?: ChatGateway) {}
+	constructor(
+		private readonly config: ConfigService,
+		private readonly idpPublic: IdpPublicService,
+		@Optional() @Inject(forwardRef(() => ChatGateway)) private readonly gateway?: ChatGateway
+	) {}
+
+	/** True when `instanceUrl` is this very syren instance (local users). */
+	private isSelfOrigin(instanceUrl: string): boolean {
+		try {
+			const self = new URL(this.config.get('PUBLIC_URL', 'http://localhost:5174'));
+			return new URL(instanceUrl).origin === self.origin;
+		} catch {
+			return false;
+		}
+	}
 
 	onModuleInit() {
 		this.logger.log('ProfileWatcher ready');
@@ -153,6 +169,17 @@ export class ProfileWatcherService implements OnModuleInit, OnModuleDestroy {
 	}
 
 	private async fetchHash(did: string, entry: WatchEntry): Promise<string | null> {
+		// Local DIDs: compute the hash in-process instead of HTTP-looping
+		// back to our own origin (which the SSRF-guarded fetch path and
+		// loopback bindings would make fragile anyway).
+		if (this.isSelfOrigin(entry.instance_url)) {
+			try {
+				const data = await this.idpPublic.getPublicHash(did);
+				return data.hash;
+			} catch {
+				return null;
+			}
+		}
 		const hashUrl = await this.resolveHashUrl(did, entry);
 		if (!hashUrl) return null;
 		try {

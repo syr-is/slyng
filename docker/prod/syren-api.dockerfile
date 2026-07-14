@@ -24,6 +24,7 @@ COPY packages/ts/types/package.json ./packages/ts/types/
 COPY packages/ts/ui/package.json ./packages/ts/ui/
 COPY packages/ts/app-core/package.json ./packages/ts/app-core/
 COPY packages/ts/client/package.json ./packages/ts/client/
+COPY packages/ts/idp-crypto/package.json ./packages/ts/idp-crypto/
 
 RUN echo "inject-workspace-packages=true" >> .npmrc
 RUN pnpm install
@@ -31,15 +32,34 @@ RUN pnpm install
 # ---- Builder Stage ----
 FROM deps AS builder
 
+# wasm-pack from Alpine edge/community — prebuilt binary pulling a
+# recent Rust toolchain transitively. Needed for @syren/idp-crypto's
+# WASM build (vendored syr crypto crates). Same pattern as
+# docker/prod/syren.dockerfile.
+RUN echo "http://dl-cdn.alpinelinux.org/alpine/edge/community" >> /etc/apk/repositories \
+    && apk update \
+    && apk add --no-cache wasm-pack
+
 # Only stage what the API actually builds against. The front-end
-# packages and the WASM crate stay out of the image — their
-# package.json was enough for the deps install above.
+# packages stay out of the image — their package.json was enough for
+# the deps install above. packages/rust is needed in full: the Cargo
+# workspace manifest lists every member, so cargo refuses to build
+# syren-idp-crypto without the sibling crates present.
 COPY apps/syren/api ./apps/syren/api
 COPY packages/ts/types ./packages/ts/types
+COPY packages/ts/idp-crypto ./packages/ts/idp-crypto
+COPY packages/rust ./packages/rust
 
-# Build types first, then API
+# Build types + idp-crypto (wasm-pack + tsup), then API
 RUN pnpm --filter @syren/types build
+RUN pnpm --filter @syren/idp-crypto build
 RUN pnpm --filter @syren/api build
+
+# Drop wasm-pack and the edge repo — the Rust toolchain has no
+# business in later layers.
+RUN apk del wasm-pack \
+    && sed -i '/alpine\/edge\/community/d' /etc/apk/repositories \
+    && rm -rf /var/cache/apk/*
 
 # Prune to production deps
 RUN pnpm --filter @syren/api --prod deploy pruned

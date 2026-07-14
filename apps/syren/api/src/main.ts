@@ -19,7 +19,11 @@ async function bootstrap() {
 
 	app.use(cookieParser());
 	app.useWebSocketAdapter(new WsAdapter(app));
-	app.setGlobalPrefix('api');
+	// `.well-known` discovery must live at the site root — federated syr
+	// consumers resolve `{origin}/.well-known/syr[/:did]`, never under /api.
+	app.setGlobalPrefix('api', {
+		exclude: ['.well-known/syr', '.well-known/syr/:did', '.well-known/did/:did']
+	});
 	// Allow same-origin (web), configured origins, and the Tauri webview origins
 	// for the native app. `origin: true` reflects the request origin which
 	// satisfies all three; we only need to ensure credentials flow.

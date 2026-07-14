@@ -5,6 +5,7 @@ import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { RecordId } from 'surrealdb';
 import { stringToRecordId } from '@syren/types';
 import { UploadRepository } from './upload.repository';
+import { InstanceConfigService } from '../idp/instance-config.service';
 
 type UploadStatus = 'pending' | 'finalizing' | 'completed' | 'failed';
 
@@ -35,7 +36,8 @@ export class UploadService implements OnModuleInit {
 
 	constructor(
 		private readonly config: ConfigService,
-		private readonly uploads: UploadRepository
+		private readonly uploads: UploadRepository,
+		private readonly instanceConfig: InstanceConfigService
 	) {}
 
 	private s3Public!: S3Client;
@@ -106,6 +108,9 @@ export class UploadService implements OnModuleInit {
 		if (data.size > this.maxBytes) {
 			throw new Error(`File exceeds max size of ${this.maxBytes} bytes`);
 		}
+		// Platform-wide, admin-configurable per-file cap (in addition to the
+		// absolute UPLOAD_MAX_BYTES ceiling above).
+		await this.instanceConfig.assertFileSize(data.size);
 		const filename = this.sanitizeFilename(data.filename);
 		const now = new Date();
 

@@ -101,7 +101,7 @@
 			toast.error(err instanceof Error ? err.message : 'Failed to reorder');
 			try {
 				const fresh = await api.roles.list(serverId);
-				setRoles(serverId, fresh as RoleData[]);
+				setRoles(serverId, fresh);
 			} catch {}
 		}
 	}

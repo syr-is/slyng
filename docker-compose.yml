@@ -80,3 +80,99 @@ services:
     depends_on:
       - surrealdb
     restart: unless-stopped
+
+  # API (NestJS + WS gateway). Part of the opt-in `app` profile — start the
+  # full app stack (api + web) with:
+  #   docker compose --profile app up -d
+  # Connects to the other compose services by name. Secrets + PUBLIC_URL come
+  # from .env (compose reads it automatically), so they match a host-run API
+  # against the same SurrealDB — existing accounts/sessions stay valid.
+  syren-api:
+    container_name: syren-api
+    build:
+      context: .
+      dockerfile: docker/dev/syren-api.dockerfile
+    ports:
+      - "5175:5175"
+    environment:
+      - NODE_ENV=development
+      - SYREN_API_PORT=5175
+      # Reach infra by compose service name (not localhost).
+      - SURREALDB_URL=ws://surrealdb:8000/rpc
+      - SURREALDB_NAMESPACE=${SURREALDB_NAMESPACE:-syren}
+      - SURREALDB_DATABASE=${SURREALDB_DATABASE:-syren}
+      - SURREALDB_USER=${SURREALDB_USER:-root}
+      - SURREALDB_PASS=${SURREALDB_PASS:-syren-dev-password}
+      - S3_ENDPOINT=http://seaweedfs:8333
+      # S3_PUBLIC_URL must be browser-reachable (presigned URLs are used by the
+      # browser), so it points at the host-mapped SeaweedFS port, not the
+      # internal service name.
+      - S3_PUBLIC_URL=${S3_PUBLIC_URL:-http://localhost:8343/syren}
+      - S3_BUCKET=${S3_BUCKET:-syren}
+      - S3_REGION=${S3_REGION:-us-east-1}
+      - S3_ACCESS_KEY_ID=${S3_ACCESS_KEY_ID:-syren-access-key}
+      - S3_SECRET_ACCESS_KEY=${S3_SECRET_ACCESS_KEY:-syren-secret-key}
+      - S3_CORS_ORIGINS=${S3_CORS_ORIGINS:-*}
+      - PUBLIC_URL=${PUBLIC_URL:-http://localhost:5174}
+      - SYR_INSTANCE_URL=${SYR_INSTANCE_URL:-http://localhost:5173}
+      # Local identity-provider secrets — must match a host-run API to keep
+      # existing accounts/delegations decryptable. Dev defaults mirror
+      # .env.example; set real values in .env.
+      - SYREN_JWT_SECRET=${SYREN_JWT_SECRET:-dev-only-syren-jwt-secret-change-me-0000}
+      - PLATFORM_DELEGATE_SECRET=${PLATFORM_DELEGATE_SECRET:-dev-only-delegate-secret-change-me-0000}
+      - SYREN_REGISTRATION_MODE=${SYREN_REGISTRATION_MODE:-open}
+      # Klipy GIF/sticker/clip/meme picker (server-only key; unset → picker unavailable)
+      - KLIPY_WEB=${KLIPY_WEB:-}
+      - KLIPY_API_BASE=${KLIPY_API_BASE:-}
+      - KLIPY_CUSTOMER_SALT=${KLIPY_CUSTOMER_SALT:-}
+      - KLIPY_MEDIA_HOSTS=${KLIPY_MEDIA_HOSTS:-}
+      - LIVEKIT_URL=ws://livekit:7880
+      - LIVEKIT_API_KEY=${LIVEKIT_API_KEY:-devkey}
+      - LIVEKIT_API_SECRET=${LIVEKIT_API_SECRET:-devsecret}
+      - UPLOAD_MAX_BYTES=${UPLOAD_MAX_BYTES:-524288000}
+      - PROXY_MAX_BYTES=${PROXY_MAX_BYTES:-104857600}
+      - PROXY_TIMEOUT_MS=${PROXY_TIMEOUT_MS:-10000}
+    depends_on:
+      # service_started, not service_healthy: the surrealdb/seaweedfs images
+      # ship without wget, so their healthchecks report unhealthy even when
+      # fully functional. The API retries its own DB connection on boot.
+      surrealdb:
+        condition: service_started
+      seaweedfs:
+        condition: service_started
+    profiles:
+      - app
+    restart: unless-stopped
+
+  # Web client (SvelteKit dev server). Part of the opt-in `app` profile.
+  #   docker compose --profile app up -d        # infra + api + web
+  #   docker compose up -d syren-web            # same (pulls in api + deps)
+  #
+  # Pure client: the Vite dev proxy forwards /api, /ws and /.well-known to
+  # SYREN_API_PROXY — the containerized API by default. To point at a
+  # host-run API instead, override with
+  #   SYREN_API_PROXY=http://host.docker.internal:5175 docker compose up -d syren-web
+  syren-web:
+    container_name: syren-web
+    build:
+      context: .
+      dockerfile: docker/dev/syren.dockerfile
+    ports:
+      - "5174:5174"
+    environment:
+      - SYREN_API_PROXY=${SYREN_API_PROXY:-http://syren-api:5175}
+    extra_hosts:
+      # Lets the container reach a host-run API on Linux when SYREN_API_PROXY
+      # is overridden to host.docker.internal (already resolves on Docker
+      # Desktop for macOS/Windows).
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      - syren-api
+    volumes:
+      # Hot-reload the web app source. Shared packages are baked into the
+      # image — rebuild (`docker compose build syren-web`) after editing them.
+      - ./apps/syren/web/src:/app/apps/syren/web/src:cached
+      - ./apps/syren/web/static:/app/apps/syren/web/static:cached
+    profiles:
+      - app
+    restart: unless-stopped

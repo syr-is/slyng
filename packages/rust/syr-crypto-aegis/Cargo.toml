@@ -1,0 +1,16 @@
+[package]
+name = "syr-crypto-aegis"
+version = "0.1.0"
+edition = "2021"
+description = "Aegis (CIGP) - Custodial Identity Protection"
+license = "MIT"
+
+[dependencies]
+argon2 = "0.5"
+aes-gcm = "0.10"
+base64 = { version = "0.21", features = ["alloc"] }
+syr-crypto-core = { path = "../syr-crypto-core" }
+ed25519-dalek = "2"
+rand = "0.8"
+unicode-normalization = "0.1"
+serde = { version = "1", features = ["derive"] }

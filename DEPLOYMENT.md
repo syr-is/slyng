@@ -89,10 +89,19 @@ Open these ports for LiveKit:
 | syren | app.slyng.gg | / | 5174 | Yes |
 | syren-api | app.slyng.gg | /api | 5175 | Yes |
 | syren-api | app.slyng.gg | /ws | 5175 | Yes |
+| syren-api | app.slyng.gg | /.well-known/syr | 5175 | Yes |
+| syren-api | app.slyng.gg | /.well-known/did | 5175 | Yes |
 | seaweedfs | s3.slyng.gg | / | 8333 | Yes |
 | livekit | lk.slyng.gg | / | 7880 | Yes |
 
 **Important**: Path must be `/api` not `/api/*`. Traefik uses `PathPrefix`, not globs.
+
+**`.well-known` routing**: the `/.well-known/syr` + `/.well-known/did` prefixes
+are the syr federation discovery endpoints (instance manifest, per-DID
+manifests, DID documents) served by the API at the site root — required for
+syren's local identity provider. They must route to syren-api, not the SPA.
+Do NOT route all of `/.well-known` — ACME HTTP-01 challenges and other
+well-known consumers may need the default handling.
 
 ---
 

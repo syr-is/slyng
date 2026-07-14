@@ -3,7 +3,7 @@
 	import { toggleMode } from 'mode-watcher';
 	import { toast } from 'svelte-sonner';
 	import { goto } from '$app/navigation';
-	import { WsOp } from '@syren/types';
+	import { WsOp, type VoiceState } from '@syren/types';
 	import { apiUrl } from '@syren/app-core/host';
 	import { onWsEvent } from '@syren/app-core/stores/ws.svelte';
 	import { setPageSidebar } from '@syren/ui/fragments/swipe-layout';
@@ -145,11 +145,13 @@
 			// broadcasts will keep them live from here on.
 			try {
 				const states = await api.servers.voiceStates(id);
-				for (const [channelId, users] of Object.entries(states)) {
+				// `voiceStates` is typed `Record<string, unknown>` at the WASM
+				// boundary; the runtime shape is per-channel VoiceState arrays.
+				for (const [channelId, users] of Object.entries(states) as [string, VoiceState[]][]) {
 					setChannelUsers(channelId, users.map((u) => ({
 						user_id: u.user_id,
-						self_mute: u.self_mute,
-						self_deaf: u.self_deaf,
+						self_mute: u.self_mute ?? false,
+						self_deaf: u.self_deaf ?? false,
 						has_camera: u.has_camera ?? false,
 						has_screen: u.has_screen ?? false
 					})));

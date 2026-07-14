@@ -1,10 +1,11 @@
 <script lang="ts">
-	import { Plus, Smile, Send, X, FileIcon, ImageIcon, Loader2, Cloud, Sticker, Reply } from '@lucide/svelte';
+	import { Plus, Smile, Send, X, FileIcon, ImageIcon, Loader2, Cloud, Reply } from '@lucide/svelte';
 	import { toast } from 'svelte-sonner';
 	import { sendTyping } from '@syren/app-core/stores/ws.svelte';
 	import EmojiPicker from './emoji-picker.svelte';
-	import GifPicker from './gif-picker.svelte';
+	import MediaPicker from './media-picker.svelte';
 	import SyrUploadPicker from './syr-upload-picker.svelte';
+	import type { ClipItem } from '@syren/types';
 	import { uploadFile, type Attachment, type UploadHandle } from '@syren/app-core/upload/upload-client';
 	import { proxied } from '@syren/app-core/utils/proxy';
 
@@ -38,7 +39,6 @@
 	let content = $state('');
 	let lastTypingSent = 0;
 	let showEmojiPicker = $state(false);
-	let showGifPicker = $state(false);
 	let showSyrPicker = $state(false);
 	let dragOver = $state(false);
 	let inputEl: HTMLTextAreaElement | undefined = $state();
@@ -191,17 +191,30 @@
 		readyAttachments = [...readyAttachments, attachment];
 	}
 
-	function handleGifPicked(gif: { url: string; size?: number; mime_type?: string }) {
+	// A Klipy pick → stage the CDN url as an attachment (GIFs/stickers/memes as an
+	// image, clips as mp4 video). The picker's Popover closes itself on pick.
+	function handleClipPicked(item: ClipItem) {
+		const isClip = item.kind === 'clip';
+		const url = isClip ? (item.mp4Url ?? item.url) : item.url;
+		stageMediaUrl(url, isClip);
+	}
+
+	// A pick from the "Saved" tab → one of the user's own hosted GIFs (a local S3
+	// url). Stage it the same way as a Klipy pick.
+	function handleSavedPicked(item: { url: string; video: boolean }) {
+		stageMediaUrl(item.url, item.video);
+	}
+
+	function stageMediaUrl(url: string, video: boolean) {
 		readyAttachments = [
 			...readyAttachments,
 			{
-				url: gif.url,
-				filename: gif.url.split('/').pop() ?? 'gif',
-				mime_type: gif.mime_type ?? 'image/gif',
-				size: gif.size ?? 0
+				url,
+				filename: url.split('/').pop()?.split('?')[0] ?? (video ? 'clip.mp4' : 'gif'),
+				mime_type: video ? 'video/mp4' : 'image/gif',
+				size: 0
 			}
 		];
-		showGifPicker = false;
 	}
 
 	function formatSize(bytes: number): string {
@@ -360,21 +373,19 @@
 			class="max-h-40 min-h-[24px] flex-1 resize-none bg-transparent text-sm text-foreground placeholder:text-muted-foreground focus:outline-none"
 		></textarea>
 
-		<button
-			onclick={() => {
-				showGifPicker = !showGifPicker;
-				showEmojiPicker = false;
-			}}
-			class="shrink-0 pb-0.5 text-muted-foreground hover:text-foreground"
-			title="GIFs"
-		>
-			<Sticker class="h-5 w-5" />
-		</button>
+		<div class="shrink-0 self-end pb-0.5">
+			<MediaPicker
+				side="top"
+				align="end"
+				onpick={handleClipPicked}
+				onpicksaved={handleSavedPicked}
+				triggerClass="size-auto p-0 hover:bg-transparent hover:text-foreground"
+			/>
+		</div>
 
 		<button
 			onclick={() => {
 				showEmojiPicker = !showEmojiPicker;
-				showGifPicker = false;
 			}}
 			class="shrink-0 pb-0.5 text-muted-foreground hover:text-foreground"
 			title="Emoji"
@@ -401,11 +412,6 @@
 		</div>
 	{/if}
 
-	{#if showGifPicker}
-		<div class="absolute bottom-full right-4 z-50 mb-2">
-			<GifPicker onSelect={handleGifPicked} onClose={() => (showGifPicker = false)} />
-		</div>
-	{/if}
 
 	{#if showSyrPicker}
 		<SyrUploadPicker

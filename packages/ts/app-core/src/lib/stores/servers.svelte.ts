@@ -4,10 +4,12 @@
  */
 
 import { WsOp } from '@syren/types';
+import type { Server, Channel, ChannelCategory } from '@syren/client';
 import { onWsEvent } from './ws.svelte';
 import { getAuth } from './auth.svelte';
+import { normalizeServer, normalizeChannel, normalizeCategory } from './normalize';
 
-interface ServerData {
+export interface ServerData {
 	id: string;
 	name: string;
 	icon_url?: string | null;
@@ -18,14 +20,14 @@ interface ServerData {
 	member_count: number;
 }
 
-interface CategoryData {
+export interface CategoryData {
 	id: string;
 	name: string;
 	position: number;
 	server_id?: string;
 }
 
-interface ChannelData {
+export interface ChannelData {
 	id: string;
 	name?: string;
 	type: string;
@@ -85,8 +87,8 @@ export function removeServer(serverId: string) {
 	servers = servers.filter((s) => s.id !== serverId);
 }
 
-export function setServers(data: ServerData[]) {
-	servers = data;
+export function setServers(data: Server[]) {
+	servers = data.map(normalizeServer);
 }
 
 export function setActiveServer(serverId: string | null) {
@@ -102,13 +104,13 @@ export function setActiveServerOwner(ownerId: string | null) {
 	activeServerOwnerId = ownerId;
 }
 
-export function setServerChannels(channels: ChannelData[]) {
-	serverChannels = channels;
+export function setServerChannels(channels: Channel[]) {
+	serverChannels = channels.map(normalizeChannel);
 	channelsLoaded = true;
 }
 
-export function setServerCategories(cats: CategoryData[]) {
-	serverCategories = cats;
+export function setServerCategories(cats: ChannelCategory[]) {
+	serverCategories = cats.map(normalizeCategory);
 }
 
 export function reorderChannels(channelIds: string[], categoryId?: string | null) {

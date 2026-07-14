@@ -1,37 +1,47 @@
+# syntax=docker/dockerfile:1
+# Dev web-client container. Builds the workspace packages once (so Vite can
+# resolve @syren/{types,client,app-core,ui} from their dist/), then runs the
+# SvelteKit dev server. The app's own source is bind-mounted by compose for
+# hot-reload; edits to the shared packages need a rebuild of this image.
+#
+# The API is NOT bundled here — the Vite dev proxy forwards /api, /ws and
+# /.well-known to SYREN_API_PROXY (default the host-run API on :5175).
 FROM node:20-alpine
 
-# Set working directory
 WORKDIR /app
 
-# Install pnpm
 RUN corepack enable && corepack prepare pnpm@10.29.3 --activate
 
-# Copy workspace configuration
-COPY package.json pnpm-lock.yaml pnpm-workspace.yaml turbo.json .npmrc ./
+# wasm-pack (prebuilt from Alpine edge/community) builds the @syren/client
+# crate — same approach as docker/prod/syren.dockerfile. libc6-compat
+# provides the glibc ELF loader so wasm-pack's downloaded (glibc-linked)
+# wasm-bindgen binary runs on Alpine's musl libc.
+RUN echo "http://dl-cdn.alpinelinux.org/alpine/edge/community" >> /etc/apk/repositories \
+    && apk update \
+    && apk add --no-cache wasm-pack libc6-compat
 
-# Copy app and packages package.json for dependency resolution. The
-# WASM client (`@syren/client`) is referenced transitively through
-# `@syren/app-core`, so pnpm install needs its package.json present
-# even though dev mode mounts the host workspace and uses whatever
-# `dist/` was built locally.
+# Workspace manifests first — keeps the pnpm install layer cacheable.
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml turbo.json .npmrc ./
 COPY apps/syren/web/package.json ./apps/syren/web/
 COPY packages/ts/types/package.json ./packages/ts/types/
 COPY packages/ts/ui/package.json ./packages/ts/ui/
 COPY packages/ts/app-core/package.json ./packages/ts/app-core/
 COPY packages/ts/client/package.json ./packages/ts/client/
 
-# Install dependencies from workspace root
 RUN pnpm install --frozen-lockfile
 
-# Copy application source code
-COPY apps/syren/web ./apps/syren/web
+# Source for the workspace packages + web app.
+COPY apps/syren ./apps/syren
 COPY packages ./packages
 
-# Set default port (can be overridden by env variable)
-ENV PORT=5174
+# Build the workspace packages in dependency order (client runs wasm-pack).
+RUN pnpm --filter @syren/types build \
+    && pnpm --filter @syren/client build \
+    && pnpm --filter @syren/app-core build \
+    && pnpm --filter @syren/ui build
 
-# Expose the port
-EXPOSE ${PORT}
+EXPOSE 5174
 
-# Run dev server with host binding and custom port
-CMD ["sh", "-c", "pnpm dev -- --host 0.0.0.0 --port ${PORT}"]
+# Vite dev server on all interfaces. The proxy target comes from
+# SYREN_API_PROXY (set by compose); vite.config also binds host by default.
+CMD ["pnpm", "--filter", "@syren/web", "dev", "--", "--host", "0.0.0.0", "--port", "5174"]

@@ -260,7 +260,7 @@
 			<div class="flex flex-col items-center gap-2 p-4">
 				<Avatar.Root class="{compact ? 'h-10 w-10' : 'h-16 w-16'} {speaking ? 'ring-2 ring-green-500' : ''}">
 					{#if profile.avatar_url}<Avatar.Image src={proxied(profile.avatar_url)} alt={name} />{/if}
-					<Avatar.Fallback class="{compact ? 'text-xs' : 'text-lg'}">{name.slice(0, 2).toUpperCase()}</Avatar.Fallback>
+					<Avatar.Fallback class={compact ? 'text-xs' : 'text-lg'}>{name.slice(0, 2).toUpperCase()}</Avatar.Fallback>
 				</Avatar.Root>
 				{#if !compact}<span class="text-xs text-muted-foreground">{name}</span>{/if}
 			</div>

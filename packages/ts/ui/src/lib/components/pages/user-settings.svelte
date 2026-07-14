@@ -13,7 +13,13 @@
 		ExternalLink,
 		Plus,
 		X,
-		Handshake
+		Handshake,
+		Link2,
+		Smile,
+		Film,
+		SlidersHorizontal,
+		Radar,
+		Fingerprint
 	} from '@lucide/svelte';
 	import * as Avatar from '@syren/ui/avatar';
 	import { Button } from '@syren/ui/button';
@@ -24,7 +30,12 @@
 	import { zod4, zod4Client } from 'sveltekit-superforms/adapters';
 	import { z } from 'zod';
 	import { getAuth } from '@syren/app-core/stores/auth.svelte';
-	import { resolveProfile, displayName, federatedHandle } from '@syren/app-core/stores/profiles.svelte';
+	import {
+		resolveProfile,
+		invalidateProfile,
+		displayName,
+		federatedHandle
+	} from '@syren/app-core/stores/profiles.svelte';
 	import { getVoiceState } from '@syren/app-core/voice/voice-state.svelte';
 	import { setMicDevice, setCameraDevice } from '@syren/app-core/voice/livekit-engine';
 	import {
@@ -60,8 +71,30 @@
 	import AudioLevelMeter from '@syren/ui/fragments/settings/audio-level-meter.svelte';
 	import CameraPreview from '@syren/ui/fragments/settings/camera-preview.svelte';
 	import RelationsPanel from '@syren/ui/fragments/settings/relations-panel.svelte';
+	import ConnectionsPanel from '@syren/ui/fragments/settings/connections-panel.svelte';
+	import ProfileEditor from '@syren/ui/fragments/settings/profile-editor.svelte';
+	import EmojiManager from '@syren/ui/fragments/settings/emoji-manager.svelte';
+	import GifManager from '@syren/ui/fragments/settings/gif-manager.svelte';
+	import InstanceManager from '@syren/ui/fragments/settings/instance-manager.svelte';
+	import InstanceUsers from '@syren/ui/fragments/settings/instance-users.svelte';
+	import DiscoveryPanel from '@syren/ui/fragments/settings/discovery-panel.svelte';
+	import IdentityPanel from '@syren/ui/fragments/settings/identity-panel.svelte';
+	import { loadAdminStatus } from '@syren/app-core/stores/instance.svelte';
+	import { isLocalIdentity } from '@syren/app-core/upload/idp-upload';
 
-	type Tab = 'profile' | 'audio' | 'video' | 'notifications' | 'trusted' | 'relations';
+	type Tab =
+		| 'profile'
+		| 'emoji'
+		| 'gifs'
+		| 'audio'
+		| 'video'
+		| 'notifications'
+		| 'trusted'
+		| 'relations'
+		| 'connections'
+		| 'discovery'
+		| 'identity'
+		| 'instance';
 
 	const auth = getAuth();
 	const voice = getVoiceState();
@@ -114,7 +147,20 @@
 	const profileName = $derived(displayName(profile, auth.identity?.did ?? ''));
 	const profileHandle = $derived(federatedHandle(profile, auth.identity?.did ?? ''));
 
+	// Whether this identity is hosted on the syren instance we're talking to.
+	// Local accounts edit their profile in-app; federated ones link out to syr.
+	let isLocalAccount = $state(false);
+	let isInstanceAdmin = $state(false);
+
+	function refreshProfile() {
+		if (!auth.identity?.did) return;
+		invalidateProfile(auth.identity.did);
+		resolveProfile(auth.identity.did, auth.identity.syr_instance_url);
+	}
+
 	onMount(async () => {
+		isLocalAccount = await isLocalIdentity(auth.identity?.syr_instance_url);
+		isInstanceAdmin = await loadAdminStatus();
 		await loadTrustedDomains();
 		try {
 			await primeDevicePermissions();
@@ -253,14 +299,28 @@
 		if (permission === 'denied') toast.error('Permission denied. Enable in browser settings.');
 	}
 
-	const tabs: { id: Tab; label: string; icon: typeof User }[] = [
+	const tabs: { id: Tab; label: string; icon: typeof User }[] = $derived([
 		{ id: 'profile', label: 'Profile', icon: User },
+		{ id: 'emoji', label: 'Emoji', icon: Smile },
+		{ id: 'gifs', label: 'GIFs', icon: Film },
+		{ id: 'connections', label: 'Connections', icon: Link2 },
+		// Discovery + identity import/export — only local identities.
+		...(isLocalAccount
+			? [
+					{ id: 'discovery' as Tab, label: 'Discovery', icon: Radar },
+					{ id: 'identity' as Tab, label: 'Identity', icon: Fingerprint }
+				]
+			: []),
 		{ id: 'relations', label: 'Relations', icon: Handshake },
 		{ id: 'audio', label: 'Audio', icon: Mic },
 		{ id: 'video', label: 'Video', icon: Video },
 		{ id: 'notifications', label: 'Notifications', icon: Bell },
-		{ id: 'trusted', label: 'Trusted domains', icon: ShieldCheck }
-	];
+		{ id: 'trusted', label: 'Trusted domains', icon: ShieldCheck },
+		// Instance admin control surface — only for admins on this instance.
+		...(isInstanceAdmin
+			? [{ id: 'instance' as Tab, label: 'Instance', icon: SlidersHorizontal }]
+			: [])
+	]);
 </script>
 
 <div class="flex min-h-0 min-w-0 flex-1 overflow-hidden">
@@ -301,37 +361,55 @@
 			{#if activeTab === 'profile'}
 				<h1 class="mb-4 text-xl font-semibold">Profile</h1>
 				<p class="mb-4 text-sm text-muted-foreground">
-					Your profile lives on your syr instance. Syren only shows it.
+					{#if isLocalAccount}
+						Your profile is hosted here on this instance.
+					{:else}
+						Your profile lives on your syr instance. Syren only shows it.
+					{/if}
 				</p>
 
-				<div class="overflow-hidden rounded-lg border border-border bg-card">
-					{#if profile.banner_url}
-						<div class="relative h-32 w-full bg-muted">
-							<SafeMedia src={profile.banner_url} as="img" class="h-full w-full object-cover" />
+				<!-- Read-only preview: only for federated identities, which can't be
+				     edited in-app. Local accounts edit below with live previews, so
+				     showing this card too would duplicate every field. -->
+				{#if !isLocalAccount}
+					<div class="overflow-hidden rounded-lg border border-border bg-card">
+						{#if profile.banner_url}
+							<div class="relative h-32 w-full bg-muted">
+								<SafeMedia src={profile.banner_url} as="img" class="h-full w-full object-cover" />
+							</div>
+						{/if}
+						<div class="flex items-start gap-4 p-4 {profile.banner_url ? '-mt-10' : ''}">
+							<Avatar.Root class="h-20 w-20 border-4 border-card shadow-md">
+								{#if profile.avatar_url}
+									<Avatar.Image src={profile.avatar_url} alt={profileName} />
+								{/if}
+								<Avatar.Fallback class="text-lg">
+									{profileName.slice(0, 2).toUpperCase()}
+								</Avatar.Fallback>
+							</Avatar.Root>
+							<div class="min-w-0 flex-1 pt-4">
+								<h2 class="truncate text-lg font-semibold">{profileName}</h2>
+								<p class="truncate font-mono text-xs text-muted-foreground">{profileHandle}</p>
+							</div>
 						</div>
-					{/if}
-					<div class="flex items-start gap-4 p-4 {profile.banner_url ? '-mt-10' : ''}">
-						<Avatar.Root class="h-20 w-20 border-4 border-card shadow-md">
-							{#if profile.avatar_url}
-								<Avatar.Image src={profile.avatar_url} alt={profileName} />
-							{/if}
-							<Avatar.Fallback class="text-lg">
-								{profileName.slice(0, 2).toUpperCase()}
-							</Avatar.Fallback>
-						</Avatar.Root>
-						<div class="min-w-0 flex-1 pt-4">
-							<h2 class="truncate text-lg font-semibold">{profileName}</h2>
-							<p class="truncate font-mono text-xs text-muted-foreground">{profileHandle}</p>
-						</div>
+						{#if profile.bio}
+							<div class="border-t border-border px-4 py-3">
+								<p class="whitespace-pre-wrap text-sm text-foreground/90">{profile.bio}</p>
+							</div>
+						{/if}
 					</div>
-					{#if profile.bio}
-						<div class="border-t border-border px-4 py-3">
-							<p class="whitespace-pre-wrap text-sm text-foreground/90">{profile.bio}</p>
-						</div>
-					{/if}
-				</div>
+				{/if}
 
 				<div class="mt-4 space-y-2 rounded-lg border border-border bg-card p-4">
+					{#if isLocalAccount}
+						<!-- The federation handle (username@host) lived only on the
+						     read-only preview card, which local accounts no longer see.
+						     Surface it here so local users keep their public address. -->
+						<div class="flex items-center justify-between text-xs">
+							<span class="text-muted-foreground">Handle</span>
+							<span class="truncate font-mono">{profileHandle}</span>
+						</div>
+					{/if}
 					<div class="flex items-center justify-between text-xs">
 						<span class="text-muted-foreground">DID</span>
 						<span class="truncate font-mono">{auth.identity?.did ?? '—'}</span>
@@ -342,7 +420,15 @@
 					</div>
 				</div>
 
-				{#if auth.identity?.syr_instance_url}
+				{#if isLocalAccount && auth.identity?.did}
+					<div class="mt-6 rounded-lg border border-border bg-card p-4">
+						<ProfileEditor
+							did={auth.identity.did}
+							instanceUrl={auth.identity.syr_instance_url}
+							onUpdated={refreshProfile}
+						/>
+					</div>
+				{:else if auth.identity?.syr_instance_url}
 					<div class="mt-4">
 						<SafeLink href={auth.identity.syr_instance_url} class="inline-flex">
 							<Button variant="outline">
@@ -360,7 +446,7 @@
 				<section class="mb-6 space-y-2">
 					<div class="flex items-center gap-2">
 						<Mic class="h-4 w-4 text-muted-foreground" />
-						<label class="text-sm font-medium">Input device</label>
+						<span class="text-sm font-medium">Input device</span>
 					</div>
 					<DeviceSelect
 						devices={devices.mics}
@@ -385,7 +471,7 @@
 				<section class="mb-6 space-y-2">
 					<div class="flex items-center gap-2">
 						<Volume2 class="h-4 w-4 text-muted-foreground" />
-						<label class="text-sm font-medium">Output device</label>
+						<span class="text-sm font-medium">Output device</span>
 					</div>
 					{#if supportsSinkId()}
 						<DeviceSelect
@@ -444,7 +530,7 @@
 				<section class="space-y-3">
 					<div class="flex items-center gap-2">
 						<Video class="h-4 w-4 text-muted-foreground" />
-						<label class="text-sm font-medium">Camera</label>
+						<span class="text-sm font-medium">Camera</span>
 					</div>
 					<DeviceSelect
 						devices={devices.cameras}
@@ -492,9 +578,43 @@
 				</label>
 			{/if}
 
+			{#if activeTab === 'emoji'}
+				<h1 class="mb-4 text-xl font-semibold">Emoji</h1>
+				<EmojiManager />
+			{/if}
+
+			{#if activeTab === 'gifs'}
+				<h1 class="mb-4 text-xl font-semibold">GIFs</h1>
+				<GifManager />
+			{/if}
+
+			{#if activeTab === 'instance' && isInstanceAdmin}
+				<h1 class="mb-4 text-xl font-semibold">Instance</h1>
+				<InstanceManager />
+				<Separator class="my-6" />
+				<InstanceUsers />
+			{/if}
+
 			{#if activeTab === 'relations'}
 				<h1 class="mb-4 text-xl font-semibold">Relations</h1>
 				<RelationsPanel />
+			{/if}
+
+			{#if activeTab === 'connections'}
+				<h1 class="mb-2 text-xl font-semibold">Connections</h1>
+				<p class="mb-4 text-sm text-muted-foreground">
+					Platforms holding a signing key delegated from your identity. Revoking a connection
+					invalidates that platform's key immediately.
+				</p>
+				<ConnectionsPanel />
+			{/if}
+
+			{#if activeTab === 'discovery'}
+				<DiscoveryPanel />
+			{/if}
+
+			{#if activeTab === 'identity'}
+				<IdentityPanel />
 			{/if}
 
 			{#if activeTab === 'trusted'}

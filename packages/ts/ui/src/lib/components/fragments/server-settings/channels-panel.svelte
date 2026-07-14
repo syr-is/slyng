@@ -255,7 +255,10 @@
 
 	async function commitChannelReorder(channelIds: string[], categoryId: string | null) {
 		try {
-			await api.channels.reorder(serverId, channelIds, categoryId);
+			await api.channels.reorder(serverId, {
+				channel_ids: channelIds,
+				category_id: categoryId
+			});
 		} catch (err) {
 			toast.error(err instanceof Error ? err.message : 'Failed to reorder');
 			await refreshChannels();

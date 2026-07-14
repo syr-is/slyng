@@ -1,7 +1,9 @@
 import { redirect } from '@sveltejs/kit';
+import { invoke } from '@tauri-apps/api/core';
 import { setHost } from '@syren/app-core/host';
 import { setApi } from '@syren/app-core/api';
 import { setRealtime } from '@syren/app-core/realtime';
+import { setSessionTokenProvider } from '@syren/app-core/idp-fetch';
 import { getStoredHost, getStoredHostSync } from '$lib/host-store';
 import { createNativeApi } from '$lib/native-api';
 import { createNativeRealtime } from '$lib/native-realtime';
@@ -22,6 +24,9 @@ function ensureApi(host: string) {
 	if (wiredHost === host) return;
 	setApi(createNativeApi(host));
 	setRealtime(createNativeRealtime(host));
+	// IdP surfaces (consent, delegations, authoring) read the session
+	// token from the Tauri Store via the same command the WS layer uses.
+	setSessionTokenProvider(() => invoke<string | null>('session_token', { apiHost: host }));
 	wiredHost = host;
 }
 

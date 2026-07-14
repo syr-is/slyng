@@ -10,6 +10,7 @@
 	import { z } from 'zod';
 	import { FriendSendInputSchema } from '@syren/types';
 	import { api } from '@syren/app-core/api';
+	import { normalizeResolvedUser } from '@syren/app-core/stores/normalize';
 	import { getRelations } from '@syren/app-core/stores/relations.svelte';
 	import { resolveProfile, displayName, federatedHandle } from '@syren/app-core/stores/profiles.svelte';
 	import { proxied } from '@syren/app-core/utils/proxy';
@@ -117,7 +118,7 @@
 			sendResolved = null;
 			sendResolvedQuery = null;
 			try {
-				sendResolved = await api.users.resolve(q);
+				sendResolved = normalizeResolvedUser(await api.users.resolve(q));
 				sendResolvedQuery = q;
 			} catch (err) {
 				toast.error(err instanceof Error ? err.message : 'Could not find user');
