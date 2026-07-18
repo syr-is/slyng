@@ -29,11 +29,31 @@
 <Toaster />
 <Tooltip.Provider>
 	<!-- Full dynamic viewport height + flex column so the (app) layout's
-	     `min-h-0 flex-1` chain has something to stretch into. Native
-	     wraps the same way (plus safe-area insets, which web doesn't
-	     need); without this the SwipeLayout panes only render to their
-	     intrinsic content height and the rest of the window is empty. -->
-	<div class="flex h-dvh flex-col">
-		{@render children()}
+	     `min-h-0 flex-1` chain has something to stretch into; without this
+	     the SwipeLayout panes only render to their intrinsic content height
+	     and the rest of the window is empty.
+
+	     Safe-area shell, mirroring native/+layout.svelte: with
+	     `viewport-fit=cover` in app.html the page extends under the iOS
+	     home indicator / notch (especially in installed-PWA standalone
+	     mode), so the shell consumes all four `env(safe-area-inset-*)`
+	     values. `--slyng-sai-*` is native's injection channel — unset on
+	     web, so the `env()` fallback resolves; on desktop everything is 0
+	     and this is a no-op.
+
+	     The inner wrapper zeroes the `--slyng-sai-*` vars for in-flow
+	     descendants: the shell has already consumed the insets, so nested
+	     consumers (e.g. the bottom nav's
+	     `pb-[var(--slyng-sai-bottom,env(safe-area-inset-bottom,0px))]`)
+	     must resolve to 0 instead of double-padding. Portalled overlays
+	     (sheets, dialogs) escape to <body> and still see the raw values. -->
+	<div
+		class="flex h-dvh flex-col pt-[var(--slyng-sai-top,env(safe-area-inset-top,0px))] pr-[var(--slyng-sai-right,env(safe-area-inset-right,0px))] pb-[var(--slyng-sai-bottom,env(safe-area-inset-bottom,0px))] pl-[var(--slyng-sai-left,env(safe-area-inset-left,0px))]"
+	>
+		<div
+			class="flex min-h-0 flex-1 flex-col [--slyng-sai-bottom:0px] [--slyng-sai-left:0px] [--slyng-sai-right:0px] [--slyng-sai-top:0px]"
+		>
+			{@render children()}
+		</div>
 	</div>
 </Tooltip.Provider>

@@ -155,7 +155,8 @@
 				{@const active = tab.match(page.url.pathname)}
 				<a
 					href={tab.href}
-					class="flex items-center justify-between gap-2 rounded-md px-2 py-1.5 text-sm transition-colors
+					aria-current={active ? 'page' : undefined}
+					class="flex items-center justify-between gap-2 rounded-md px-2 py-1.5 text-sm transition-colors tap:py-3 motion-safe:active:scale-[0.98]
 						{active
 							? 'bg-sidebar-accent font-medium text-sidebar-accent-foreground'
 							: 'text-sidebar-foreground/70 hover:bg-sidebar-accent/50 hover:text-sidebar-foreground'}"
@@ -188,7 +189,7 @@
 					{@const name = did && profile ? displayName(profile, did) : 'Direct Message'}
 					<a
 						href="/channels/@me/{channel.id}"
-						class="flex items-center gap-2 rounded-md px-2 py-1.5 text-sm text-sidebar-foreground/70 transition-colors hover:bg-sidebar-accent/50 hover:text-sidebar-foreground {channel.is_blocked ? 'opacity-70' : ''}"
+						class="flex items-center gap-2 rounded-md px-2 py-1.5 text-sm text-sidebar-foreground/70 transition-colors hover:bg-sidebar-accent/50 hover:text-sidebar-foreground motion-safe:active:scale-[0.98]"
 					>
 						<Avatar.Root class="h-8 w-8">
 							{#if profile?.avatar_url}
@@ -212,7 +213,7 @@
 					<button
 						type="button"
 						onclick={() => openFriendDm(did)}
-						class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm text-sidebar-foreground/70 transition-colors hover:bg-sidebar-accent/50 hover:text-sidebar-foreground"
+						class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm text-sidebar-foreground/70 transition-colors hover:bg-sidebar-accent/50 hover:text-sidebar-foreground motion-safe:active:scale-[0.98]"
 					>
 						<Avatar.Root class="h-8 w-8">
 							{#if profile.avatar_url}
@@ -247,7 +248,7 @@
 				{#each [...relations.ignored] as did (did)}
 					{@const profile = resolveProfile(did, relations.instanceFor(did))}
 					{@const name = displayName(profile, did)}
-					<div class="flex items-center gap-2 rounded-md px-2 py-1.5 text-sm text-sidebar-foreground/70 opacity-70">
+					<div class="flex items-center gap-2 rounded-md px-2 py-1.5 text-sm text-sidebar-foreground/70">
 						<Avatar.Root class="h-8 w-8">
 							{#if profile.avatar_url}
 								<Avatar.Image src={proxied(profile.avatar_url)} alt={name} />

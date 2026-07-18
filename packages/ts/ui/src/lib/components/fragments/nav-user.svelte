@@ -9,6 +9,7 @@
 	import { goto } from '$app/navigation';
 	import * as Avatar from '@slyng/ui/avatar';
 	import * as DropdownMenu from '@slyng/ui/dropdown-menu';
+	import * as Tooltip from '@slyng/ui/tooltip';
 	import { Button } from '@slyng/ui/button';
 	import { toast } from 'svelte-sonner';
 	import { resolveProfile, displayName, federatedHandle } from '@slyng/app-core/stores/profiles.svelte';
@@ -64,7 +65,7 @@
 
 <DropdownMenu.Root>
 	<DropdownMenu.Trigger
-		class="flex w-full items-center gap-2 rounded-md p-2 text-left hover:bg-sidebar-accent"
+		class="flex min-h-11 w-full items-center gap-2 rounded-md p-2 text-left transition-colors hover:bg-sidebar-accent motion-safe:active:scale-[0.98]"
 	>
 		<div class="relative">
 			<Avatar.Root class="h-8 w-8 rounded-lg">
@@ -101,7 +102,12 @@
 					<span class="truncate font-semibold">{name}</span>
 					<span class="truncate font-mono text-xs text-muted-foreground">{handle}</span>
 				</div>
-				<Button onclick={toggleTheme} variant="ghost" size="icon" class="h-6 w-6">
+				<Button
+					onclick={toggleTheme}
+					variant="ghost"
+					size="icon"
+					class="h-6 w-6 tap:h-11 tap:w-11 motion-safe:active:scale-95"
+				>
 					<Sun class="h-4 w-4 scale-100 rotate-0 transition-all dark:scale-0 dark:-rotate-90" />
 					<Moon
 						class="absolute h-4 w-4 scale-0 rotate-90 transition-all dark:scale-100 dark:rotate-0"
@@ -110,19 +116,26 @@
 				</Button>
 			</div>
 			<div class="px-1 pb-1.5">
-				<button
-					type="button"
-					onclick={copyDid}
-					title={did}
-					class="flex w-full items-center gap-1.5 rounded-md border border-border bg-muted/40 px-2 py-1 text-left font-mono text-[10px] text-muted-foreground hover:bg-accent hover:text-foreground"
-				>
-					{#if copied}
-						<Check class="h-3 w-3 shrink-0 text-green-500" />
-					{:else}
-						<Copy class="h-3 w-3 shrink-0" />
-					{/if}
-					<span class="truncate">{did}</span>
-				</button>
+				<Tooltip.Root>
+					<Tooltip.Trigger>
+						{#snippet child({ props })}
+							<button
+								{...props}
+								type="button"
+								onclick={copyDid}
+								class="flex w-full items-center gap-1.5 rounded-md border border-border bg-muted/40 px-2 py-1 text-left font-mono text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-foreground tap:min-h-11 motion-safe:active:scale-[0.98]"
+							>
+								{#if copied}
+									<Check class="h-3 w-3 shrink-0 text-green-500" />
+								{:else}
+									<Copy class="h-3 w-3 shrink-0" />
+								{/if}
+								<span class="truncate">{did}</span>
+							</button>
+						{/snippet}
+					</Tooltip.Trigger>
+					<Tooltip.Content class="max-w-[90vw] break-all font-mono text-xs">{did}</Tooltip.Content>
+				</Tooltip.Root>
 			</div>
 		</DropdownMenu.Label>
 		<DropdownMenu.Separator />

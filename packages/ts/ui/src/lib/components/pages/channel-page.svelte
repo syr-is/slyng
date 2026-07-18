@@ -3,6 +3,7 @@
 	import { Hash, Users, Pin, ScrollText, Eye, EyeOff } from '@lucide/svelte';
 	import { goto } from '$app/navigation';
 	import { toast } from 'svelte-sonner';
+	import * as Tooltip from '@slyng/ui/tooltip';
 	import MessageItem from '@slyng/ui/fragments/message-item.svelte';
 	import MessageInput from '@slyng/ui/fragments/message-input.svelte';
 	import MemberList from '@slyng/ui/fragments/member-list.svelte';
@@ -427,48 +428,82 @@
 					<span class="truncate text-xs text-muted-foreground">{channelTopic}</span>
 				{/if}
 			</div>
-			<div class="flex items-center gap-1">
-				<button
-					onclick={() => (showPins = true)}
-					class="rounded p-1 text-muted-foreground hover:text-foreground"
-					title="Pinned messages"
-				>
-					<Pin class="h-5 w-5" />
-				</button>
+			<div class="flex items-center gap-2">
+				<Tooltip.Root>
+					<Tooltip.Trigger>
+						{#snippet child({ props })}
+							<button
+								{...props}
+								onclick={() => (showPins = true)}
+								aria-label="Pinned messages"
+								class="flex size-11 shrink-0 items-center justify-center rounded text-muted-foreground transition-colors hover:text-foreground motion-safe:active:scale-95"
+							>
+								<Pin class="h-5 w-5" />
+							</button>
+						{/snippet}
+					</Tooltip.Trigger>
+					<Tooltip.Content side="bottom">Pinned messages</Tooltip.Content>
+				</Tooltip.Root>
 				{#if perms.canViewRemovedMessages}
-					<button
-						onclick={() => (showRemoved = !showRemoved)}
-						class="rounded p-1 transition-colors {showRemoved
-							? 'bg-amber-500/15 text-amber-500 hover:bg-amber-500/25'
-							: 'text-muted-foreground hover:text-foreground'}"
-						title={showRemoved ? 'Hide removed messages' : 'Show removed messages'}
-					>
-						{#if showRemoved}
-							<Eye class="h-5 w-5" />
-						{:else}
-							<EyeOff class="h-5 w-5" />
-						{/if}
-					</button>
+					<Tooltip.Root>
+						<Tooltip.Trigger>
+							{#snippet child({ props })}
+								<button
+									{...props}
+									onclick={() => (showRemoved = !showRemoved)}
+									aria-label={showRemoved ? 'Hide removed messages' : 'Show removed messages'}
+									class="flex size-11 shrink-0 items-center justify-center rounded transition-colors motion-safe:active:scale-95 {showRemoved
+										? 'bg-amber-500/15 text-amber-500 hover:bg-amber-500/25'
+										: 'text-muted-foreground hover:text-foreground'}"
+								>
+									{#if showRemoved}
+										<Eye class="h-5 w-5" />
+									{:else}
+										<EyeOff class="h-5 w-5" />
+									{/if}
+								</button>
+							{/snippet}
+						</Tooltip.Trigger>
+						<Tooltip.Content side="bottom">
+							{showRemoved ? 'Hide removed messages' : 'Show removed messages'}
+						</Tooltip.Content>
+					</Tooltip.Root>
 				{/if}
 				{#if perms.canViewAuditLog}
-					<button
-						onclick={() =>
-							goto(
-								`/channels/${encodeURIComponent(serverId)}/audit-log?channel_id=${encodeURIComponent(channelId)}`
-							)}
-						class="rounded p-1 text-muted-foreground hover:text-foreground"
-						title="Channel audit log"
-					>
-						<ScrollText class="h-5 w-5" />
-					</button>
+					<Tooltip.Root>
+						<Tooltip.Trigger>
+							{#snippet child({ props })}
+								<button
+									{...props}
+									onclick={() =>
+										goto(
+											`/channels/${encodeURIComponent(serverId)}/audit-log?channel_id=${encodeURIComponent(channelId)}`
+										)}
+									aria-label="Channel audit log"
+									class="flex size-11 shrink-0 items-center justify-center rounded text-muted-foreground transition-colors hover:text-foreground motion-safe:active:scale-95"
+								>
+									<ScrollText class="h-5 w-5" />
+								</button>
+							{/snippet}
+						</Tooltip.Trigger>
+						<Tooltip.Content side="bottom">Channel audit log</Tooltip.Content>
+					</Tooltip.Root>
 				{/if}
-				<button
-					onclick={toggleMembers}
-					class="rounded p-1 text-muted-foreground hover:text-foreground"
-					title="Toggle member list"
-				>
-					<Users class="h-5 w-5" />
-				</button>
+				<Tooltip.Root>
+					<Tooltip.Trigger>
+						{#snippet child({ props })}
+							<button
+								{...props}
+								onclick={toggleMembers}
+								aria-label="Toggle member list"
+								class="flex size-11 shrink-0 items-center justify-center rounded text-muted-foreground transition-colors hover:text-foreground motion-safe:active:scale-95"
+							>
+								<Users class="h-5 w-5" />
+							</button>
+						{/snippet}
+					</Tooltip.Trigger>
+					<Tooltip.Content side="bottom">Toggle member list</Tooltip.Content>
+				</Tooltip.Root>
 			</div>
 		</div>
 
