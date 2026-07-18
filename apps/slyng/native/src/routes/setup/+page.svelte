@@ -55,9 +55,10 @@
 					return;
 				}
 				await setStoredHost(trimmed);
-				// Track for the "Recently used" shortcuts next time. The
-				// localStorage layer is written synchronously inside, so
-				// navigating away immediately is safe.
+				// Track for the "Recently used" shortcuts next time. The write
+				// is deferred (it awaits the recents read, possibly a Tauri
+				// Store load, first), but goto() below is an SPA navigation —
+				// the JS context survives, so the write still completes.
 				void addRecentHost(trimmed);
 				const ret = page.url.searchParams.get('return') || '/';
 				goto(ret, { replaceState: true });

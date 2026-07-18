@@ -310,8 +310,26 @@
 		id: 'local-register',
 		SPA: true,
 		validators: zod4Client(LocalRegisterRequestSchema),
+		onSubmit: () => {
+			// bind:value leaves '' when the invite field is typed then
+			// cleared; '' fails the schema's min(1) while undefined passes
+			// .optional(). Coerce before validation runs on final submit.
+			if ($localRegisterData.invite_code === '') $localRegisterData.invite_code = undefined;
+		},
 		onUpdate: async ({ form: f }) => {
-			if (!f.valid) return;
+			if (!f.valid) {
+				// Step 2 only renders the password field, so errors on the
+				// step-1 fields (or the whole form) would be invisible —
+				// surface them in the error banner instead of failing silently.
+				const hiddenErrors = [
+					...(f.errors._errors ?? []),
+					...(f.errors.username ?? []),
+					...(f.errors.display_name ?? []),
+					...(f.errors.invite_code ?? [])
+				];
+				if (hiddenErrors.length) errorMsg = hiddenErrors.join(' ');
+				return;
+			}
 			errorMsg = null;
 			try {
 				const body: Record<string, string> = {
@@ -356,11 +374,16 @@
 
 	/** Advance to the password step once the identity fields validate. */
 	async function continueToPassword() {
+		// Same '' → undefined coercion as onSubmit: a typed-then-cleared
+		// invite field must validate as "absent", not as an invalid code.
+		if ($localRegisterData.invite_code === '') $localRegisterData.invite_code = undefined;
 		const fields: Array<'username' | 'display_name' | 'invite_code'> = [
 			'username',
 			'display_name'
 		];
-		if (regInfo?.mode === 'invite_only' && $localRegisterData.invite_code) {
+		// Always validate the invite code on invite-only instances so a bad
+		// code blocks here, on step 1, where its field errors are visible.
+		if (regInfo?.mode === 'invite_only') {
 			fields.push('invite_code');
 		}
 		const results = await Promise.all(fields.map((name) => localRegisterForm.validate(name)));
