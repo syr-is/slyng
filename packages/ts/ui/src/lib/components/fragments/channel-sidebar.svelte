@@ -100,7 +100,7 @@
 	<div class="group relative flex items-center">
 		<a
 			href="/channels/{encodeURIComponent(serverState.activeServerId ?? '')}/{encodeURIComponent(channel.id)}"
-			class="flex flex-1 items-center gap-1.5 rounded-md px-2 py-1.5 text-sm transition-colors
+			class="flex flex-1 items-center gap-1.5 rounded-md px-2 py-1.5 text-sm transition-colors tap:py-3 motion-safe:active:scale-[0.98]
 				{active
 				? 'bg-sidebar-accent text-sidebar-accent-foreground font-medium'
 				: channel.type === 'voice' && voice.channelId === channel.id
@@ -108,17 +108,17 @@
 					: 'text-sidebar-foreground/70 hover:bg-sidebar-accent/50 hover:text-sidebar-foreground'}"
 		>
 			{#if channel.type === 'voice'}
-				<Volume2 class="h-4 w-4 shrink-0 opacity-60" />
+				<Volume2 class="h-4 w-4 shrink-0" />
 			{:else}
-				<Hash class="h-4 w-4 shrink-0 opacity-60" />
+				<Hash class="h-4 w-4 shrink-0" />
 			{/if}
 			<span class="truncate">{channel.name}</span>
 		</a>
 		{#if perms.canViewAuditLog}
 			<DropdownMenu.Root>
 				<DropdownMenu.Trigger
-					class="absolute right-1 hidden h-6 w-6 items-center justify-center rounded text-sidebar-foreground/50 hover:bg-sidebar-accent hover:text-sidebar-foreground group-hover:flex tap:flex data-[state=open]:flex"
-					title="Channel options"
+					aria-label="Channel options"
+					class="absolute right-1 hidden h-6 w-6 items-center justify-center rounded text-sidebar-foreground/50 hover:bg-sidebar-accent hover:text-sidebar-foreground group-hover:flex tap:right-0 tap:flex tap:h-11 tap:w-11 data-[state=open]:flex motion-safe:active:scale-95"
 				>
 					<MoreVertical class="h-4 w-4" />
 				</DropdownMenu.Trigger>
@@ -220,7 +220,7 @@
 				<button
 					type="button"
 					onclick={() => toggleCollapse(cat.id)}
-					class="mb-0.5 flex items-center gap-0.5 px-1 text-[11px] font-semibold uppercase tracking-wide text-sidebar-foreground/50 hover:text-sidebar-foreground"
+					class="mb-0.5 flex min-w-11 items-center gap-0.5 px-1 text-[11px] font-semibold uppercase tracking-wide text-sidebar-foreground/50 transition-colors hover:text-sidebar-foreground tap:min-h-11 motion-safe:active:scale-95"
 				>
 					{#if isCollapsed}
 						<ChevronRight class="h-3 w-3" />
