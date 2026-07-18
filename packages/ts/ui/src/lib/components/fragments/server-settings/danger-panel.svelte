@@ -80,7 +80,10 @@
 	</div>
 </div>
 
-<Dialog.Root open={showDeleteDialog} onOpenChange={(v) => { if (!v && !deleting) showDeleteDialog = false; }}>
+<!-- bits-ui closes internally on Escape/outside-click before we can veto, so
+     bind the open state and flip it back when a dismissal lands mid-delete —
+     otherwise the wrapper's local copy desyncs from showDeleteDialog. -->
+<Dialog.Root bind:open={showDeleteDialog} onOpenChange={(v) => { if (!v && deleting) showDeleteDialog = true; }}>
 	<Dialog.Content class="sm:max-w-md">
 		<Dialog.Header>
 			<Dialog.Title class="flex items-center gap-2 text-destructive">
