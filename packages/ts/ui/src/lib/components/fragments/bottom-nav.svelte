@@ -50,9 +50,26 @@
 	></span>
 {/snippet}
 
+<!-- Safe-area extension strip. The root shells consume the bottom inset as
+     shell padding (and zero --slyng-sai-* for descendants), so on notched
+     iOS the ~34px strip below this bar would otherwise paint in the page
+     background — a visible color seam. The shells capture the raw inset
+     into --slyng-sai-bottom-captured before the zeroing scope; this strip
+     repaints exactly that area in the bar's surface color. It adds no
+     layout height, so the shell's padding remains the single inset
+     consumer. `fixed` rather than `absolute top-full` because the
+     SwipeLayout / app-layout ancestors are overflow-hidden and would clip
+     anything hanging below the bar; no ancestor of this nav is
+     transformed, so the viewport is the containing block and bottom-0
+     lines up flush with the bar's bottom edge. Height resolves to 0
+     wherever there is no inset. -->
+<div
+	aria-hidden="true"
+	class="fixed inset-x-0 bottom-0 h-[var(--slyng-sai-bottom-captured,0px)] bg-sidebar"
+></div>
 <nav
 	aria-label="Primary"
-	class="flex shrink-0 items-stretch border-t border-border bg-sidebar pb-[var(--slyng-sai-bottom,env(safe-area-inset-bottom,0px))]"
+	class="flex shrink-0 items-stretch border-t border-border bg-sidebar"
 >
 	<button
 		type="button"

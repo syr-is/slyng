@@ -124,17 +124,20 @@
 	// whenever the pathname changes. Runs via the Web Animations API on the
 	// persistent wrapper so the content itself is never remounted — data
 	// loading, scroll anchoring, and store effects are untouched. Skipped
-	// entirely under prefers-reduced-motion and on first mount.
+	// entirely under prefers-reduced-motion and on first mount. The effect
+	// also re-runs when `mainEl` rebinds (a breakpoint flip across 768px
+	// swaps the desktop/mobile branches), so it tracks the previous
+	// pathname and only plays when the pathname actually changed.
 	let mainEl = $state<HTMLDivElement | null>(null);
-	let firstRoute = true;
+	let prevPathname: string | null = null;
 	$effect(() => {
 		const routeKey = page.url.pathname;
 		const el = mainEl;
 		if (!routeKey || !el) return;
-		if (firstRoute) {
-			firstRoute = false;
-			return;
-		}
+		if (prevPathname === routeKey) return;
+		const isFirst = prevPathname === null;
+		prevPathname = routeKey;
+		if (isFirst) return;
 		if (prefersReducedMotion.current) return;
 		el.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 150, easing: 'ease-out' });
 	});
