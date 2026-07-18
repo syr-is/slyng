@@ -1,14 +1,15 @@
 <script lang="ts">
+	import { onMount } from 'svelte';
 	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
-	import { Button } from '@slyng/ui/button';
 	import { Input } from '@slyng/ui/input';
 	import * as Form from '@slyng/ui/form';
 	import { Loader2 } from '@lucide/svelte';
 	import { superForm, defaults } from 'sveltekit-superforms';
 	import { zod4, zod4Client } from 'sveltekit-superforms/adapters';
 	import { z } from 'zod';
-	import { setStoredHost } from '$lib/host-store';
+	import { setStoredHost, getStoredHost, getStoredHostSync } from '$lib/host-store';
+	import { addRecentHost, getRecentHosts, getRecentHostsSync } from '$lib/auth-prefs';
 	import { normalizeHost, isValidHost } from '@slyng/app-core/normalize-host';
 	import { setHost } from '@slyng/app-core/host';
 
@@ -54,6 +55,10 @@
 					return;
 				}
 				await setStoredHost(trimmed);
+				// Track for the "Recently used" shortcuts next time. The
+				// localStorage layer is written synchronously inside, so
+				// navigating away immediately is safe.
+				void addRecentHost(trimmed);
 				const ret = page.url.searchParams.get('return') || '/';
 				goto(ret, { replaceState: true });
 			} catch (err) {
@@ -63,6 +68,29 @@
 		}
 	});
 	const { form: formData, enhance, submitting } = form;
+
+	// Prefill with the currently configured host so re-entering setup via
+	// "Change API host" is scan-and-adjust, not recall-and-re-enter.
+	{
+		const current = getStoredHostSync();
+		if (current) $formData.url = current;
+	}
+
+	// Recently used hosts — one tap to refill the field.
+	let recentHosts = $state<string[]>(getRecentHostsSync());
+
+	onMount(() => {
+		// Backfill from the Tauri Store when the localStorage cache was
+		// wiped (e.g. Android cleared WebView data).
+		void (async () => {
+			if (!$formData.url) {
+				const stored = await getStoredHost();
+				if (stored && !$formData.url) $formData.url = stored;
+			}
+			const hosts = await getRecentHosts();
+			if (hosts.length) recentHosts = hosts;
+		})();
+	});
 </script>
 
 <div class="flex min-h-0 flex-1 items-center justify-center bg-background p-6">
@@ -89,6 +117,7 @@
 						inputmode="url"
 						placeholder="slyng.example.com"
 						bind:value={$formData.url}
+						onfocus={(e) => e.currentTarget.select()}
 						autocomplete="off"
 						autocorrect="off"
 						autocapitalize="off"
@@ -105,6 +134,24 @@
 			</Form.Description>
 			<Form.FieldErrors />
 		</Form.Field>
+
+		{#if recentHosts.length}
+			<div class="space-y-1.5">
+				<p class="text-xs font-medium text-muted-foreground">Recently used</p>
+				<div class="flex flex-wrap gap-1.5">
+					{#each recentHosts as host (host)}
+						<button
+							type="button"
+							class="max-w-full truncate rounded-md border border-border bg-muted/50 px-2.5 py-1 font-mono text-xs text-foreground transition-colors hover:bg-muted disabled:opacity-50"
+							onclick={() => ($formData.url = host)}
+							disabled={$submitting}
+						>
+							{host}
+						</button>
+					{/each}
+				</div>
+			</div>
+		{/if}
 
 		<Form.Button class="w-full" disabled={$submitting}>
 			{#if $submitting}

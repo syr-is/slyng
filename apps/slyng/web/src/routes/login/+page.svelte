@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
+	import { Button } from '@slyng/ui/button';
 	import { Input } from '@slyng/ui/input';
 	import * as Form from '@slyng/ui/form';
 	import { superForm, defaults } from 'sveltekit-superforms';
@@ -16,9 +17,43 @@
 	import { apiUrl } from '@slyng/app-core/host';
 	import { registerWithImport } from '@slyng/app-core/upload/identity-migration';
 	import SynerQr from '@slyng/ui/fragments/syner-qr.svelte';
+	import { Loader2 } from '@lucide/svelte';
 	import { onDestroy } from 'svelte';
 
-	let activeTab = $state<'syr' | 'local'>('local');
+	// ── Last-used auth prefs (smart defaults for returning users) ─────
+	// Only the instance host + method are remembered — never a credential.
+	const LAST_INSTANCE_KEY = 'slyng_last_instance_url';
+	const LAST_METHOD_KEY = 'slyng_last_auth_method';
+
+	function readLastAuthMethod(): 'syr' | 'local' {
+		if (typeof localStorage === 'undefined') return 'local';
+		try {
+			return localStorage.getItem(LAST_METHOD_KEY) === 'syr' ? 'syr' : 'local';
+		} catch {
+			return 'local';
+		}
+	}
+
+	function readLastInstanceUrl(): string {
+		if (typeof localStorage === 'undefined') return '';
+		try {
+			return localStorage.getItem(LAST_INSTANCE_KEY) ?? '';
+		} catch {
+			return '';
+		}
+	}
+
+	function rememberAuth(method: 'syr' | 'local', instanceUrl?: string) {
+		if (typeof localStorage === 'undefined') return;
+		try {
+			localStorage.setItem(LAST_METHOD_KEY, method);
+			if (instanceUrl) localStorage.setItem(LAST_INSTANCE_KEY, instanceUrl);
+		} catch {
+			/* quota / private mode */
+		}
+	}
+
+	let activeTab = $state<'syr' | 'local'>(readLastAuthMethod());
 	let localMode = $state<'login' | 'register' | 'import' | 'syner'>('login');
 	let errorMsg = $state<string | null>(null);
 
@@ -42,6 +77,7 @@
 	 * persists it), then enter the app.
 	 */
 	async function completeLocalAuth(bridge: string) {
+		rememberAuth('local');
 		await apiReady;
 		await api.auth.exchange(bridge);
 		const r = page.url.searchParams.get('redirect');
@@ -89,14 +125,25 @@
 					return;
 				}
 
-				// Redirect to syr consent page
-				if (data.consent_url) window.location.href = data.consent_url;
+				// Redirect to syr consent page. The API accepted this instance
+				// (it resolved a consent URL), so remember it for next visit.
+				if (data.consent_url) {
+					rememberAuth('syr', f.data.instance_url.trim());
+					window.location.href = data.consent_url;
+				}
 			} catch (err) {
 				errorMsg = err instanceof Error ? err.message : 'Connection failed';
 			}
 		}
 	});
 	const { form: formData, enhance, submitting } = form;
+
+	// Prefill the instance field with the last successfully used host so a
+	// returning user's path is one tap on "Continue with Syr".
+	{
+		const lastInstance = readLastInstanceUrl();
+		if (lastInstance) $formData.instance_url = lastInstance;
+	}
 
 	// ── Local account forms ──────────────────────────────────────────
 
@@ -167,6 +214,26 @@
 		enhance: localRegisterEnhance,
 		submitting: localRegisterSubmitting
 	} = localRegisterForm;
+
+	// ── Two-step registration (identity → password) ──────────────────
+	// Step "Instance" is already done by being here, so the progress
+	// indicator never starts at 0%.
+	let regStep = $state<1 | 2>(1);
+
+	// Display-only: local identities are minted on this Slyng instance,
+	// so the handle preview uses the host serving this page (the web app
+	// is same-origin with the API).
+	const identityHost = typeof window === 'undefined' ? '' : window.location.host;
+
+	/** Advance to the password step once the identity fields validate. */
+	async function continueToPassword() {
+		const fields: Array<'username' | 'display_name' | 'invite_code'> = ['username', 'display_name'];
+		if (regInfo?.mode === 'invite_only' && $localRegisterData.invite_code) {
+			fields.push('invite_code');
+		}
+		const results = await Promise.all(fields.map((name) => localRegisterForm.validate(name)));
+		if (results.every((errs) => !errs?.length)) regStep = 2;
+	}
 
 	// ── Import identity (register-with-import; P11) ──────────────────────
 	let importFile = $state<File | null>(null);
@@ -267,8 +334,23 @@
 </script>
 
 {#await authCheck}
-	<div class="flex min-h-screen items-center justify-center bg-background">
-		<p class="text-sm text-muted-foreground">Loading...</p>
+	<!-- Same centered spinner-card treatment as the native app's
+	     "Completing sign-in…" state, so both surfaces report system
+	     status identically. -->
+	<div class="flex min-h-screen items-center justify-center bg-background p-6">
+		<div
+			class="w-full max-w-md space-y-4 rounded-lg border border-border bg-card p-6 text-center shadow-sm"
+		>
+			<div class="flex justify-center">
+				<Loader2 class="size-8 animate-spin text-primary" />
+			</div>
+			<div class="space-y-1">
+				<h1 class="text-xl font-semibold tracking-tight">Checking your session…</h1>
+				<p class="text-sm text-muted-foreground">
+					You'll be taken straight in if you're already signed in.
+				</p>
+			</div>
+		</div>
 	</div>
 {:then redirected}
 	{#if !redirected}
@@ -277,7 +359,7 @@
 				<div class="space-y-2 text-center">
 					<h1 class="text-3xl font-bold tracking-tight text-foreground">Sign in to Slyng</h1>
 					<p class="text-sm text-muted-foreground">
-						Connect with your syr identity or create a local profile
+						Connect with your syr identity or create a local account
 					</p>
 				</div>
 
@@ -299,7 +381,7 @@
 							: 'text-muted-foreground hover:text-foreground'}"
 						onclick={() => (activeTab = 'local')}
 					>
-						Local Profile
+						Local account
 					</button>
 				</div>
 
@@ -319,12 +401,13 @@
 						<Form.Field {form} name="instance_url">
 							<Form.Control>
 								{#snippet children({ props })}
-									<Form.Label>Your Syr Instance</Form.Label>
+									<Form.Label>Instance URL</Form.Label>
 									<Input
 										{...props}
 										type="text"
 										placeholder="syr.example.com"
 										bind:value={$formData.instance_url}
+										onfocus={(e) => e.currentTarget.select()}
 										disabled={$submitting}
 									/>
 								{/snippet}
@@ -336,11 +419,9 @@
 						</Form.Field>
 
 						<Form.Button class="mt-auto w-full" disabled={$submitting}>
-							{#if $submitting}
-								Connecting...
-							{:else}
-								Continue with Syr
-							{/if}
+							{#if $submitting}<Loader2
+									class="mr-2 size-4 animate-spin"
+								/>Connecting…{:else}Continue with Syr{/if}
 						</Form.Button>
 					</form>
 				{/if}
@@ -349,7 +430,7 @@
 					<div class="flex min-h-[29rem] flex-col space-y-4">
 						<div class="rounded-md border border-border bg-muted/50 p-3">
 							<p class="text-xs text-muted-foreground">
-								Local profiles get a full syr identity hosted on this Slyng instance — a did:syr,
+								Local accounts get a full syr identity hosted on this Slyng instance — a did:syr,
 								signing keys, and a profile usable across the syr federation.
 							</p>
 						</div>
@@ -372,7 +453,7 @@
 										: 'text-muted-foreground hover:text-foreground'}"
 									onclick={() => (localMode = 'register')}
 								>
-									Create account
+									New account
 								</button>
 							</div>
 						{/if}
@@ -410,11 +491,8 @@
 									<Form.FieldErrors />
 								</Form.Field>
 								<Form.Button class="mt-auto w-full" disabled={$localLoginSubmitting}>
-									{#if $localLoginSubmitting}
-										Signing in...
-									{:else}
-										Sign in
-									{/if}
+									{#if $localLoginSubmitting}<Loader2 class="mr-2 size-4 animate-spin" />Signing in…{:else}Sign
+										in{/if}
 								</Form.Button>
 								<button
 									type="button"
@@ -428,8 +506,8 @@
 							<form onsubmit={startSynerLogin} class="flex flex-1 flex-col space-y-4">
 								<div class="rounded-md border border-border bg-muted/50 p-3">
 									<p class="text-xs text-muted-foreground">
-										Self-custody sign-in: enter your <code>did:syr</code> and approve on the device
-										that holds your key. No password is stored here.
+										Self-custody sign-in: enter your <code>did:syr</code> and approve on the device that
+										holds your key. No password is stored here.
 									</p>
 								</div>
 								{#if !synerChallenge}
@@ -445,9 +523,11 @@
 									<button
 										type="submit"
 										disabled={synerStarting || !synerDid.trim()}
-										class="mt-auto w-full rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground disabled:opacity-50"
+										class="mt-auto flex w-full items-center justify-center rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground disabled:opacity-50"
 									>
-										{synerStarting ? 'Preparing…' : 'Continue'}
+										{#if synerStarting}<Loader2
+												class="mr-2 size-4 animate-spin"
+											/>Preparing…{:else}Continue{/if}
 									</button>
 								{:else}
 									<div class="flex flex-1 flex-col items-center justify-center gap-4">
@@ -473,8 +553,9 @@
 							<form onsubmit={submitImport} class="flex flex-1 flex-col space-y-4">
 								<div class="rounded-md border border-border bg-muted/50 p-3">
 									<p class="text-xs text-muted-foreground">
-										Bring an identity you exported elsewhere. Your DID, profile, posts, and media are
-										restored here under a new username; sign in afterwards with the same password.
+										Bring an identity you exported elsewhere. Your DID, profile, posts, and media
+										are restored here under a new username; sign in afterwards with the same
+										password.
 									</p>
 								</div>
 								<label class="space-y-1.5">
@@ -489,7 +570,12 @@
 								</label>
 								<label class="space-y-1.5">
 									<span class="text-sm font-medium">New username</span>
-									<Input type="text" placeholder="your_handle" bind:value={importUsername} disabled={importing} />
+									<Input
+										type="text"
+										placeholder="your_handle"
+										bind:value={importUsername}
+										disabled={importing}
+									/>
 								</label>
 								<label class="space-y-1.5">
 									<span class="text-sm font-medium">Password</span>
@@ -510,16 +596,17 @@
 								<button
 									type="submit"
 									disabled={importing || !importFile || !importUsername || !importPassword}
-									class="mt-auto w-full rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground disabled:opacity-50"
+									class="mt-auto flex w-full items-center justify-center rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground disabled:opacity-50"
 								>
-									{importing ? 'Importing…' : 'Import & sign in'}
+									{#if importing}<Loader2 class="mr-2 size-4 animate-spin" />Importing…{:else}Import
+										& sign in{/if}
 								</button>
 								<button
 									type="button"
 									class="text-center text-xs text-muted-foreground underline-offset-4 hover:text-foreground hover:underline"
 									onclick={() => (localMode = 'register')}
 								>
-									← Back to create account
+									← Back to registration
 								</button>
 							</form>
 						{:else if regInfo?.mode === 'closed'}
@@ -529,87 +616,154 @@
 								</p>
 							</div>
 						{:else}
-							<form method="POST" use:localRegisterEnhance class="flex flex-1 flex-col space-y-4">
-								<Form.Field form={localRegisterForm} name="username">
-									<Form.Control>
-										{#snippet children({ props })}
-											<Form.Label>Username</Form.Label>
-											<Input
-												{...props}
-												type="text"
-												autocomplete="username"
-												placeholder="your_handle"
-												bind:value={$localRegisterData.username}
-												disabled={$localRegisterSubmitting}
-											/>
-										{/snippet}
-									</Form.Control>
-									<Form.FieldErrors />
-								</Form.Field>
-								<Form.Field form={localRegisterForm} name="display_name">
-									<Form.Control>
-										{#snippet children({ props })}
-											<Form.Label>Display name</Form.Label>
-											<Input
-												{...props}
-												type="text"
-												bind:value={$localRegisterData.display_name}
-												disabled={$localRegisterSubmitting}
-											/>
-										{/snippet}
-									</Form.Control>
-									<Form.FieldErrors />
-								</Form.Field>
-								<Form.Field form={localRegisterForm} name="password">
-									<Form.Control>
-										{#snippet children({ props })}
-											<Form.Label>Password</Form.Label>
-											<Input
-												{...props}
-												type="password"
-												autocomplete="new-password"
-												bind:value={$localRegisterData.password}
-												disabled={$localRegisterSubmitting}
-											/>
-										{/snippet}
-									</Form.Control>
-									<Form.Description>
-										At least 8 characters with an uppercase letter, a lowercase letter, and a
-										number. It also protects your identity's signing key.
-									</Form.Description>
-									<Form.FieldErrors />
-								</Form.Field>
-								{#if regInfo?.mode === 'invite_only'}
-									<Form.Field form={localRegisterForm} name="invite_code">
-										<Form.Control>
-											{#snippet children({ props })}
-												<Form.Label>Invite code</Form.Label>
-												<Input
-													{...props}
-													type="text"
-													bind:value={$localRegisterData.invite_code}
-													disabled={$localRegisterSubmitting}
-												/>
-											{/snippet}
-										</Form.Control>
-										<Form.FieldErrors />
-									</Form.Field>
-								{/if}
-								<Form.Button class="mt-auto w-full" disabled={$localRegisterSubmitting}>
-									{#if $localRegisterSubmitting}
-										Creating identity...
-									{:else}
-										Create account
-									{/if}
-								</Form.Button>
-								<button
-									type="button"
-									class="text-center text-xs text-muted-foreground underline-offset-4 hover:text-foreground hover:underline"
-									onclick={() => (localMode = 'import')}
+							{#snippet identityPreview()}
+								<!-- Live identity preview: the handle they're building, on this host -->
+								<div
+									class="flex items-center gap-2.5 rounded-md border border-border bg-muted/50 px-3 py-2"
 								>
-									Already have an identity? Import it
-								</button>
-							</form>
+									<div
+										class="flex size-8 shrink-0 items-center justify-center rounded-full bg-primary/15 text-sm font-semibold text-primary"
+									>
+										{($localRegisterData.username || '?').slice(0, 1).toUpperCase()}
+									</div>
+									<div class="min-w-0 flex-1">
+										<p class="truncate text-sm font-medium text-foreground">
+											{$localRegisterData.display_name || 'Your new identity'}
+										</p>
+										<p class="truncate font-mono text-xs text-muted-foreground">
+											{$localRegisterData.username || 'you'}{identityHost ? `@${identityHost}` : ''}
+										</p>
+									</div>
+								</div>
+							{/snippet}
+							<div class="flex flex-1 flex-col space-y-4">
+								<!-- 3-segment progress: "Instance" is already done by being
+								     here, so the bar never starts at 0%. -->
+								<div class="space-y-1.5">
+									<div class="flex gap-1.5">
+										<div class="h-1.5 flex-1 rounded-full bg-primary"></div>
+										<div
+											class="h-1.5 flex-1 rounded-full {regStep === 2 ? 'bg-primary' : 'bg-border'}"
+										></div>
+										<div
+											class="h-1.5 flex-1 rounded-full {$localRegisterSubmitting
+												? 'bg-primary'
+												: 'bg-border'}"
+										></div>
+									</div>
+									<div class="flex justify-between text-[11px] font-medium">
+										<span class="text-primary">Instance ✓</span>
+										<span class={regStep === 2 ? 'text-primary' : 'text-muted-foreground'}>
+											Identity{regStep === 2 ? ' ✓' : ''}
+										</span>
+										<span class="text-muted-foreground">Password</span>
+									</div>
+								</div>
+								{#if regStep === 1}
+									<form
+										onsubmit={(e) => {
+											e.preventDefault();
+											void continueToPassword();
+										}}
+										class="flex flex-1 flex-col space-y-4"
+									>
+										{@render identityPreview()}
+										<Form.Field form={localRegisterForm} name="username">
+											<Form.Control>
+												{#snippet children({ props })}
+													<Form.Label>Username</Form.Label>
+													<Input
+														{...props}
+														type="text"
+														autocomplete="username"
+														placeholder="your_handle"
+														bind:value={$localRegisterData.username}
+														disabled={$localRegisterSubmitting}
+													/>
+												{/snippet}
+											</Form.Control>
+											<Form.FieldErrors />
+										</Form.Field>
+										<Form.Field form={localRegisterForm} name="display_name">
+											<Form.Control>
+												{#snippet children({ props })}
+													<Form.Label>Display name</Form.Label>
+													<Input
+														{...props}
+														type="text"
+														bind:value={$localRegisterData.display_name}
+														disabled={$localRegisterSubmitting}
+													/>
+												{/snippet}
+											</Form.Control>
+											<Form.FieldErrors />
+										</Form.Field>
+										{#if regInfo?.mode === 'invite_only'}
+											<Form.Field form={localRegisterForm} name="invite_code">
+												<Form.Control>
+													{#snippet children({ props })}
+														<Form.Label>Invite code</Form.Label>
+														<Input
+															{...props}
+															type="text"
+															bind:value={$localRegisterData.invite_code}
+															disabled={$localRegisterSubmitting}
+														/>
+													{/snippet}
+												</Form.Control>
+												<Form.FieldErrors />
+											</Form.Field>
+										{/if}
+										<Button type="submit" class="mt-auto w-full">Continue</Button>
+										<button
+											type="button"
+											class="text-center text-xs text-muted-foreground underline-offset-4 hover:text-foreground hover:underline"
+											onclick={() => (localMode = 'import')}
+										>
+											Already have an identity? Import it
+										</button>
+									</form>
+								{:else}
+									<form
+										method="POST"
+										use:localRegisterEnhance
+										class="flex flex-1 flex-col space-y-4"
+									>
+										{@render identityPreview()}
+										<Form.Field form={localRegisterForm} name="password">
+											<Form.Control>
+												{#snippet children({ props })}
+													<Form.Label>Password</Form.Label>
+													<Input
+														{...props}
+														type="password"
+														autocomplete="new-password"
+														bind:value={$localRegisterData.password}
+														disabled={$localRegisterSubmitting}
+													/>
+												{/snippet}
+											</Form.Control>
+											<Form.Description>
+												At least 8 characters with an uppercase letter, a lowercase letter, and a
+												number. It also protects your identity's signing key.
+											</Form.Description>
+											<Form.FieldErrors />
+										</Form.Field>
+										<Form.Button class="mt-auto w-full" disabled={$localRegisterSubmitting}>
+											{#if $localRegisterSubmitting}<Loader2
+													class="mr-2 size-4 animate-spin"
+												/>Creating identity…{:else}Continue{/if}
+										</Form.Button>
+										<button
+											type="button"
+											class="text-center text-xs text-muted-foreground underline-offset-4 hover:text-foreground hover:underline"
+											onclick={() => (regStep = 1)}
+										>
+											← Back
+										</button>
+									</form>
+								{/if}
+							</div>
 						{/if}
 					</div>
 				{/if}
