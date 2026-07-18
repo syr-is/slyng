@@ -25,7 +25,7 @@
 	import { Button } from '@slyng/ui/button';
 	import { Input } from '@slyng/ui/input';
 	import * as Dialog from '@slyng/ui/dialog';
-	import { proxied } from '@slyng/app-core/utils/proxy';
+	import { proxied, formatBytes } from '@slyng/app-core/utils/proxy';
 	import {
 		getStorageUsage,
 		listFolders,
@@ -289,13 +289,6 @@
 	}
 
 	// ── Helpers ─────────────────────────────────────────────────────────
-	function formatBytes(bytes: number): string {
-		if (!bytes) return '0 B';
-		const k = 1024;
-		const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
-		const i = Math.min(sizes.length - 1, Math.floor(Math.log(bytes) / Math.log(k)));
-		return `${parseFloat((bytes / Math.pow(k, i)).toFixed(1))} ${sizes[i]}`;
-	}
 	function formatAgo(iso: string): string {
 		const delta = Date.now() - new Date(iso).getTime();
 		const m = Math.floor(delta / 60000);
