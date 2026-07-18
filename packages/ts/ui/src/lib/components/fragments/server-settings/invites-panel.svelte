@@ -8,6 +8,7 @@
 	import { resolveProfile, displayName } from '@slyng/app-core/stores/profiles.svelte';
 	import { getMembers } from '@slyng/app-core/stores/members.svelte';
 	import { proxied } from '@slyng/app-core/utils/proxy';
+	import * as Tooltip from '@slyng/ui/tooltip';
 	import PaginatedTable from '../paginated-table.svelte';
 	import CreateInviteForm from './create-invite-form.svelte';
 
@@ -155,6 +156,19 @@
 		return `${d}d`;
 	}
 
+	// Exact spelled-out moment for the timestamp tooltips, e.g.
+	// "Friday, July 24, 2026, 3:00 PM".
+	function formatExact(iso: string): string {
+		return new Date(iso).toLocaleString(undefined, {
+			weekday: 'long',
+			year: 'numeric',
+			month: 'long',
+			day: 'numeric',
+			hour: 'numeric',
+			minute: '2-digit'
+		});
+	}
+
 	const columns = [
 		{ key: 'code', label: 'Code' },
 		{ key: 'scope', label: 'Scope' },
@@ -291,11 +305,45 @@
 					<span class="truncate text-xs">{name}</span>
 				</div>
 			{:else if key === 'created_at'}
-				<span class="text-xs text-muted-foreground" title={new Date(row.created_at).toLocaleString()}>
-					{formatAgo(row.created_at)}
-				</span>
+				<Tooltip.Root delayDuration={150}>
+					<Tooltip.Trigger>
+						{#snippet child({ props }: { props: Record<string, unknown> })}
+							<span {...props} class="cursor-help text-xs text-muted-foreground">
+								{formatAgo(row.created_at)}
+							</span>
+						{/snippet}
+					</Tooltip.Trigger>
+					<Tooltip.Content
+						side="top"
+						sideOffset={6}
+						class="border border-border bg-popover text-popover-foreground shadow-md"
+						arrowClasses="bg-popover border-l border-b border-border"
+					>
+						<span class="text-[11px]">{formatExact(row.created_at)}</span>
+					</Tooltip.Content>
+				</Tooltip.Root>
 			{:else if key === 'expires_at'}
-				<span class="text-xs text-muted-foreground">{formatExpiry(row.expires_at)}</span>
+				{#if row.expires_at}
+					<Tooltip.Root delayDuration={150}>
+						<Tooltip.Trigger>
+							{#snippet child({ props }: { props: Record<string, unknown> })}
+								<span {...props} class="cursor-help text-xs text-muted-foreground">
+									{formatExpiry(row.expires_at)}
+								</span>
+							{/snippet}
+						</Tooltip.Trigger>
+						<Tooltip.Content
+							side="top"
+							sideOffset={6}
+							class="border border-border bg-popover text-popover-foreground shadow-md"
+							arrowClasses="bg-popover border-l border-b border-border"
+						>
+							<span class="text-[11px]">{formatExact(row.expires_at)}</span>
+						</Tooltip.Content>
+					</Tooltip.Root>
+				{:else}
+					<span class="text-xs text-muted-foreground">Never</span>
+				{/if}
 			{/if}
 		{/snippet}
 
