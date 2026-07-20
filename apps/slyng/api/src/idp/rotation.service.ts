@@ -166,7 +166,17 @@ export class RotationService {
 			await this.delegatedKeys.merge(id, { signature });
 		}
 
-		await this.finishRotation(did, nextSeq, prepared.statement, 'aegis');
+		// A signer under the NEW root (decrypts the freshly re-wrapped Aegis seed
+		// with the same password) so the hosting-record re-publish re-signs
+		// autonomously — no future manual sync required.
+		const newRootSign = (statement: string) =>
+			this.crypto.withSeed({
+				bundle: prepared.newBundle as AegisBundle,
+				password,
+				action: (seed) => sign(statement, seed)
+			});
+
+		await this.finishRotation(did, nextSeq, prepared.statement, 'aegis', newRootSign);
 		return this.result(did, nextSeq, prepared.statement.newRoot);
 	}
 
@@ -240,11 +250,13 @@ export class RotationService {
 		did: string,
 		seq: number,
 		statement: RotationStatement,
-		mode: 'aegis' | 'external'
+		mode: 'aegis' | 'external',
+		rootSign?: (statement: string) => Promise<Uint8Array>
 	): Promise<void> {
-		// Re-publish hosting records under the new root (enqueues outbox work).
+		// Re-publish hosting records under the new root (enqueues outbox work; for
+		// custodial rotations `rootSign` re-signs them so the poller delivers).
 		try {
-			await this.registry.republishAfterRotation(did);
+			await this.registry.republishAfterRotation(did, rootSign);
 		} catch (err) {
 			this.logger.warn(
 				`Rotation re-publish enqueue failed for ${did.slice(0, 16)}…: ${(err as Error).message}`

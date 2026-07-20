@@ -5,6 +5,7 @@ import { canonicalize, encodeMultibase } from '@slyng/idp-crypto';
 import type { OwnedOutboxJob, OwnedRegistry, RegistrySyncResult } from '@slyng/types';
 import { IdpAuditService } from './idp-audit.service';
 import { PlatformService } from './platform.service';
+import { RootKeyService } from './root-key.service';
 import {
 	IdentityRepository,
 	IdpProfileRepository,
@@ -43,6 +44,7 @@ export class RegistryService {
 		private readonly accounts: LocalAccountRepository,
 		private readonly profiles: IdpProfileRepository,
 		private readonly platform: PlatformService,
+		private readonly rootKey: RootKeyService,
 		private readonly audit: IdpAuditService
 	) {}
 
@@ -119,12 +121,22 @@ export class RegistryService {
 	 * Re-publish a DID's hosting records after a root-key rotation (P12). The
 	 * signed payload shape is unchanged (JCS over `{did, provider, updatedAt}`),
 	 * but the signature must now be produced under the NEW current root: stale
-	 * (old-root) signatures on pending jobs are cleared so they re-sign under the
-	 * new root at the next sync, and every registry without an active update job
-	 * gets a fresh one enqueued. Fire-and-forget — a rotation never fails on a
+	 * (old-root) signatures on pending jobs are cleared, every registry without an
+	 * active update job gets a fresh one enqueued, and — when a `rootSign` for the
+	 * new root is supplied (custodial/Aegis rotation, password in hand) — the
+	 * jobs are RE-SIGNED here so the autonomous poller redelivers them without
+	 * waiting for a future manual sync. Each delivered record carries the full
+	 * `rotation_chain` (attached at push time), so a registry can resolve the new
+	 * root from the genesis-anchored chain and verify the signature under it.
+	 *
+	 * External (device-held) rotations pass no signer — those jobs stay pending
+	 * until the device syncs. Fire-and-forget: a rotation never fails on a
 	 * republish hiccup.
 	 */
-	async republishAfterRotation(did: string): Promise<void> {
+	async republishAfterRotation(
+		did: string,
+		rootSign?: (statement: string) => Promise<Uint8Array>
+	): Promise<void> {
 		const registries = await this.registries.findByDid(did);
 		if (registries.length === 0) return;
 
@@ -144,8 +156,33 @@ export class RegistryService {
 			}
 			await this.registries.updateStatus(did, r.registry_url, 'pending');
 		}
+
+		// Custodial rotation: re-sign the (now unsigned) update jobs under the new
+		// root immediately so `findDeliverable` picks them up autonomously.
+		let reSigned = 0;
+		if (rootSign) {
+			const account = await this.accounts.findByDid(did);
+			const profile = account ? await this.profiles.findByAccountId(account.id) : null;
+			const username = account?.username ?? did.slice(0, 16);
+			const displayName = profile?.display_name?.trim() || username;
+			const jobs = await this.outbox.activeByActor(did);
+			for (const job of jobs) {
+				if (job.action !== 'update' || job.signature) continue;
+				try {
+					const fields = await this.signJob(job, rootSign, { username, displayName });
+					await this.outbox.saveSignature(job.id, fields);
+					reSigned++;
+				} catch (err) {
+					this.logger.warn(
+						`Rotation re-sign failed for ${did.slice(0, 16)}… → ${job.registry_url}: ${(err as Error).message}`
+					);
+				}
+			}
+		}
+
 		this.logger.log(
-			`Rotation re-publish queued for ${did.slice(0, 16)}… (${registries.length} registries)`
+			`Rotation re-publish queued for ${did.slice(0, 16)}… (${registries.length} registries` +
+				`${rootSign ? `, ${reSigned} re-signed under new root` : ''})`
 		);
 	}
 
@@ -281,11 +318,18 @@ export class RegistryService {
 			});
 			return;
 		}
+		// Carry the full rotation chain (empty for un-rotated identities). It is
+		// genesis-anchored + self-verifying, so a registry resolves the CURRENT
+		// root from it and verifies `signature` (produced under that current root)
+		// against it — a rotated identity would otherwise fail verification against
+		// the genesis key the DID embeds and silently drop out of the directory.
+		const rotationChain = await this.rootKey.loadChain(job.did);
 		await this.post(`${base}/api/v1/update`, {
 			did: job.did,
 			provider: job.provider,
 			updatedAt: job.signed_updated_at,
-			signature: job.signature
+			signature: job.signature,
+			rotation_chain: rotationChain
 		});
 		// Directory upsert is best-effort — its failure never fails the job.
 		if (job.directory_signature) {
