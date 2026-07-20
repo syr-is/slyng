@@ -4,9 +4,9 @@
  * go through `idpFetch` (session cookie + Bearer, `credentials: 'include'`).
  */
 
-import { idpFetch } from '../idp-fetch.js';
+import { idpFetch, idpJson } from '../idp-fetch.js';
 import { apiUrl } from '../host.js';
-import type { IdentityImportResult } from '@slyng/types';
+import type { IdentityExportInfo, IdentityImportResult } from '@slyng/types';
 
 async function errorFrom(res: Response, fallback: string): Promise<string> {
 	const body = (await res.json().catch(() => null)) as
@@ -15,11 +15,21 @@ async function errorFrom(res: Response, fallback: string): Promise<string> {
 	return body?.message ?? body?.error_description ?? `${fallback} (${res.status})`;
 }
 
-/** Download a signed export bundle (password unlocks the root seed to sign). */
-export async function exportIdentity(password: string): Promise<void> {
+/** Whether the export will be custodial-signed (needs a password) or an unsigned
+ * data-only bundle (self-custody). Lets the UI decide whether to prompt. */
+export async function getExportInfo(): Promise<IdentityExportInfo> {
+	return idpJson<IdentityExportInfo>('/identity/export-info');
+}
+
+/**
+ * Download an export bundle. A custodial (password) account passes its password
+ * so the root seed SIGNS the bundle; a self-custody account passes nothing and
+ * gets an explicit unsigned, data-only bundle.
+ */
+export async function exportIdentity(password?: string): Promise<void> {
 	const res = await idpFetch('/identity/export', {
 		method: 'POST',
-		body: JSON.stringify({ password })
+		body: JSON.stringify(password ? { password } : {})
 	});
 	if (!res.ok) throw new Error(await errorFrom(res, 'Export failed'));
 

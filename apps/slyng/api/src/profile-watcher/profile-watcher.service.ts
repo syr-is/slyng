@@ -159,7 +159,14 @@ export class ProfileWatcherService implements OnModuleInit, OnModuleDestroy {
 				signal: AbortSignal.timeout(this.POLL_TIMEOUT_MS)
 			});
 			if (!res.ok) return null;
-			const manifest = (await res.json()) as { endpoints?: { public_hash?: string } };
+			// The identity manifest also advertises `endpoints.rotations` (P12).
+			// Hash-polling doesn't verify signatures, so it isn't read here — a
+			// remote ROOT signature is resolved through RemoteRootKeyService,
+			// which fetches this same endpoint and verifies the chain-resolved
+			// current key (falling back to genesis for un-rotated peers).
+			const manifest = (await res.json()) as {
+				endpoints?: { public_hash?: string; rotations?: string };
+			};
 			const url = manifest.endpoints?.public_hash ?? null;
 			if (url) entry.hash_url = url;
 			return url;

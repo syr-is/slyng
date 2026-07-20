@@ -214,6 +214,24 @@ export class OutboxRepository extends BaseRepository<OutboxRow> {
 		await this.merge(id, { status: 'cancelled', next_retry_at: null, updated_at: new Date() });
 	}
 
+	/**
+	 * Invalidate the stored (old-root) signatures on a DID's non-terminal
+	 * `update` jobs and re-arm them as pending — used after a root rotation so
+	 * the hosting record re-signs under the NEW root at the next sync, and the
+	 * autonomous poller never redelivers an old-root-signed record.
+	 */
+	async clearUpdateSignaturesForActor(did: string): Promise<void> {
+		await this.db.query(
+			`UPDATE outbox SET
+				signature = NONE, signed_updated_at = NONE, directory_signature = NONE,
+				status = 'pending', attempts = 0, next_retry_at = NONE, last_error = NONE,
+				updated_at = time::now()
+			 WHERE actor_did = $did AND action = 'update'
+			   AND status != 'completed' AND status != 'cancelled'`,
+			{ did }
+		);
+	}
+
 	async requeue(id: RecordId | string): Promise<void> {
 		await this.merge(id, {
 			status: 'pending',

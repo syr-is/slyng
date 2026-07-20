@@ -7,9 +7,11 @@ import type {
 	PublicProfileData,
 	PublicStoriesResponse,
 	PublicStorySlide,
+	RotationChainResponse,
 	SyrIdentityManifest,
 	SyrInstanceManifest
 } from '@slyng/types';
+import { RootKeyService } from './root-key.service';
 import type { OwnedPost, PublicPostSummary, PublicPostsResponse } from '@slyng/types';
 import type { PublicEmoji, PublicEmojisResponse, PublicGif, PublicGifsResponse } from '@slyng/types';
 import type { PublicUpload, PublicUploadsResponse } from '@slyng/types';
@@ -51,7 +53,8 @@ export class IdpPublicService {
 		private readonly uploads: LibraryUploadRepository,
 		private readonly posts: PostRepository,
 		private readonly emojis: EmojiRepository,
-		private readonly gifs: GifRepository
+		private readonly gifs: GifRepository,
+		private readonly rootKey: RootKeyService
 	) {}
 
 	getPublicUrl(): string {
@@ -116,7 +119,8 @@ export class IdpPublicService {
 				public_gifs: `${base}/api/public/gifs/${encoded}`,
 				public_comments: `${base}/api/public/comments/${encoded}`,
 				public_reactions: `${base}/api/public/reactions/${encoded}`,
-				public_hash: `${base}/api/public/hash/${encoded}`
+				public_hash: `${base}/api/public/hash/${encoded}`,
+				rotations: `${base}/api/identity/${encoded}/rotations`
 			},
 			web_profile: `${base}/u/${encoded}`
 		};
@@ -126,11 +130,28 @@ export class IdpPublicService {
 		this.assertDid(did);
 		const identity = await this.identities.findByDid(did);
 		if (!identity) throw new HttpException('Identity not found', 404);
+		// Present the CURRENT root (resolved from the verified rotation chain) as
+		// #root — never the stored public_key column, which stays pinned to the
+		// immutable genesis (DID-deriving) key.
+		const currentRoot = await this.rootKey.getCurrentRootMultibase(identity.did);
 		return buildDidDocument({
 			did: identity.did,
-			publicKeyMultibase: identity.public_key,
+			publicKeyMultibase: currentRoot,
 			serviceEndpoint: this.getPublicUrl()
 		});
+	}
+
+	/**
+	 * Public rotation chain (P12) — the ordered chain plus the head resolved
+	 * from it. Mirrors the DID-document endpoint's public treatment; slyng's own
+	 * federation resolvers (and any syr peer) fetch this to learn a remote DID's
+	 * current root before verifying its signed content.
+	 */
+	async getRotationChain(did: string): Promise<RotationChainResponse> {
+		this.assertDid(did);
+		const identity = await this.identities.findByDid(did);
+		if (!identity) throw new HttpException('Identity not found', 404);
+		return this.rootKey.getChainResponse(identity.did);
 	}
 
 	/** Look up a local account + profile by DID or username. */

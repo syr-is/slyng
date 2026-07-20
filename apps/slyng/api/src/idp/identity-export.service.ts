@@ -1,5 +1,4 @@
 import { HttpException, Injectable, Logger } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
 import { zipSync, strToU8 } from 'fflate';
 import { createHash } from 'node:crypto';
 import { canonicalize, encodeMultibase, sign } from '@slyng/idp-crypto';
@@ -11,12 +10,14 @@ import { IdpStorageService } from './idp-storage.service';
 import {
 	IdentityRepository,
 	IdpProfileRepository,
-	LocalAccountRepository
+	LocalAccountRepository,
+	type IdentityRow
 } from './idp.repository';
 import { PostRepository } from './idp-post.repository';
 import { EmojiRepository, GifRepository } from './idp-media.repository';
 import { LibraryUploadRepository } from './idp-content.repository';
 import { CommentRepository, ReactionRepository, FollowRepository } from './idp-interaction.repository';
+import { RootKeyService } from './root-key.service';
 
 interface ExportedRecord {
 	local_id: string;
@@ -37,7 +38,6 @@ export class IdentityExportService {
 	private readonly logger = new Logger(IdentityExportService.name);
 
 	constructor(
-		private readonly config: ConfigService,
 		private readonly crypto: IdpCryptoService,
 		private readonly storage: IdpStorageService,
 		private readonly accounts: LocalAccountRepository,
@@ -49,45 +49,56 @@ export class IdentityExportService {
 		private readonly uploads: LibraryUploadRepository,
 		private readonly comments: CommentRepository,
 		private readonly reactions: ReactionRepository,
-		private readonly follows: FollowRepository
+		private readonly follows: FollowRepository,
+		private readonly rootKey: RootKeyService
 	) {}
 
 	/**
-	 * Build a signed export bundle for `did`. Requires the account password —
-	 * it unlocks the Aegis seed to sign the bundle digest (and proves
-	 * ownership). Self-custody accounts (no server-held seed) can't be
-	 * exported server-side; they'd sign on their device.
+	 * Build an export bundle for `did`. Custody decides the bundle kind:
+	 * - **Custodial (Aegis)** — the root seed is held here (encrypted). The
+	 *   password unlocks it to SIGN the v2 manifest (proving authenticity) and
+	 *   the encrypted seed is embedded so re-import restores password login: a
+	 *   FULL, signed bundle.
+	 * - **Self-custody** — the seed lives on the device, so the server can't
+	 *   sign. It emits an explicit `unsigned: true` DATA-ONLY bundle (no seed
+	 *   embedded), never a silent downgrade. Restorable only into an existing
+	 *   session for the same DID; its authenticity rests on the file-hash map +
+	 *   the importer's own session.
 	 */
-	async exportIdentity(did: string, password: string): Promise<{ zip: Uint8Array; filename: string }> {
+	async exportIdentity(
+		did: string,
+		password?: string
+	): Promise<{ zip: Uint8Array; filename: string }> {
 		const account = await this.accounts.findByDid(did);
 		if (!account) throw new HttpException('Account not found', 404);
 		const identity = await this.identities.findByDid(did);
 		if (!identity) throw new HttpException('Identity not found', 404);
 		const profile = await this.profiles.findByAccountId(account.id);
 
-		const hasAegis = !!(
-			identity.aegis_salt &&
-			identity.aegis_nonce &&
-			identity.aegis_ct &&
-			identity.aegis_tag
-		);
-		if (!hasAegis) {
-			throw new HttpException(
-				'Export requires a password account (the root seed signs the bundle). Self-custody export is device-signed.',
-				400
-			);
+		const hasAegis = this.identityHasAegis(identity);
+
+		// Custodial exports sign; self-custody exports don't. `rootSign` is the
+		// signer, or null for the unsigned data-only path.
+		let rootSign: ((statement: string) => Promise<Uint8Array>) | null = null;
+		if (hasAegis) {
+			if (!password) {
+				throw new HttpException('Password is required to sign a custodial export', 400);
+			}
+			const bundle = this.crypto.aegisBundleFromIdentity(identity);
+			rootSign = (statement: string) =>
+				this.crypto.withSeed({ bundle, password, action: (seed) => sign(statement, seed) });
+			// Fail fast on a bad password before doing all the gathering work.
+			try {
+				await rootSign('export-probe');
+			} catch {
+				throw new HttpException('Incorrect password', 401);
+			}
 		}
 
-		// Root sign fn — decrypts the seed with the password (401 on wrong pw).
-		const bundle = this.crypto.aegisBundleFromIdentity(identity);
-		const rootSign = (statement: string) =>
-			this.crypto.withSeed({ bundle, password, action: (seed) => sign(statement, seed) });
-		// Fail fast on a bad password before doing all the gathering work.
-		try {
-			await rootSign('export-probe');
-		} catch {
-			throw new HttpException('Incorrect password', 401);
-		}
+		// Rotation chain (P12): every bundle carries the full chain so it
+		// self-verifies offline. For a custodial export the Aegis seed IS the
+		// CURRENT root (post-rotation), so `signing_key` is that key.
+		const rotationChain = await this.rootKey.loadChain(did);
 
 		// ── Gather owned content ──────────────────────────────────────────
 		const [postRows, emojiRows, gifRows, uploadRows, commentRows, reactionRows, followRows] =
@@ -129,11 +140,18 @@ export class IdentityExportService {
 			});
 		}
 
-		// The encrypted seed (Aegis) so re-import restores password login.
-		addJson('identity.json', {
+		// identity.json carries the immutable genesis public key + the full
+		// rotation chain (P12) so the bundle self-verifies offline. A custodial
+		// export also embeds the encrypted seed (Aegis) so re-import restores
+		// password login; a self-custody export omits it (the seed is on the
+		// device — that's what makes it a data-only bundle).
+		const identityJson: Record<string, unknown> = {
 			did,
 			public_key: identity.public_key,
-			aegis: {
+			rotation_chain: rotationChain
+		};
+		if (hasAegis) {
+			identityJson.aegis = {
 				salt: identity.aegis_salt,
 				nonce: identity.aegis_nonce,
 				ct: identity.aegis_ct,
@@ -143,8 +161,9 @@ export class IdentityExportService {
 					it: identity.aegis_kdf_it,
 					par: identity.aegis_kdf_par
 				}
-			}
-		});
+			};
+		}
+		addJson('identity.json', identityJson);
 
 		// ── Bundle local S3 assets by key ─────────────────────────────────
 		const assetKeys = new Set<string>();
@@ -174,7 +193,7 @@ export class IdentityExportService {
 		}
 		addJson('assets.json', assetIndex);
 
-		// ── Digest + manifest + signature ─────────────────────────────────
+		// ── Per-file digest map + v2 manifest + detached signature ────────
 		const counts: IdentityExportCounts = {
 			posts: postRows.length,
 			stories: storyRows.length,
@@ -187,33 +206,69 @@ export class IdentityExportService {
 			registries: 0,
 			assets: assetIndex.length
 		};
-		const contentDigest = this.digestFiles(files);
-		const exportedAt = new Date().toISOString();
-		const manifest: IdentityExportManifest = {
-			version: 1,
+		const createdAt = new Date().toISOString();
+		// SHA-256 of every bundle file. `manifest.json` is added to the archive
+		// AFTER this runs, so it's naturally excluded from its own integrity map.
+		const fileHashes = this.hashFiles(files);
+		const manifestSansSig = {
+			format_version: 2 as const,
 			did,
-			public_key: identity.public_key,
-			username: account.username,
-			host: this.getPublicUrl(),
-			exported_at: exportedAt,
-			includes_seed: true,
+			created_at: createdAt,
+			rotation_seq: rotationChain.length,
 			counts,
-			content_digest: contentDigest
+			files: fileHashes
 		};
+		let manifest: IdentityExportManifest;
+		if (rootSign) {
+			// Custodial: sign the RFC 8785 (JCS) canonicalization of the manifest
+			// (minus the signature block) with the CURRENT root — the Aegis seed IS
+			// the current root after any rotation, so `signing_key` is that key.
+			const signingKey = await this.rootKey.getCurrentRootMultibase(did);
+			const signedPayloadJson = canonicalize(manifestSansSig);
+			const signature = encodeMultibase(await rootSign(signedPayloadJson));
+			manifest = {
+				...manifestSansSig,
+				signature: {
+					signed_payload_json: signedPayloadJson,
+					signature,
+					signing_key: signingKey
+				}
+			};
+		} else {
+			// Self-custody: explicit unsigned data-only bundle — the manifest says
+			// so, so import can never mistake it for a stripped signature.
+			manifest = { ...manifestSansSig, unsigned: true };
+		}
 		addJson('manifest.json', manifest);
 
-		const signaturePayload = canonicalize({ did, content_digest: contentDigest, exported_at: exportedAt });
-		const signature = encodeMultibase(await rootSign(signaturePayload));
-		files['export.sig'] = strToU8(signature);
-
 		const zip = zipSync(files, { level: 6 });
-		const stamp = exportedAt.replace(/[:.]/g, '-');
-		this.logger.log(`Exported ${did.slice(0, 24)}… (${zip.length} bytes, ${assetIndex.length} assets)`);
+		const stamp = createdAt.replace(/[:.]/g, '-');
+		this.logger.log(
+			`Exported ${did.slice(0, 24)}… (${zip.length} bytes, ${assetIndex.length} assets, ` +
+				`${rootSign ? 'signed' : 'unsigned data-only'})`
+		);
 		return { zip, filename: `slyng-identity-${account.username}-${stamp}.zip` };
 	}
 
-	private getPublicUrl(): string {
-		return this.config.get('PUBLIC_URL', 'http://localhost:5174').replace(/\/+$/, '');
+	/** Whether this identity's root seed is Aegis-encrypted here. A custodial
+	 * account signs its export with the password-unlocked seed; a self-custody
+	 * account (device-held seed) gets an unsigned data-only bundle. */
+	private identityHasAegis(identity: IdentityRow): boolean {
+		return !!(
+			identity.aegis_salt &&
+			identity.aegis_nonce &&
+			identity.aegis_ct &&
+			identity.aegis_tag
+		);
+	}
+
+	/** Custody of the caller's own identity — the export UI reads this to decide
+	 * whether to prompt for a password (custodial, signs) or export directly
+	 * (self-custody, unsigned data-only). */
+	async getExportInfo(did: string): Promise<{ has_aegis: boolean }> {
+		const identity = await this.identities.findByDid(did);
+		if (!identity) throw new HttpException('Identity not found', 404);
+		return { has_aegis: this.identityHasAegis(identity) };
 	}
 
 	/** `{ local_id, record }` with the composite `id` and non-portable RecordId
@@ -264,22 +319,15 @@ export class IdentityExportService {
 		return map[ext] ?? 'application/octet-stream';
 	}
 
-	/** SHA-256 over every file except the manifest + signature, in sorted
-	 * filename order. Each entry is length-prefixed (name length + byte length,
-	 * u32 BE) so no boundary shift between name and content can collide.
-	 * Import's `digestFiles` MUST stay byte-identical to this. */
-	private digestFiles(files: Record<string, Uint8Array>): string {
-		const hash = createHash('sha256');
+	/** SHA-256 (hex) of every bundle file, keyed by its zip path — the v2
+	 * manifest's integrity map. `manifest.json` is written to the archive AFTER
+	 * this runs (it carries the map), so it's excluded here. Import recomputes
+	 * this byte-for-byte and checks the file set + every hash. */
+	private hashFiles(files: Record<string, Uint8Array>): Record<string, string> {
+		const out: Record<string, string> = {};
 		for (const name of Object.keys(files).sort()) {
-			if (name === 'manifest.json' || name === 'export.sig') continue;
-			const nameBuf = Buffer.from(name, 'utf8');
-			const lens = Buffer.alloc(8);
-			lens.writeUInt32BE(nameBuf.length, 0);
-			lens.writeUInt32BE(files[name].length, 4);
-			hash.update(lens);
-			hash.update(nameBuf);
-			hash.update(files[name]);
+			out[name] = createHash('sha256').update(files[name]).digest('hex');
 		}
-		return hash.digest('hex');
+		return out;
 	}
 }

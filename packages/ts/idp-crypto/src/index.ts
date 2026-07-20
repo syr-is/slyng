@@ -27,7 +27,9 @@ export {
   ED25519_PRIV_MULTICODEC_PREFIX,
   canonicalize,
   createRotationStatement,
-  verifyRotationStatement,
+  verifyRotationChain,
+  genesisKeyFromDid,
+  genesisRootMultibase,
 } from "./wasm-adapter.js";
 
 export {
@@ -53,5 +55,5 @@ export type { AegisKdfParams, AegisBundle } from "./aegis.js";
 export { createSigil, decryptSigil } from "./sigil.js";
 export type { SigilKdf, SigilEnc, SigilObject } from "./sigil.js";
 
-export type { Keypair, RotationStatement } from "./types.js";
+export type { Keypair, RotationStatement, RotationChain } from "./types.js";
 export * from "./utils.js";

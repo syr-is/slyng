@@ -37,7 +37,8 @@ export type IdpAuditAction =
 	| 'follow_delete'
 	| 'registry_add'
 	| 'registry_remove'
-	| 'registry_sync';
+	| 'registry_sync'
+	| 'identity_rotate';
 
 export type IdpAuditTargetKind =
 	| 'profile'
@@ -50,7 +51,8 @@ export type IdpAuditTargetKind =
 	| 'comment'
 	| 'reaction'
 	| 'follow'
-	| 'registry';
+	| 'registry'
+	| 'identity';
 
 @Injectable()
 export class IdpAuditService {

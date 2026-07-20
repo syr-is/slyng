@@ -142,7 +142,10 @@ export const SyrIdentityManifestSchema = z.object({
 		public_gifs: z.string().url().optional(),
 		public_comments: z.string().url().optional(),
 		public_reactions: z.string().url().optional(),
-		public_hash: z.string().url().optional()
+		public_hash: z.string().url().optional(),
+		/** Ordered root-key rotation chain (P12). Absent on un-rotated peers /
+		 * older hosts — consumers fall back to the genesis (DID-derived) key. */
+		rotations: z.string().url().optional()
 	}),
 	web_profile: z.string().url()
 });
@@ -1052,27 +1055,106 @@ export const IdentityExportCountsSchema = z.object({
 });
 export type IdentityExportCounts = z.infer<typeof IdentityExportCountsSchema>;
 
-/** `manifest.json` at the root of an export bundle. */
+/**
+ * The detached-signature block of a `.syr` v2 manifest. `signed_payload_json`
+ * is the RFC 8785 (JCS) canonicalization of the manifest with THIS block
+ * removed — the exact bytes the root key signed. Import recomputes the JCS and
+ * checks it matches before verifying the signature, so the block can't lie
+ * about what was signed.
+ */
+export const IdentityExportSignatureSchema = z.object({
+	/** JCS(manifest sans this `signature` block) — the signed bytes. */
+	signed_payload_json: z.string(),
+	/** Multibase Ed25519 signature over `signed_payload_json`. */
+	signature: z.string(),
+	/** Multibase of the root key current at export time (chain head, P12). */
+	signing_key: z.string()
+});
+export type IdentityExportSignature = z.infer<typeof IdentityExportSignatureSchema>;
+
+/**
+ * `manifest.json` at the root of a `.syr` v2 export bundle. Byte-for-byte
+ * wire-compatible with syr's v2 bundle, so a bundle produced by one host
+ * verifies on the other. Integrity is a per-file SHA-256 map (`files`); trust
+ * is the detached `signature` block, verified against the root key resolved
+ * from the rotation chain embedded in `identity.json` (which self-verifies
+ * offline). A self-custody export that cannot sign sets `unsigned: true`
+ * EXPLICITLY — never a silent downgrade.
+ */
 export const IdentityExportManifestSchema = z.object({
-	version: z.literal(1),
+	format_version: z.literal(2),
 	did: z.string(),
-	public_key: z.string(),
-	username: z.string(),
-	host: z.string().url(),
-	exported_at: z.string(),
-	includes_seed: z.boolean(),
+	created_at: z.string(),
+	/** Rotation chain length at export time (0 = un-rotated). */
+	rotation_seq: z.number().int().nonnegative(),
 	counts: IdentityExportCountsSchema,
-	/** SHA-256 (hex) over the sorted record+asset digest — what the signature
-	 * covers. Recomputed on import and checked byte-for-byte. */
-	content_digest: z.string()
+	/** SHA-256 (hex) of every bundle file, keyed by its zip path — every entry
+	 * except `manifest.json` itself. Recomputed on import and checked
+	 * byte-for-byte, so no file can be added, dropped, or altered. */
+	files: z.record(z.string(), z.string()),
+	/** Present on signed bundles (custodial or device-signed). */
+	signature: IdentityExportSignatureSchema.optional(),
+	/** Explicit marker: a self-custody export that could not sign. Mutually
+	 * exclusive with `signature`. */
+	unsigned: z.literal(true).optional()
 });
 export type IdentityExportManifest = z.infer<typeof IdentityExportManifestSchema>;
 
-/** Export request — password root-signs the bundle digest (Aegis accounts). */
+/**
+ * Legacy `manifest.json` of a v1 `.syr` bundle (pre-rotation). slyng no longer
+ * PRODUCES v1, but still imports it for backward-compat. Its trust model — a
+ * single aggregate `content_digest` + a detached `export.sig` — predates the v2
+ * per-file-hash map and the chain-resolved signature, so a v1 bundle is imported
+ * with an integrity check only and surfaced as `legacy-unverified`: its
+ * authenticity cannot be attested under the v2 model. Only `did` +
+ * `content_digest` are load-bearing for import; the rest is tolerated so a
+ * bundle from any v1 host still parses.
+ */
+export const IdentityExportManifestV1Schema = z.object({
+	version: z.literal(1),
+	did: z.string(),
+	/** SHA-256 (hex) over the sorted, length-prefixed file set — checked on import. */
+	content_digest: z.string(),
+	public_key: z.string().optional(),
+	username: z.string().optional(),
+	host: z.string().optional(),
+	exported_at: z.string().optional(),
+	includes_seed: z.boolean().optional(),
+	counts: IdentityExportCountsSchema.optional()
+});
+export type IdentityExportManifestV1 = z.infer<typeof IdentityExportManifestV1Schema>;
+
+/**
+ * How a bundle's authenticity was established on import:
+ * - `signed` — the manifest carried a signature that verified against the root
+ *   key resolved from its (self-verifying) rotation chain.
+ * - `unsigned` — an explicit self-custody v2 bundle (`unsigned: true`); integrity
+ *   is proven by the per-file hash map, authenticity by the caller's own session.
+ * - `legacy-unverified` — a v1 bundle: integrity-checked but its pre-rotation
+ *   trust model can't be attested here. Surface this visibly in the UI.
+ */
+export const IdentityImportVerificationSchema = z.enum(['signed', 'unsigned', 'legacy-unverified']);
+export type IdentityImportVerification = z.infer<typeof IdentityImportVerificationSchema>;
+
+/** Export request — password root-signs the bundle digest (Aegis accounts). A
+ * self-custody account (no server-held seed) omits it and gets an unsigned
+ * data-only bundle. */
 export const IdentityExportRequestSchema = z.object({
-	password: z.string().min(1)
+	password: z.string().min(1).optional()
 });
 export type IdentityExportRequest = z.infer<typeof IdentityExportRequestSchema>;
+
+/**
+ * GET /identity/export-info — tells the export UI which bundle it will get:
+ * a custodial account (`has_aegis: true`) must supply its password so the root
+ * seed can SIGN a full bundle; a self-custody account produces an unsigned,
+ * data-only bundle (the seed lives on the device, so the manifest is marked
+ * `unsigned: true` — never a silent downgrade).
+ */
+export const IdentityExportInfoSchema = z.object({
+	has_aegis: z.boolean()
+});
+export type IdentityExportInfo = z.infer<typeof IdentityExportInfoSchema>;
 
 /** Register-with-import form (multipart; the zip rides alongside as a file). */
 export const RegisterWithImportSchema = z.object({
@@ -1086,9 +1168,112 @@ export const RegisterWithImportSchema = z.object({
 });
 export type RegisterWithImport = z.infer<typeof RegisterWithImportSchema>;
 
-/** Result of an import run. */
+/** Result of an import run. `verification` tells the UI whether to flag the
+ * bundle as legacy-unverified / unsigned. */
 export const IdentityImportResultSchema = z.object({
 	did: z.string(),
-	imported: IdentityExportCountsSchema
+	imported: IdentityExportCountsSchema,
+	verification: IdentityImportVerificationSchema
 });
 export type IdentityImportResult = z.infer<typeof IdentityImportResultSchema>;
+
+// ════════════════════════════════════════════════════════════════════════
+// P12 — Root key rotation
+// ════════════════════════════════════════════════════════════════════════
+//
+// A did:syr identity's root key can be retired in favour of a successor
+// without changing the DID (which is genesis-derived and immutable). Each
+// rotation is a `RotationStatement` (v2) signed by the RETIRING key; the
+// statements chain by `seq`. The current root is resolved by verifying the
+// whole chain (see @slyng/idp-crypto verifyRotationChain). These shapes are
+// wire-compatible with syr's — a chain minted on one host verifies on the
+// other, byte-for-byte, because both sign the RFC 8785 (JCS) canonicalization
+// of `{ did, seq, prevRoot, newRoot, rotatedAt }`.
+
+/** A single rotation statement (v2). Signed by `prevRoot`'s private key. */
+export const RotationStatementSchema = z.object({
+	did: DidSyrSchema,
+	/** 1-based, strictly increasing, no gaps. */
+	seq: z.number().int().positive(),
+	/** Multibase of the retiring key (equals the genesis key for `seq === 1`). */
+	prevRoot: z.string().min(1),
+	/** Multibase of the incoming root key. */
+	newRoot: z.string().min(1),
+	/** RFC 3339 timestamp; non-decreasing across the chain. */
+	rotatedAt: z.string().min(1),
+	/** Multibase Ed25519 signature over the JCS payload, by `prevRoot`'s key. */
+	signature: z.string().min(1)
+});
+export type RotationStatement = z.infer<typeof RotationStatementSchema>;
+
+/** An ordered rotation chain for a single DID (seq 1..n). */
+export const RotationChainSchema = z.array(RotationStatementSchema);
+export type RotationChain = z.infer<typeof RotationChainSchema>;
+
+/**
+ * Public GET /api/identity/:did/rotations — the ordered chain plus the head
+ * resolved from it. `rotation_seq` is 0 for an un-rotated (genesis) identity;
+ * `current_root` is always derived from the VERIFIED chain, never a stored
+ * column that could drift.
+ */
+export const RotationChainResponseSchema = z.object({
+	did: z.string(),
+	/** Multibase of the verified current root key. */
+	current_root: z.string(),
+	/** Highest seq in the chain (0 when the chain is empty / genesis). */
+	rotation_seq: z.number().int().nonnegative(),
+	chain: RotationChainSchema
+});
+export type RotationChainResponse = z.infer<typeof RotationChainResponseSchema>;
+
+/**
+ * Authenticated self-rotation of the caller's own DID. Two modes:
+ * - `aegis`: the server holds the Aegis-encrypted root seed; the password
+ *   unlocks it, a new root is minted, and the successor statement is signed
+ *   with the OLD key server-side.
+ * - `external`: the caller's device (Syner) produced a fully-formed,
+ *   already-signed successor statement; the server only validates + appends it
+ *   (no server-held keys are involved).
+ */
+export const RotationRequestSchema = z
+	.object({
+		mode: z.enum(['aegis', 'external']),
+		/** Required when `mode === 'aegis'`. */
+		password: z.string().min(1).optional(),
+		/** Required when `mode === 'external'`. */
+		statement: RotationStatementSchema.optional()
+	})
+	.refine((v) => (v.mode === 'aegis' ? !!v.password : !!v.statement), {
+		message: "mode 'aegis' requires a password; mode 'external' requires a statement"
+	});
+export type RotationRequest = z.infer<typeof RotationRequestSchema>;
+
+/** Result of a successful rotation. */
+export const RotationResultSchema = z.object({
+	did: z.string(),
+	rotation_seq: z.number().int().positive(),
+	current_root: z.string(),
+	new_root: z.string()
+});
+export type RotationResult = z.infer<typeof RotationResultSchema>;
+
+/**
+ * Consuming-side trust anchor (P12). When slyng — acting as a syr CLIENT —
+ * needs a REMOTE identity's current root, it asks its OWN backend, which
+ * fetches the remote `rotations` endpoint (same-origin server fetch) and
+ * re-verifies the chain locally before answering. The browser therefore never
+ * fetches the remote host for this and never trusts a remote-advertised head:
+ * `current_root` here is always slyng-verified. `rotation_seq` is 0 for an
+ * un-rotated / unreachable peer (genesis fallback). A PUBLISHED chain that
+ * fails verification is a hard failure — the endpoint returns a gateway error
+ * (no data), never a genesis downgrade — so this shape is only ever a verified
+ * result.
+ */
+export const RemoteRootResponseSchema = z.object({
+	did: z.string(),
+	/** Multibase of the slyng-verified current root (genesis on fallback). */
+	current_root: z.string(),
+	/** Verified chain length (0 = un-rotated or fell back to genesis). */
+	rotation_seq: z.number().int().nonnegative()
+});
+export type RemoteRootResponse = z.infer<typeof RemoteRootResponseSchema>;
