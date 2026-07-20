@@ -32,10 +32,12 @@ const EXPORTS = [
   "encode_private_key_wasm",
   "generate_device_keypair_wasm",
   "generate_root_keypair_wasm",
+  "genesis_key_from_did_wasm",
+  "genesis_root_multibase_wasm",
   "is_valid_syr_did_wasm",
   "parse_did_wasm",
   "sign_wasm",
-  "verify_rotation_statement_wasm",
+  "verify_rotation_chain_wasm",
   "verify_wasm",
 ];
 
