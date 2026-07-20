@@ -142,7 +142,10 @@ export const SyrIdentityManifestSchema = z.object({
 		public_gifs: z.string().url().optional(),
 		public_comments: z.string().url().optional(),
 		public_reactions: z.string().url().optional(),
-		public_hash: z.string().url().optional()
+		public_hash: z.string().url().optional(),
+		/** Ordered root-key rotation chain (P12). Absent on un-rotated peers /
+		 * older hosts — consumers fall back to the genesis (DID-derived) key. */
+		rotations: z.string().url().optional()
 	}),
 	web_profile: z.string().url()
 });
@@ -1092,3 +1095,76 @@ export const IdentityImportResultSchema = z.object({
 	imported: IdentityExportCountsSchema
 });
 export type IdentityImportResult = z.infer<typeof IdentityImportResultSchema>;
+
+// ════════════════════════════════════════════════════════════════════════
+// P12 — Root key rotation
+// ════════════════════════════════════════════════════════════════════════
+//
+// A did:syr identity's root key can be retired in favour of a successor
+// without changing the DID (which is genesis-derived and immutable). Each
+// rotation is a `RotationStatement` (v2) signed by the RETIRING key; the
+// statements chain by `seq`. The current root is resolved by verifying the
+// whole chain (see @slyng/idp-crypto verifyRotationChain). These shapes are
+// wire-compatible with syr's — a chain minted on one host verifies on the
+// other, byte-for-byte, because both sign the RFC 8785 (JCS) canonicalization
+// of `{ did, seq, prevRoot, newRoot, rotatedAt }`.
+
+/** A single rotation statement (v2). Signed by `prevRoot`'s private key. */
+export const RotationStatementSchema = z.object({
+	did: DidSyrSchema,
+	/** 1-based, strictly increasing, no gaps. */
+	seq: z.number().int().positive(),
+	/** Multibase of the retiring key (equals the genesis key for `seq === 1`). */
+	prevRoot: z.string().min(1),
+	/** Multibase of the incoming root key. */
+	newRoot: z.string().min(1),
+	/** RFC 3339 timestamp; non-decreasing across the chain. */
+	rotatedAt: z.string().min(1),
+	/** Multibase Ed25519 signature over the JCS payload, by `prevRoot`'s key. */
+	signature: z.string().min(1)
+});
+export type RotationStatement = z.infer<typeof RotationStatementSchema>;
+
+/** An ordered rotation chain for a single DID (seq 1..n). */
+export const RotationChainSchema = z.array(RotationStatementSchema);
+export type RotationChain = z.infer<typeof RotationChainSchema>;
+
+/**
+ * Public GET /api/identity/:did/rotations — the ordered chain plus the head
+ * resolved from it. `rotation_seq` is 0 for an un-rotated (genesis) identity;
+ * `current_root` is always derived from the VERIFIED chain, never a stored
+ * column that could drift.
+ */
+export const RotationChainResponseSchema = z.object({
+	did: z.string(),
+	/** Multibase of the verified current root key. */
+	current_root: z.string(),
+	/** Highest seq in the chain (0 when the chain is empty / genesis). */
+	rotation_seq: z.number().int().nonnegative(),
+	chain: RotationChainSchema
+});
+export type RotationChainResponse = z.infer<typeof RotationChainResponseSchema>;
+
+/**
+ * Authenticated self-rotation of the caller's own DID. Two modes:
+ * - `aegis`: the server holds the Aegis-encrypted root seed; the password
+ *   unlocks it, a new root is minted, and the successor statement is signed
+ *   with the OLD key server-side.
+ * - `external`: the caller's device (Syner) produced a fully-formed,
+ *   already-signed successor statement; the server only validates + appends it
+ *   (no server-held keys are involved).
+ */
+export const RotationRequestSchema = z.discriminatedUnion('mode', [
+	z.object({ mode: z.literal('aegis'), password: z.string().min(1) }),
+	z.object({ mode: z.literal('external'), statement: RotationStatementSchema })
+]);
+export type RotationRequest = z.infer<typeof RotationRequestSchema>;
+
+/** Result of a successful rotation. */
+export const RotationResultSchema = z.object({
+	did: z.string(),
+	rotation_seq: z.number().int().positive(),
+	current_root: z.string(),
+	new_root: z.string()
+});
+export type RotationResult = z.infer<typeof RotationResultSchema>;
