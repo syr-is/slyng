@@ -1067,7 +1067,15 @@ export const IdentityExportManifestSchema = z.object({
 	counts: IdentityExportCountsSchema,
 	/** SHA-256 (hex) over the sorted record+asset digest — what the signature
 	 * covers. Recomputed on import and checked byte-for-byte. */
-	content_digest: z.string()
+	content_digest: z.string(),
+	/** Multibase of the root key that SIGNED this bundle — the current root at
+	 * export time (P12). Absent ⇒ the genesis (DID-deriving) key. The bundle's
+	 * `identity.json` carries the full `rotation_chain`, so import re-verifies
+	 * that the chain resolves to this key and checks the signature under it,
+	 * offline. */
+	signing_key: z.string().optional(),
+	/** Rotation chain length at export time (0 = un-rotated). */
+	rotation_seq: z.number().int().nonnegative().optional()
 });
 export type IdentityExportManifest = z.infer<typeof IdentityExportManifestSchema>;
 

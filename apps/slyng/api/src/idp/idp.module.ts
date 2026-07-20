@@ -41,6 +41,7 @@ import { RegistryService } from './registry.service';
 import { RotationController } from './rotation.controller';
 import { RotationService } from './rotation.service';
 import { RootKeyService } from './root-key.service';
+import { RemoteRootKeyService } from './remote-root-key.service';
 import { IndependentLoginController } from './independent-login.controller';
 import { IdentityMigrationController } from './identity-migration.controller';
 import { IdentityExportService } from './identity-export.service';
@@ -101,6 +102,7 @@ import { WellKnownController } from './well-known.controller';
 		RegistryService,
 		RotationService,
 		RootKeyService,
+		RemoteRootKeyService,
 		IdentityExportService,
 		IdentityImportService,
 		DelegationStoreService,
@@ -119,7 +121,9 @@ import { WellKnownController } from './well-known.controller';
 		StoryService,
 		PostService,
 		InstanceConfigService,
-		DelegationStoreService
+		DelegationStoreService,
+		RootKeyService,
+		RemoteRootKeyService
 	]
 })
 export class IdpModule {}

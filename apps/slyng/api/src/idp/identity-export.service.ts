@@ -17,6 +17,7 @@ import { PostRepository } from './idp-post.repository';
 import { EmojiRepository, GifRepository } from './idp-media.repository';
 import { LibraryUploadRepository } from './idp-content.repository';
 import { CommentRepository, ReactionRepository, FollowRepository } from './idp-interaction.repository';
+import { RootKeyService } from './root-key.service';
 
 interface ExportedRecord {
 	local_id: string;
@@ -49,7 +50,8 @@ export class IdentityExportService {
 		private readonly uploads: LibraryUploadRepository,
 		private readonly comments: CommentRepository,
 		private readonly reactions: ReactionRepository,
-		private readonly follows: FollowRepository
+		private readonly follows: FollowRepository,
+		private readonly rootKey: RootKeyService
 	) {}
 
 	/**
@@ -88,6 +90,12 @@ export class IdentityExportService {
 		} catch {
 			throw new HttpException('Incorrect password', 401);
 		}
+
+		// Rotation chain (P12): the bundle carries the full chain so it
+		// self-verifies offline. `rootSign` uses the Aegis seed, which — after
+		// any rotation — is the CURRENT root, so `signing_key` is that key.
+		const rotationChain = await this.rootKey.loadChain(did);
+		const signingKey = await this.rootKey.getCurrentRootMultibase(did);
 
 		// ── Gather owned content ──────────────────────────────────────────
 		const [postRows, emojiRows, gifRows, uploadRows, commentRows, reactionRows, followRows] =
@@ -129,7 +137,8 @@ export class IdentityExportService {
 			});
 		}
 
-		// The encrypted seed (Aegis) so re-import restores password login.
+		// The encrypted seed (Aegis) so re-import restores password login, plus
+		// the full rotation chain (P12) so the bundle self-verifies offline.
 		addJson('identity.json', {
 			did,
 			public_key: identity.public_key,
@@ -143,7 +152,8 @@ export class IdentityExportService {
 					it: identity.aegis_kdf_it,
 					par: identity.aegis_kdf_par
 				}
-			}
+			},
+			rotation_chain: rotationChain
 		});
 
 		// ── Bundle local S3 assets by key ─────────────────────────────────
@@ -198,7 +208,9 @@ export class IdentityExportService {
 			exported_at: exportedAt,
 			includes_seed: true,
 			counts,
-			content_digest: contentDigest
+			content_digest: contentDigest,
+			signing_key: signingKey,
+			rotation_seq: rotationChain.length
 		};
 		addJson('manifest.json', manifest);
 

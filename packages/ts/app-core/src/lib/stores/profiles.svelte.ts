@@ -8,7 +8,7 @@
  */
 
 import { SvelteMap } from 'svelte/reactivity';
-import { WsOp } from '@slyng/types';
+import { WsOp, type RotationChainResponse } from '@slyng/types';
 import { onWsEvent, send } from './ws.svelte';
 import { proxied } from '../utils/proxy';
 
@@ -33,7 +33,9 @@ interface Manifest {
 		public_following: string;
 		public_emojis: string;
 		public_gifs: string;
-		[key: string]: string;
+		/** Root-key rotation chain (P12). Absent on un-rotated / older peers. */
+		rotations?: string;
+		[key: string]: string | undefined;
 	};
 	web_profile?: string;
 }
@@ -73,6 +75,46 @@ async function fetchManifest(did: string, instanceUrl: string): Promise<Manifest
  */
 export async function resolveManifest(did: string, instanceUrl: string): Promise<Manifest> {
 	return fetchManifest(did, instanceUrl);
+}
+
+const rotationCache = new SvelteMap<string, RotationChainResponse | null>();
+
+/**
+ * Resolve a REMOTE identity's root-key rotation chain (P12). Fetches the
+ * `rotations` endpoint the identity manifest advertises, through slyng's
+ * privacy proxy (so the remote host never sees the viewer's IP). Un-rotated
+ * peers — or older hosts — advertise no endpoint, in which case this returns
+ * `null` and the caller falls back to the genesis (DID-derived) key rather
+ * than hard-failing the peer.
+ *
+ * The chain is verified by the hosting instance before it is served; the
+ * returned `current_root` is that chain-resolved head. Verifying remote signed
+ * content or a remote root signature MUST resolve the key through here (the
+ * chain-resolved current root), never the genesis key parsed from the DID.
+ */
+export async function resolveRotationChain(
+	did: string,
+	instanceUrl: string
+): Promise<RotationChainResponse | null> {
+	const key = `${instanceUrl}::${did}`;
+	if (rotationCache.has(key)) return rotationCache.get(key) ?? null;
+
+	let result: RotationChainResponse | null = null;
+	try {
+		const manifest = await fetchManifest(did, instanceUrl);
+		const url = manifest.endpoints.rotations;
+		if (url) {
+			const res = await fetch(proxied(url), { headers: { Accept: 'application/json' } });
+			if (res.ok) {
+				const body = (await res.json()) as { data?: RotationChainResponse };
+				result = body.data ?? null;
+			}
+		}
+	} catch {
+		result = null;
+	}
+	rotationCache.set(key, result);
+	return result;
 }
 
 async function fetchAndCache(did: string, instanceUrl: string) {
@@ -148,9 +190,12 @@ export function federatedHandle(profile: Profile | undefined, fallbackDid: strin
 export function invalidateProfile(did: string) {
 	cache.delete(did);
 	inflight.delete(did);
-	// Also blow the manifest cache entry for this DID
+	// Also blow the manifest + rotation-chain cache entries for this DID
 	for (const key of manifestCache.keys()) {
 		if (key.endsWith(`::${did}`)) manifestCache.delete(key);
+	}
+	for (const key of rotationCache.keys()) {
+		if (key.endsWith(`::${did}`)) rotationCache.delete(key);
 	}
 }
 

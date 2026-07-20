@@ -8,14 +8,22 @@ import {
 	deriveDid,
 	parseDid,
 	sign,
-	verify
+	verify,
+	verifyRotationChain
 } from '@slyng/idp-crypto';
-import type { AegisBundle, IdentityExportManifest, IdentityImportResult } from '@slyng/types';
+import type {
+	AegisBundle,
+	IdentityExportManifest,
+	IdentityImportResult,
+	RotationStatement
+} from '@slyng/types';
 import { IdentityExportManifestSchema } from '@slyng/types';
 import { AccountService } from './account.service';
 import { IdpCryptoService } from './idp-crypto.service';
 import { IdpStorageService } from './idp-storage.service';
 import { IdentityRepository, IdpProfileRepository, LocalAccountRepository } from './idp.repository';
+import { IdentityRotationRepository } from './idp-rotation.repository';
+import { rootKeyMultibase } from './root-key.service';
 import { PostRepository } from './idp-post.repository';
 import { EmojiRepository, GifRepository } from './idp-media.repository';
 import { LibraryUploadRepository } from './idp-content.repository';
@@ -30,6 +38,11 @@ interface ExportedRecord {
 interface ParsedBundle {
 	manifest: IdentityExportManifest;
 	files: Record<string, Uint8Array>;
+	/** The root key the bundle signature verified against — the CURRENT root at
+	 * export time (chain-resolved), or genesis for an un-rotated/legacy bundle. */
+	rootKey: Uint8Array;
+	/** The bundle's embedded rotation chain (empty for un-rotated identities). */
+	rotationChain: RotationStatement[];
 }
 
 const DATE_FIELDS = ['created_at', 'updated_at', 'published_at'];
@@ -64,7 +77,8 @@ export class IdentityImportService {
 		private readonly uploads: LibraryUploadRepository,
 		private readonly comments: CommentRepository,
 		private readonly reactions: ReactionRepository,
-		private readonly follows: FollowRepository
+		private readonly follows: FollowRepository,
+		private readonly rotations: IdentityRotationRepository
 	) {}
 
 	/**
@@ -80,7 +94,7 @@ export class IdentityImportService {
 		inviteCode?: string
 	): Promise<{ did: string; sessionId: string; bridge: string; imported: IdentityImportResult }> {
 		const bundle = await this.parseAndVerify(zip);
-		const { manifest, files } = bundle;
+		const { manifest, files, rootKey, rotationChain } = bundle;
 
 		const identityFile = this.readJson<{
 			did: string;
@@ -103,9 +117,11 @@ export class IdentityImportService {
 			kdf: identityFile.aegis.kdf
 		};
 
-		// Prove the password owns the seed AND the seed binds to the DID: sign a
-		// probe with the decrypted seed, verify it against the manifest key.
-		await this.assertSeedOwnership(aegisBundle, password, manifest);
+		// Prove the password owns the seed AND the seed binds to the CURRENT root
+		// (chain-resolved): sign a probe with the decrypted seed, verify it under
+		// the bundle's root key. For a rotated identity the Aegis seed is the new
+		// root, so this must verify against the chain head, not the genesis key.
+		await this.assertSeedOwnership(aegisBundle, password, manifest, rootKey);
 
 		const provisioned = await this.accountService.provisionImportedAccount({
 			username,
@@ -117,8 +133,36 @@ export class IdentityImportService {
 			inviteCode
 		});
 
+		// Ingest the rotation chain (P12) so the restored identity's current root
+		// (chain head) matches its imported Aegis seed. The (did, seq) unique
+		// index makes this idempotent on a re-run.
+		await this.ingestRotationChain(manifest.did, rotationChain);
+
 		const imported = await this.ingest(manifest.did, files, { includeProfile: true });
 		return { ...provisioned, imported };
+	}
+
+	/** Insert a bundle's rotation-chain rows, skipping any that already exist. */
+	private async ingestRotationChain(did: string, chain: RotationStatement[]): Promise<void> {
+		for (const s of chain) {
+			if (s.did !== did) continue;
+			try {
+				await this.rotations.appendRotation({
+					did,
+					seq: s.seq,
+					prevRoot: s.prevRoot,
+					newRoot: s.newRoot,
+					rotatedAt: s.rotatedAt,
+					signature: s.signature,
+					now: new Date()
+				});
+			} catch (err) {
+				// A duplicate (did, seq) means the row is already present — fine.
+				this.logger.debug(
+					`Import: rotation seq ${s.seq} for ${did.slice(0, 16)}… not inserted: ${(err as Error).message}`
+				);
+			}
+		}
 	}
 
 	/**
@@ -171,7 +215,13 @@ export class IdentityImportService {
 			throw new HttpException('Bundle content digest mismatch — archive is corrupt or tampered', 400);
 		}
 
-		// 2. Authenticity: the digest payload must be root-signed by the DID.
+		// 2. Trust anchor (P12): resolve the key the bundle was signed under. For
+		//    a rotated identity that is the CURRENT root at export time, proven by
+		//    the chain embedded in identity.json (which self-verifies offline);
+		//    for an un-rotated / legacy bundle it is the genesis (DID) key.
+		const { rootKey, rotationChain } = this.resolveBundleRootKey(manifest, files);
+
+		// 3. Authenticity: the digest payload must be signed by that root key.
 		const sigFile = files['export.sig'];
 		if (!sigFile) throw new HttpException('Bundle is missing export.sig', 400);
 		const signature = strFromU8(sigFile);
@@ -182,13 +232,52 @@ export class IdentityImportService {
 		});
 		let ok = false;
 		try {
-			ok = await verify(payload, decodeMultibase(signature), parseDid(manifest.did).publicKey);
+			ok = await verify(payload, decodeMultibase(signature), rootKey);
 		} catch {
 			ok = false;
 		}
-		if (!ok) throw new HttpException('Bundle signature does not verify against its DID', 400);
+		if (!ok) throw new HttpException('Bundle signature does not verify against its root key', 400);
 
-		return { manifest, files };
+		return { manifest, files, rootKey, rotationChain };
+	}
+
+	/**
+	 * Resolve the root key a bundle was signed under (P12), and its embedded
+	 * rotation chain. When the manifest declares a `signing_key`, the chain in
+	 * `identity.json` is verified and MUST resolve to that key — so a crafted
+	 * bundle cannot claim an arbitrary signing key. Absent a `signing_key`, the
+	 * bundle is treated as un-rotated and verified against the genesis key.
+	 */
+	private resolveBundleRootKey(
+		manifest: IdentityExportManifest,
+		files: Record<string, Uint8Array>
+	): { rootKey: Uint8Array; rotationChain: RotationStatement[] } {
+		const identityFile = this.readJson<{ rotation_chain?: RotationStatement[] }>(
+			files,
+			'identity.json'
+		);
+		const rotationChain = Array.isArray(identityFile?.rotation_chain)
+			? identityFile!.rotation_chain
+			: [];
+
+		if (!manifest.signing_key) {
+			// Un-rotated / legacy bundle → genesis (DID-deriving) key.
+			return { rootKey: parseDid(manifest.did).publicKey, rotationChain };
+		}
+
+		let resolved: Uint8Array;
+		try {
+			resolved = verifyRotationChain(manifest.did, rotationChain);
+		} catch (err) {
+			throw new HttpException(
+				`Bundle rotation chain is invalid: ${(err as Error).message}`,
+				400
+			);
+		}
+		if (rootKeyMultibase(resolved) !== manifest.signing_key) {
+			throw new HttpException('Bundle signing key does not match its rotation chain', 400);
+		}
+		return { rootKey: resolved, rotationChain };
 	}
 
 	/** Sign a probe with the decrypted seed and verify it against the manifest
@@ -196,9 +285,10 @@ export class IdentityImportService {
 	private async assertSeedOwnership(
 		bundle: AegisBundle,
 		password: string,
-		manifest: IdentityExportManifest
+		manifest: IdentityExportManifest,
+		rootKey: Uint8Array
 	): Promise<void> {
-		// public_key must derive the claimed DID.
+		// public_key must derive the claimed DID (it is the immutable genesis key).
 		let derived: string;
 		try {
 			derived = deriveDid(decodePublicKey(manifest.public_key));
@@ -216,8 +306,10 @@ export class IdentityImportService {
 		} catch {
 			throw new HttpException('Incorrect password for this bundle', 401);
 		}
-		const valid = await verify(probe, sig, parseDid(manifest.did).publicKey);
-		if (!valid) throw new HttpException('Seed does not match the bundle DID', 400);
+		// Verify against the CURRENT root (chain-resolved) — the encrypted seed is
+		// the current root's private key, which is the new root after any rotation.
+		const valid = await verify(probe, sig, rootKey);
+		if (!valid) throw new HttpException('Seed does not match the bundle root key', 400);
 	}
 
 	// ── Ingestion ───────────────────────────────────────────────────────
