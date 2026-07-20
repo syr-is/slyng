@@ -85,8 +85,34 @@
 		{ key: 'joined_at', label: 'Joined', sortable: true, class: 'whitespace-nowrap' }
 	];
 
+	// Short humanized date, e.g. "Mar 28, 2026".
 	function formatDate(iso: string) {
-		try { return new Date(iso).toLocaleDateString(); } catch { return ''; }
+		try {
+			return new Date(iso).toLocaleDateString(undefined, {
+				month: 'short',
+				day: 'numeric',
+				year: 'numeric'
+			});
+		} catch {
+			return '';
+		}
+	}
+
+	// Exact spelled-out moment for the timestamp tooltip, e.g.
+	// "Saturday, March 28, 2026, 3:00 PM".
+	function formatExact(iso: string) {
+		try {
+			return new Date(iso).toLocaleString(undefined, {
+				weekday: 'long',
+				year: 'numeric',
+				month: 'long',
+				day: 'numeric',
+				hour: 'numeric',
+				minute: '2-digit'
+			});
+		} catch {
+			return '';
+		}
 	}
 </script>
 
@@ -183,7 +209,23 @@
 				{isAdmin ? 'Admin' : `${count} perm${count === 1 ? '' : 's'}`}
 			</span>
 		{:else if key === 'joined_at'}
-			<span class="text-xs text-muted-foreground">{formatDate(row.joined_at)}</span>
+			<Tooltip.Root delayDuration={150}>
+				<Tooltip.Trigger>
+					{#snippet child({ props }: { props: Record<string, unknown> })}
+						<span {...props} class="cursor-help text-xs text-muted-foreground">
+							{formatDate(row.joined_at)}
+						</span>
+					{/snippet}
+				</Tooltip.Trigger>
+				<Tooltip.Content
+					side="top"
+					sideOffset={6}
+					class="border border-border bg-popover text-popover-foreground shadow-md"
+					arrowClasses="bg-popover border-l border-b border-border"
+				>
+					<span class="text-[11px]">{formatExact(row.joined_at)}</span>
+				</Tooltip.Content>
+			</Tooltip.Root>
 		{/if}
 	{/snippet}
 

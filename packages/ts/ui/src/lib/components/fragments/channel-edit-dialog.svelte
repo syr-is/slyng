@@ -4,6 +4,8 @@
 	import { Input } from '@slyng/ui/input';
 	import { toast } from 'svelte-sonner';
 	import { api } from '@slyng/app-core/api';
+	import { createDirtyGuard } from '@slyng/app-core/stores/dirty-guard.svelte';
+	import DiscardChangesDialog from './discard-changes-dialog.svelte';
 
 	const {
 		open,
@@ -25,12 +27,35 @@
 	let topic = $state(channelTopic ?? '');
 	let saving = $state(false);
 
+	// Unsaved-changes guard — closing with edits interposes a discard
+	// confirm instead of silently dropping them.
+	const dirtyGuard = createDirtyGuard(() => ({ name, topic }));
+	// bits-ui closes internally before we can veto, so mirror `open` into
+	// bindable local state and flip it back when the close is intercepted.
+	// Capturing the initial value is intentional — the $effect below keeps
+	// it in sync whenever the parent re-opens.
+	// svelte-ignore state_referenced_locally
+	let dialogOpen = $state(open);
+	let showDiscardConfirm = $state(false);
+
 	$effect(() => {
 		if (open) {
 			name = channelName;
 			topic = channelTopic ?? '';
+			dialogOpen = true;
+			showDiscardConfirm = false;
+			dirtyGuard.capture();
 		}
 	});
+
+	function requestClose() {
+		if (dirtyGuard.dirty) {
+			dialogOpen = true; // veto the close — keep the editor visible underneath
+			showDiscardConfirm = true;
+			return;
+		}
+		onClose();
+	}
 
 	async function save() {
 		if (!name.trim()) return;
@@ -39,6 +64,7 @@
 			await api.channels.update(channelId, { name: name.trim(), topic: topic.trim() || undefined });
 			onUpdated();
 			toast.success('Channel updated');
+			dirtyGuard.capture();
 			onClose();
 		} catch (err) {
 			toast.error(err instanceof Error ? err.message : 'Failed to update');
@@ -47,7 +73,7 @@
 	}
 </script>
 
-<Dialog.Root {open} onOpenChange={(v) => { if (!v) onClose(); }}>
+<Dialog.Root bind:open={dialogOpen} onOpenChange={(v) => { if (!v) requestClose(); }}>
 	<Dialog.Content class="sm:max-w-md">
 		<Dialog.Header>
 			<Dialog.Title>Edit Channel</Dialog.Title>
@@ -66,7 +92,18 @@
 			<Button onclick={save} disabled={saving || !name.trim()}>
 				{saving ? 'Saving...' : 'Save'}
 			</Button>
-			<Button variant="outline" onclick={onClose}>Cancel</Button>
+			<Button variant="outline" onclick={requestClose}>Cancel</Button>
 		</Dialog.Footer>
 	</Dialog.Content>
 </Dialog.Root>
+
+<DiscardChangesDialog
+	open={showDiscardConfirm}
+	title={`Discard changes to #${channelName}?`}
+	description="Your unsaved edits to this channel's name and topic will be lost."
+	onKeepEditing={() => (showDiscardConfirm = false)}
+	onDiscard={() => {
+		showDiscardConfirm = false;
+		onClose();
+	}}
+/>

@@ -195,6 +195,7 @@
 		unsubMsgUpdate();
 		unsubMember();
 		unsubAudit();
+		if (confirmRevertTimer) clearTimeout(confirmRevertTimer);
 	});
 
 	// ── Server-level user permission overrides ──
@@ -352,13 +353,61 @@
 		});
 	}
 
+	// Two-step delete confirm — mirrors message-item's in-chat affordance:
+	// first tap arms the row (Trash2 → Check/X), auto-reverts after 3s if
+	// not confirmed. No single tap in this sheet ever deletes.
+	const DELETE_CONFIRM_REVERT_MS = 3000;
+	let confirmingDeleteId = $state<string | null>(null);
+	let confirmRevertTimer: ReturnType<typeof setTimeout> | null = null;
+
+	function armDelete(messageId: string) {
+		if (confirmRevertTimer) clearTimeout(confirmRevertTimer);
+		confirmingDeleteId = messageId;
+		confirmRevertTimer = setTimeout(() => {
+			confirmingDeleteId = null;
+			confirmRevertTimer = null;
+		}, DELETE_CONFIRM_REVERT_MS);
+	}
+
+	function disarmDelete() {
+		if (confirmRevertTimer) {
+			clearTimeout(confirmRevertTimer);
+			confirmRevertTimer = null;
+		}
+		confirmingDeleteId = null;
+	}
+
 	async function deleteMessage(channelId: string, messageId: string) {
+		disarmDelete();
 		try {
 			await api.channels.deleteMessage(channelId, messageId);
-			toast.success('Message deleted');
 			messagesRefresh++;
+			// Soft-delete → offer an undo window when the actor can restore.
+			if (perms.canViewTrash) {
+				toast.success('Message deleted', {
+					action: {
+						label: 'Undo',
+						onClick: () => {
+							restoreMessage(channelId, messageId);
+						}
+					}
+				});
+			} else {
+				toast.success('Message deleted');
+			}
 		} catch (err) {
 			toast.error(err instanceof Error ? err.message : 'Failed');
+		}
+	}
+
+	async function restoreMessage(channelId: string, messageId: string) {
+		try {
+			await api.channels.restoreMessage(channelId, messageId);
+			toast.success('Message restored');
+			loadStats();
+			messagesRefresh++;
+		} catch (err) {
+			toast.error(err instanceof Error ? err.message : 'Failed to restore');
 		}
 	}
 
@@ -842,14 +891,33 @@
 								>
 									<ArrowUpRight class="h-4 w-4" />
 								</button>
-								<button
-									type="button"
-									onclick={() => deleteMessage(row.channel_id, row.id)}
-									class="rounded p-1 text-muted-foreground hover:bg-destructive/20 hover:text-destructive"
-									title="Delete"
-								>
-									<Trash2 class="h-4 w-4" />
-								</button>
+								{#if confirmingDeleteId === row.id}
+									<button
+										type="button"
+										onclick={() => deleteMessage(row.channel_id, row.id)}
+										class="rounded p-1 text-destructive hover:bg-destructive/20"
+										title="Confirm delete"
+									>
+										<Check class="h-4 w-4" />
+									</button>
+									<button
+										type="button"
+										onclick={disarmDelete}
+										class="rounded p-1 text-muted-foreground hover:bg-accent"
+										title="Cancel"
+									>
+										<X class="h-4 w-4" />
+									</button>
+								{:else}
+									<button
+										type="button"
+										onclick={() => armDelete(row.id)}
+										class="rounded p-1 text-muted-foreground hover:bg-destructive/20 hover:text-destructive"
+										title="Delete"
+									>
+										<Trash2 class="h-4 w-4" />
+									</button>
+								{/if}
 							</div>
 						{/snippet}
 					</PaginatedTable>
