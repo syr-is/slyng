@@ -224,7 +224,11 @@ export class IdentityImportService {
 		if (!parsed.success) throw new HttpException('Bundle manifest is malformed', 400);
 		const manifest = parsed.data;
 
-		if (!parseDid(manifest.did)) throw new HttpException('Bundle DID is invalid', 400);
+		try {
+			parseDid(manifest.did);
+		} catch {
+			throw new HttpException('Bundle DID is invalid', 400);
+		}
 
 		// 1. Content integrity: the recomputed per-file SHA-256 map must match the
 		//    manifest's `files` map EXACTLY — same set of paths, same hashes. No
@@ -289,7 +293,11 @@ export class IdentityImportService {
 		if (!parsed.success) throw new HttpException('Bundle manifest is malformed', 400);
 		const manifest = parsed.data;
 
-		if (!parseDid(manifest.did)) throw new HttpException('Bundle DID is invalid', 400);
+		try {
+			parseDid(manifest.did);
+		} catch {
+			throw new HttpException('Bundle DID is invalid', 400);
+		}
 
 		const recomputed = this.digestFilesV1(files);
 		if (recomputed !== manifest.content_digest) {
