@@ -17,7 +17,7 @@ import { Public } from '../auth/public.decorator';
 import { SkipServerAccess } from '../auth/server-access.decorator';
 import { IdpPublicService } from './idp-public.service';
 import { ProfileService } from './profile.service';
-import { RemoteRootKeyService } from './remote-root-key.service';
+import { RemoteChainVerificationError, RemoteRootKeyService } from './remote-root-key.service';
 import { FullProfilePatchDto, ProfileAssetPresignDto } from '../dto';
 
 /**
@@ -118,8 +118,19 @@ export class IdpPublicController {
 		} catch {
 			throw new HttpException('instance must be an http(s) URL', 400);
 		}
-		const data = await this.remoteRootKey.resolveCurrentRoot(did, base);
-		return { status: 'success', data };
+		try {
+			const data = await this.remoteRootKey.resolveCurrentRoot(did, base);
+			return { status: 'success', data };
+		} catch (err) {
+			// A published chain that fails verification is a HARD failure — the
+			// resolver refuses to downgrade to genesis, so we surface it as a
+			// gateway error rather than a "verified" answer. The browser treats a
+			// non-OK response as "unverified" and shows no root-verified badge.
+			if (err instanceof RemoteChainVerificationError) {
+				throw new HttpException('Remote rotation chain failed verification', 502);
+			}
+			throw err;
+		}
 	}
 
 	@SkipServerAccess()

@@ -1260,11 +1260,14 @@ export type RotationResult = z.infer<typeof RotationResultSchema>;
 /**
  * Consuming-side trust anchor (P12). When slyng — acting as a syr CLIENT —
  * needs a REMOTE identity's current root, it asks its OWN backend, which
- * fetches the remote `rotations` endpoint (SSRF-exempt server fetch) and
+ * fetches the remote `rotations` endpoint (same-origin server fetch) and
  * re-verifies the chain locally before answering. The browser therefore never
  * fetches the remote host for this and never trusts a remote-advertised head:
  * `current_root` here is always slyng-verified. `rotation_seq` is 0 for an
- * un-rotated / unverifiable / unreachable peer (genesis fallback).
+ * un-rotated / unreachable peer (genesis fallback). A PUBLISHED chain that
+ * fails verification is a hard failure — the endpoint returns a gateway error
+ * (no data), never a genesis downgrade — so this shape is only ever a verified
+ * result.
  */
 export const RemoteRootResponseSchema = z.object({
 	did: z.string(),

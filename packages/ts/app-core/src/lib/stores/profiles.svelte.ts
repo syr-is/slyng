@@ -87,8 +87,12 @@ const rotationCache = new SvelteMap<string, RemoteRootResponse | null>();
  * root. Instead we ask slyng's OWN backend (`/api/identity/remote-root`), which
  * fetches the remote `rotations` endpoint server-side and re-verifies the chain
  * (`verifyRotationChain`) before answering. The returned `current_root` is thus
- * always slyng-verified; `rotation_seq` is 0 for an un-rotated / unreachable /
- * unverifiable peer (backend fell back to the genesis key — never a hard fail).
+ * always slyng-verified; `rotation_seq` is 0 for an un-rotated / unreachable
+ * peer (backend fell back to the genesis key). A PUBLISHED chain that fails
+ * verification is a HARD failure server-side: the backend returns a non-OK
+ * response (never a genesis downgrade), which we map to `null` here — so a
+ * tampered/forked chain leaves the caller with no verified root, never a false
+ * "verified" badge.
  *
  * Verifying remote signed content or a remote root signature MUST resolve the
  * key through here, never the genesis key parsed from the DID.
