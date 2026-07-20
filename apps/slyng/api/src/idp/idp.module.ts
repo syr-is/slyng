@@ -38,6 +38,9 @@ import { ReactionService } from './reaction.service';
 import { FollowService } from './follow.service';
 import { RegistryController } from './registry.controller';
 import { RegistryService } from './registry.service';
+import { RotationController } from './rotation.controller';
+import { RotationService } from './rotation.service';
+import { RootKeyService } from './root-key.service';
 import { IndependentLoginController } from './independent-login.controller';
 import { IdentityMigrationController } from './identity-migration.controller';
 import { IdentityExportService } from './identity-export.service';
@@ -71,6 +74,7 @@ import { WellKnownController } from './well-known.controller';
 		ReactionController,
 		FollowController,
 		RegistryController,
+		RotationController,
 		IndependentLoginController,
 		IdentityMigrationController
 	],
@@ -95,6 +99,8 @@ import { WellKnownController } from './well-known.controller';
 		ReactionService,
 		FollowService,
 		RegistryService,
+		RotationService,
+		RootKeyService,
 		IdentityExportService,
 		IdentityImportService,
 		DelegationStoreService,

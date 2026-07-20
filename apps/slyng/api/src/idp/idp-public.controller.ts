@@ -81,6 +81,15 @@ export class IdpPublicController {
 		return this.publicService.getDidDocument(decodeURIComponent(did));
 	}
 
+	@Public()
+	@Get('identity/:did/rotations')
+	@Header('Cache-Control', 'public, max-age=30')
+	@ApiOperation({ summary: 'Ordered root-key rotation chain + verified current root' })
+	async rotations(@Param('did') did: string) {
+		const data = await this.publicService.getRotationChain(decodeURIComponent(did));
+		return { status: 'success', data };
+	}
+
 	@SkipServerAccess()
 	@Patch('user/profile')
 	@ApiOperation({ summary: 'Update the local profile (local accounts only)' })

@@ -1154,10 +1154,17 @@ export type RotationChainResponse = z.infer<typeof RotationChainResponseSchema>;
  *   already-signed successor statement; the server only validates + appends it
  *   (no server-held keys are involved).
  */
-export const RotationRequestSchema = z.discriminatedUnion('mode', [
-	z.object({ mode: z.literal('aegis'), password: z.string().min(1) }),
-	z.object({ mode: z.literal('external'), statement: RotationStatementSchema })
-]);
+export const RotationRequestSchema = z
+	.object({
+		mode: z.enum(['aegis', 'external']),
+		/** Required when `mode === 'aegis'`. */
+		password: z.string().min(1).optional(),
+		/** Required when `mode === 'external'`. */
+		statement: RotationStatementSchema.optional()
+	})
+	.refine((v) => (v.mode === 'aegis' ? !!v.password : !!v.statement), {
+		message: "mode 'aegis' requires a password; mode 'external' requires a statement"
+	});
 export type RotationRequest = z.infer<typeof RotationRequestSchema>;
 
 /** Result of a successful rotation. */

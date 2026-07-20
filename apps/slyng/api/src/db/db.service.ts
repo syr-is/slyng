@@ -134,6 +134,15 @@ export class DbService implements OnModuleDestroy {
 			DEFINE TABLE IF NOT EXISTS profile SCHEMALESS;
 			DEFINE INDEX IF NOT EXISTS idx_profile_account ON TABLE profile COLUMNS account_id UNIQUE;
 
+				-- Root-key rotation chain (P12). One row per rotation statement.
+				-- The (did, seq) UNIQUE index is the atomicity/rollback backstop:
+				-- a divergent or replayed same-seq append fails at the DB tier,
+				-- rolling back the enclosing transaction. The current root is
+				-- always derived from the verified chain, never a stored column.
+				DEFINE TABLE IF NOT EXISTS identity_rotation SCHEMALESS;
+				DEFINE INDEX IF NOT EXISTS idx_identity_rotation_did ON TABLE identity_rotation COLUMNS did;
+				DEFINE INDEX IF NOT EXISTS idx_identity_rotation_seq ON TABLE identity_rotation COLUMNS did, seq UNIQUE;
+
 			DEFINE TABLE IF NOT EXISTS kv SCHEMALESS;
 			DEFINE INDEX IF NOT EXISTS idx_kv_type ON TABLE kv COLUMNS kv_type;
 			DEFINE INDEX IF NOT EXISTS idx_kv_expires ON TABLE kv COLUMNS expires_at;

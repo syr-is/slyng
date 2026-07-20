@@ -115,6 +115,40 @@ export class RegistryService {
 		});
 	}
 
+	/**
+	 * Re-publish a DID's hosting records after a root-key rotation (P12). The
+	 * signed payload shape is unchanged (JCS over `{did, provider, updatedAt}`),
+	 * but the signature must now be produced under the NEW current root: stale
+	 * (old-root) signatures on pending jobs are cleared so they re-sign under the
+	 * new root at the next sync, and every registry without an active update job
+	 * gets a fresh one enqueued. Fire-and-forget — a rotation never fails on a
+	 * republish hiccup.
+	 */
+	async republishAfterRotation(did: string): Promise<void> {
+		const registries = await this.registries.findByDid(did);
+		if (registries.length === 0) return;
+
+		const active = await this.outbox.activeByActor(did);
+		const activeUpdateUrls = new Set(
+			active.filter((j) => j.action === 'update').map((j) => j.registry_url)
+		);
+		await this.outbox.clearUpdateSignaturesForActor(did);
+		for (const r of registries) {
+			if (!activeUpdateUrls.has(r.registry_url)) {
+				await this.outbox.enqueue({
+					action: 'update',
+					actorDid: did,
+					registryUrl: r.registry_url,
+					provider: this.provider()
+				});
+			}
+			await this.registries.updateStatus(did, r.registry_url, 'pending');
+		}
+		this.logger.log(
+			`Rotation re-publish queued for ${did.slice(0, 16)}… (${registries.length} registries)`
+		);
+	}
+
 	// ── outbox ──
 
 	async listOutbox(did: string): Promise<OwnedOutboxJob[]> {

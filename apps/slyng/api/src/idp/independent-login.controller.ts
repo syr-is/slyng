@@ -9,7 +9,6 @@ import {
 	ED25519_MULTICODEC_PREFIX,
 	canonicalize,
 	verify,
-	parseDid,
 	isValidSyrDid
 } from '@slyng/idp-crypto';
 import { Public } from '../auth/public.decorator';
@@ -17,6 +16,7 @@ import { AccountService } from './account.service';
 import { DelegationStoreService } from './delegation-store.service';
 import { IdpCryptoService } from './idp-crypto.service';
 import { IdentityRepository } from './idp.repository';
+import { RootKeyService } from './root-key.service';
 import { IndependentLoginChallengeDto, IndependentLoginVerifyDto } from '../dto';
 
 /**
@@ -38,7 +38,8 @@ export class IndependentLoginController {
 		private readonly accountService: AccountService,
 		private readonly store: DelegationStoreService,
 		private readonly crypto: IdpCryptoService,
-		private readonly identities: IdentityRepository
+		private readonly identities: IdentityRepository,
+		private readonly rootKey: RootKeyService
 	) {}
 
 	private oauthError(status: number, error: string, description: string): never {
@@ -144,7 +145,10 @@ export class IndependentLoginController {
 
 		let publicKey: Uint8Array;
 		try {
-			publicKey = parseDid(body.did).publicKey;
+			// Verify against the CURRENT root from the DID's verified rotation
+			// chain (genesis for a brand-new or un-rotated identity) — so a
+			// self-custody user who has rotated their device root still signs in.
+			publicKey = await this.rootKey.getCurrentRootKey(body.did);
 		} catch {
 			this.oauthError(400, 'invalid_did', 'Malformed DID');
 		}
@@ -156,7 +160,7 @@ export class IndependentLoginController {
 		}
 		const valid = await verify(pending.message, sigBytes, publicKey);
 		if (!valid) {
-			this.oauthError(403, 'invalid_signature', 'Signature does not verify against the DID');
+			this.oauthError(403, 'invalid_signature', 'Signature does not verify against the current root');
 		}
 
 		const { bridge } = await this.accountService.loginSelfCustody({
