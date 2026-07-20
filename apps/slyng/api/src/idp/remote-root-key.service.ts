@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { verifyRotationChain, genesisKeyFromDid } from '@slyng/idp-crypto';
-import type { RotationStatement } from '@slyng/types';
+import type { RemoteRootResponse, RotationStatement } from '@slyng/types';
+import { rootKeyMultibase } from './root-key.service';
 
 const FETCH_TIMEOUT_MS = 6000;
 
@@ -18,7 +19,9 @@ interface RemoteIdentityManifest {
  * NOT the genesis key parsed from the DID. This service fetches the identity
  * manifest to find the `rotations` endpoint, fetches the chain, and re-verifies
  * it here (`verifyRotationChain`) — it never trusts the remote's advertised
- * `current_root`.
+ * `current_root`. The browser calls the slyng backend for this (see the authed
+ * `GET /api/identity/remote-root` route), so the viewer's IP never leaks to the
+ * remote host and no untrusted head is ever believed client-side.
  *
  * Fallbacks, never a hard failure: a peer that advertises no `rotations`
  * endpoint, serves an empty chain, or is unreachable resolves to the genesis
@@ -43,30 +46,53 @@ export class RemoteRootKeyService {
 		instanceUrl: string,
 		manifest?: RemoteIdentityManifest
 	): Promise<Uint8Array> {
+		return (await this.resolve(did, instanceUrl, manifest)).key;
+	}
+
+	/**
+	 * The slyng-verified current root of a remote DID as a wire response: the
+	 * multibase key + the verified chain length (0 on genesis fallback). This is
+	 * what the authed `remote-root` endpoint returns to the browser.
+	 */
+	async resolveCurrentRoot(
+		did: string,
+		instanceUrl: string,
+		manifest?: RemoteIdentityManifest
+	): Promise<RemoteRootResponse> {
+		const { key, rotationSeq } = await this.resolve(did, instanceUrl, manifest);
+		return { did, current_root: rootKeyMultibase(key), rotation_seq: rotationSeq };
+	}
+
+	/** Fetch + locally verify the remote chain; genesis fallback on any failure. */
+	private async resolve(
+		did: string,
+		instanceUrl: string,
+		manifest?: RemoteIdentityManifest
+	): Promise<{ key: Uint8Array; rotationSeq: number }> {
 		try {
 			const rotationsUrl = manifest?.endpoints?.rotations
 				? manifest.endpoints.rotations
 				: await this.discoverRotationsUrl(did, instanceUrl);
-			if (!rotationsUrl) return genesisKeyFromDid(did);
+			if (!rotationsUrl) return { key: genesisKeyFromDid(did), rotationSeq: 0 };
 
 			const res = await fetch(rotationsUrl, {
 				headers: { Accept: 'application/json' },
 				signal: AbortSignal.timeout(FETCH_TIMEOUT_MS)
 			});
-			if (!res.ok) return genesisKeyFromDid(did);
+			if (!res.ok) return { key: genesisKeyFromDid(did), rotationSeq: 0 };
 
 			const body = (await res.json()) as { data?: { chain?: RotationStatement[] } };
 			const chain = body.data?.chain ?? [];
-			if (chain.length === 0) return genesisKeyFromDid(did);
+			if (chain.length === 0) return { key: genesisKeyFromDid(did), rotationSeq: 0 };
 
 			// Re-verify locally — never trust the remote's `current_root`.
-			return verifyRotationChain(did, chain);
+			return { key: verifyRotationChain(did, chain), rotationSeq: chain.length };
 		} catch (err) {
 			this.logger.warn(
 				`remote root resolve failed for ${did.slice(0, 16)}… @ ${instanceUrl}: ` +
 					`${(err as Error).message}; falling back to genesis`
 			);
-			return genesisKeyFromDid(did);
+			return { key: genesisKeyFromDid(did), rotationSeq: 0 };
 		}
 	}
 

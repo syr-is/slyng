@@ -8,9 +8,10 @@
  */
 
 import { SvelteMap } from 'svelte/reactivity';
-import { WsOp, type RotationChainResponse } from '@slyng/types';
+import { WsOp, type RemoteRootResponse } from '@slyng/types';
 import { onWsEvent, send } from './ws.svelte';
 import { proxied } from '../utils/proxy';
+import { apiUrl } from '../host.js';
 
 export interface Profile {
 	did: string;
@@ -77,38 +78,38 @@ export async function resolveManifest(did: string, instanceUrl: string): Promise
 	return fetchManifest(did, instanceUrl);
 }
 
-const rotationCache = new SvelteMap<string, RotationChainResponse | null>();
+const rotationCache = new SvelteMap<string, RemoteRootResponse | null>();
 
 /**
- * Resolve a REMOTE identity's root-key rotation chain (P12). Fetches the
- * `rotations` endpoint the identity manifest advertises, through slyng's
- * privacy proxy (so the remote host never sees the viewer's IP). Un-rotated
- * peers — or older hosts — advertise no endpoint, in which case this returns
- * `null` and the caller falls back to the genesis (DID-derived) key rather
- * than hard-failing the peer.
+ * Resolve a REMOTE identity's slyng-VERIFIED current root key (P12), as a syr
+ * client. The browser must never fetch the remote host's rotation chain and
+ * trust its advertised `current_root` — a malicious host could dictate the
+ * root. Instead we ask slyng's OWN backend (`/api/identity/remote-root`), which
+ * fetches the remote `rotations` endpoint server-side and re-verifies the chain
+ * (`verifyRotationChain`) before answering. The returned `current_root` is thus
+ * always slyng-verified; `rotation_seq` is 0 for an un-rotated / unreachable /
+ * unverifiable peer (backend fell back to the genesis key — never a hard fail).
  *
- * The chain is verified by the hosting instance before it is served; the
- * returned `current_root` is that chain-resolved head. Verifying remote signed
- * content or a remote root signature MUST resolve the key through here (the
- * chain-resolved current root), never the genesis key parsed from the DID.
+ * Verifying remote signed content or a remote root signature MUST resolve the
+ * key through here, never the genesis key parsed from the DID.
  */
-export async function resolveRotationChain(
+export async function resolveRemoteRoot(
 	did: string,
 	instanceUrl: string
-): Promise<RotationChainResponse | null> {
+): Promise<RemoteRootResponse | null> {
 	const key = `${instanceUrl}::${did}`;
 	if (rotationCache.has(key)) return rotationCache.get(key) ?? null;
 
-	let result: RotationChainResponse | null = null;
+	let result: RemoteRootResponse | null = null;
 	try {
-		const manifest = await fetchManifest(did, instanceUrl);
-		const url = manifest.endpoints.rotations;
-		if (url) {
-			const res = await fetch(proxied(url), { headers: { Accept: 'application/json' } });
-			if (res.ok) {
-				const body = (await res.json()) as { data?: RotationChainResponse };
-				result = body.data ?? null;
-			}
+		const url = `${apiUrl('/identity/remote-root')}?did=${encodeURIComponent(did)}&instance=${encodeURIComponent(instanceUrl)}`;
+		const res = await fetch(url, {
+			headers: { Accept: 'application/json' },
+			credentials: 'include'
+		});
+		if (res.ok) {
+			const body = (await res.json()) as { data?: RemoteRootResponse };
+			result = body.data ?? null;
 		}
 	} catch {
 		result = null;

@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { MessageSquare, Search, Loader2 } from '@lucide/svelte';
+	import { MessageSquare, Search, Loader2, ShieldCheck } from '@lucide/svelte';
 	import * as Avatar from '@slyng/ui/avatar';
 	import { Button } from '@slyng/ui/button';
 	import { Input } from '@slyng/ui/input';
@@ -9,16 +9,24 @@
 	import { superForm, defaults } from 'sveltekit-superforms';
 	import { zod4, zod4Client } from 'sveltekit-superforms/adapters';
 	import { z } from 'zod';
-	import { CreateDmInputSchema } from '@slyng/types';
+	import { CreateDmInputSchema, type RemoteRootResponse } from '@slyng/types';
 	import { api } from '@slyng/app-core/api';
 	import { normalizeResolvedUser } from '@slyng/app-core/stores/normalize';
-	import { resolveProfile, displayName, federatedHandle } from '@slyng/app-core/stores/profiles.svelte';
+	import {
+		resolveProfile,
+		resolveRemoteRoot,
+		displayName,
+		federatedHandle
+	} from '@slyng/app-core/stores/profiles.svelte';
 	import { proxied } from '@slyng/app-core/utils/proxy';
 
 	type Mode = 'handle' | 'did';
 	let mode = $state<Mode>('handle');
 	let resolved = $state<{ did: string; syr_instance_url: string | null; registered: boolean } | null>(null);
 	let starting = $state(false);
+	// slyng-verified current-root of the resolved remote identity (P12). Only a
+	// rotated chain (seq > 0) is worth surfacing — an un-rotated peer is genesis.
+	let remoteRoot = $state<RemoteRootResponse | null>(null);
 
 	const resolvedProfile = $derived(
 		resolved ? resolveProfile(resolved.did, resolved.syr_instance_url ?? undefined) : null
@@ -74,8 +82,18 @@
 				return;
 			}
 			resolved = null;
+			remoteRoot = null;
 			try {
 				resolved = normalizeResolvedUser(await api.users.resolve(q));
+				// Verify the remote identity's current root via slyng's backend (it
+				// fetches + re-verifies the rotation chain server-side). Best-effort:
+				// a failure just leaves the badge off, never blocks starting the DM.
+				const r = resolved;
+				if (r.syr_instance_url) {
+					void resolveRemoteRoot(r.did, r.syr_instance_url).then((res) => {
+						if (resolved?.did === r.did) remoteRoot = res;
+					});
+				}
 			} catch (err) {
 				toast.error(err instanceof Error ? err.message : 'Could not find user');
 			}
@@ -87,6 +105,7 @@
 		mode = next;
 		$formData.identifier = '';
 		resolved = null;
+		remoteRoot = null;
 	}
 
 	async function startDm() {
@@ -192,6 +211,14 @@
 					<p class="truncate text-sm font-medium">{resolvedName ?? resolved.did.slice(0, 20)}</p>
 					{#if resolvedHandle}
 						<p class="truncate font-mono text-[11px] text-muted-foreground">{resolvedHandle}</p>
+					{/if}
+					{#if remoteRoot && remoteRoot.rotation_seq > 0}
+						<p
+							class="flex items-center gap-1 text-[10px] font-medium text-emerald-600 dark:text-emerald-400"
+						>
+							<ShieldCheck class="size-3 shrink-0" />
+							<span class="truncate">Root key verified · rotated {remoteRoot.rotation_seq}×</span>
+						</p>
 					{/if}
 				</div>
 				{#if !resolved.registered}
