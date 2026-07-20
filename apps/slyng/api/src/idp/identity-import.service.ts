@@ -52,10 +52,11 @@ const MAX_UNCOMPRESSED_BYTES = 500 * 1024 * 1024; // 500 MB
 const MAX_ENTRIES = 10_000;
 
 /**
- * Identity import (P11): validate + ingest a signed export bundle. The bundle
- * is authenticated end-to-end — the recomputed content digest must match the
- * manifest, and the manifest's `{did, content_digest, exported_at}` must carry
- * a valid root signature from the DID's key. Assets are re-uploaded to local
+ * Identity import (P11): validate + ingest a `.syr` v2 export bundle. The
+ * bundle is authenticated end-to-end — the recomputed per-file SHA-256 map must
+ * match the manifest's `files` map, and (for signed bundles) the JCS of the
+ * manifest sans its signature block must carry a valid signature from the root
+ * key resolved off the embedded rotation chain. Assets are re-uploaded to local
  * S3 under their original keys (the DID is stable, so keys are too) and every
  * record URL is rewritten from the source host to ours. Composite ULIDs are
  * preserved, so cross-record links survive and re-import is idempotent.
@@ -109,7 +110,7 @@ export class IdentityImportService {
 		}
 
 		const aegisBundle: AegisBundle = {
-			pub: manifest.public_key,
+			pub: identityFile.public_key,
 			salt: identityFile.aegis.salt,
 			nonce: identityFile.aegis.nonce,
 			ct: identityFile.aegis.ct,
@@ -121,13 +122,13 @@ export class IdentityImportService {
 		// (chain-resolved): sign a probe with the decrypted seed, verify it under
 		// the bundle's root key. For a rotated identity the Aegis seed is the new
 		// root, so this must verify against the chain head, not the genesis key.
-		await this.assertSeedOwnership(aegisBundle, password, manifest, rootKey);
+		await this.assertSeedOwnership(aegisBundle, password, identityFile.public_key, manifest.did, rootKey);
 
 		const provisioned = await this.accountService.provisionImportedAccount({
 			username,
 			password,
 			did: manifest.did,
-			publicKey: manifest.public_key,
+			publicKey: identityFile.public_key,
 			aegisBundle,
 			displayName: this.readJson<{ display_name?: string }>(files, 'profile.json')?.display_name,
 			inviteCode
@@ -208,50 +209,65 @@ export class IdentityImportService {
 
 		if (!parseDid(manifest.did)) throw new HttpException('Bundle DID is invalid', 400);
 
-		// 1. Content integrity: recompute the digest over every file except the
-		//    manifest + signature and require an exact match.
-		const recomputed = this.digestFiles(files);
-		if (recomputed !== manifest.content_digest) {
-			throw new HttpException('Bundle content digest mismatch — archive is corrupt or tampered', 400);
-		}
+		// 1. Content integrity: the recomputed per-file SHA-256 map must match the
+		//    manifest's `files` map EXACTLY — same set of paths, same hashes. No
+		//    file can be added, dropped, or altered.
+		this.assertFilesMatch(files, manifest.files);
 
-		// 2. Trust anchor (P12): resolve the key the bundle was signed under. For
-		//    a rotated identity that is the CURRENT root at export time, proven by
-		//    the chain embedded in identity.json (which self-verifies offline);
-		//    for an un-rotated / legacy bundle it is the genesis (DID) key.
-		const { rootKey, rotationChain } = this.resolveBundleRootKey(manifest, files);
+		// 2. Trust anchor (P12): resolve the root key the bundle was signed under.
+		//    For a rotated identity that is the CURRENT root at export time, proven
+		//    by the chain embedded in identity.json (which self-verifies offline);
+		//    for an un-rotated bundle it is the genesis (DID) key.
+		const { rootKey, rotationChain, signed } = this.resolveBundleRootKey(manifest, files);
 
-		// 3. Authenticity: the digest payload must be signed by that root key.
-		const sigFile = files['export.sig'];
-		if (!sigFile) throw new HttpException('Bundle is missing export.sig', 400);
-		const signature = strFromU8(sigFile);
-		const payload = canonicalize({
-			did: manifest.did,
-			content_digest: manifest.content_digest,
-			exported_at: manifest.exported_at
-		});
-		let ok = false;
-		try {
-			ok = await verify(payload, decodeMultibase(signature), rootKey);
-		} catch {
-			ok = false;
+		// 3. Authenticity: verify the detached signature over the JCS of the
+		//    manifest (minus its own signature block). The manifest embeds that
+		//    exact `signed_payload_json`, so recompute + compare before verifying —
+		//    the block can't lie about what was signed. An explicitly `unsigned`
+		//    self-custody bundle carries no signature; integrity then rests on the
+		//    file-hash map (+ seed ownership, checked by the register path).
+		if (signed) {
+			const sig = manifest.signature!;
+			const recomputed = canonicalize(this.manifestSansSignature(manifest));
+			if (recomputed !== sig.signed_payload_json) {
+				throw new HttpException('Bundle signed payload does not match its manifest', 400);
+			}
+			let ok = false;
+			try {
+				ok = await verify(sig.signed_payload_json, decodeMultibase(sig.signature), rootKey);
+			} catch {
+				ok = false;
+			}
+			if (!ok) throw new HttpException('Bundle signature does not verify against its root key', 400);
+		} else {
+			this.logger.warn(
+				`Import: ${manifest.did.slice(0, 16)}… bundle is explicitly unsigned (self-custody export)`
+			);
 		}
-		if (!ok) throw new HttpException('Bundle signature does not verify against its root key', 400);
 
 		return { manifest, files, rootKey, rotationChain };
 	}
 
 	/**
-	 * Resolve the root key a bundle was signed under (P12), and its embedded
-	 * rotation chain. When the manifest declares a `signing_key`, the chain in
-	 * `identity.json` is verified and MUST resolve to that key — so a crafted
-	 * bundle cannot claim an arbitrary signing key. Absent a `signing_key`, the
-	 * bundle is treated as un-rotated and verified against the genesis key.
+	 * Resolve the root key a bundle was signed under (P12), its embedded rotation
+	 * chain, and whether it carries a signature. Exactly one of `signature` /
+	 * `unsigned` must be present — an unmarked bundle is rejected so a stripped
+	 * signature can never silently downgrade to "unsigned". The rotation chain in
+	 * `identity.json` self-verifies offline; a SIGNED bundle must additionally
+	 * name the exact key that chain resolves to, so a crafted bundle cannot claim
+	 * an arbitrary signing key.
 	 */
 	private resolveBundleRootKey(
 		manifest: IdentityExportManifest,
 		files: Record<string, Uint8Array>
-	): { rootKey: Uint8Array; rotationChain: RotationStatement[] } {
+	): { rootKey: Uint8Array; rotationChain: RotationStatement[]; signed: boolean } {
+		if (manifest.signature && manifest.unsigned) {
+			throw new HttpException('Bundle is marked both signed and unsigned', 400);
+		}
+		if (!manifest.signature && !manifest.unsigned) {
+			throw new HttpException('Bundle is neither signed nor explicitly marked unsigned', 400);
+		}
+
 		const identityFile = this.readJson<{ rotation_chain?: RotationStatement[] }>(
 			files,
 			'identity.json'
@@ -260,42 +276,44 @@ export class IdentityImportService {
 			? identityFile!.rotation_chain
 			: [];
 
-		if (!manifest.signing_key) {
-			// Un-rotated / legacy bundle → genesis (DID-deriving) key.
-			return { rootKey: parseDid(manifest.did).publicKey, rotationChain };
+		// The chain self-verifies (each statement signed by the prior root,
+		// anchored to the genesis key the DID embeds); its verified head is the
+		// current root, genesis when un-rotated.
+		let rootKey: Uint8Array;
+		if (rotationChain.length === 0) {
+			rootKey = parseDid(manifest.did).publicKey;
+		} else {
+			try {
+				rootKey = verifyRotationChain(manifest.did, rotationChain);
+			} catch (err) {
+				throw new HttpException(`Bundle rotation chain is invalid: ${(err as Error).message}`, 400);
+			}
 		}
 
-		let resolved: Uint8Array;
-		try {
-			resolved = verifyRotationChain(manifest.did, rotationChain);
-		} catch (err) {
-			throw new HttpException(
-				`Bundle rotation chain is invalid: ${(err as Error).message}`,
-				400
-			);
-		}
-		if (rootKeyMultibase(resolved) !== manifest.signing_key) {
+		if (manifest.signature && rootKeyMultibase(rootKey) !== manifest.signature.signing_key) {
 			throw new HttpException('Bundle signing key does not match its rotation chain', 400);
 		}
-		return { rootKey: resolved, rotationChain };
+
+		return { rootKey, rotationChain, signed: !!manifest.signature };
 	}
 
-	/** Sign a probe with the decrypted seed and verify it against the manifest
-	 * key — proves the password unlocks a seed that really owns this DID. */
+	/** Sign a probe with the decrypted seed and verify it against the resolved
+	 * root key — proves the password unlocks a seed that really owns this DID. */
 	private async assertSeedOwnership(
 		bundle: AegisBundle,
 		password: string,
-		manifest: IdentityExportManifest,
+		publicKey: string,
+		did: string,
 		rootKey: Uint8Array
 	): Promise<void> {
 		// public_key must derive the claimed DID (it is the immutable genesis key).
 		let derived: string;
 		try {
-			derived = deriveDid(decodePublicKey(manifest.public_key));
+			derived = deriveDid(decodePublicKey(publicKey));
 		} catch {
 			throw new HttpException('Bundle public key is malformed', 400);
 		}
-		if (derived !== manifest.did) {
+		if (derived !== did) {
 			throw new HttpException('Bundle public key does not match its DID', 400);
 		}
 
@@ -418,21 +436,46 @@ export class IdentityImportService {
 		}
 	}
 
-	/** Byte-identical to IdentityExportService.digestFiles — length-prefixed
-	 * (name len + byte len, u32 BE) so no name/content boundary shift collides. */
-	private digestFiles(files: Record<string, Uint8Array>): string {
-		const hash = createHash('sha256');
-		for (const name of Object.keys(files).sort()) {
-			if (name === 'manifest.json' || name === 'export.sig') continue;
-			const nameBuf = Buffer.from(name, 'utf8');
-			const lens = Buffer.alloc(8);
-			lens.writeUInt32BE(nameBuf.length, 0);
-			lens.writeUInt32BE(files[name].length, 4);
-			hash.update(lens);
-			hash.update(nameBuf);
-			hash.update(files[name]);
+	/** Recompute the per-file SHA-256 map and require it to match the manifest's
+	 * `files` map EXACTLY — every declared file present with the right hash, and
+	 * no undeclared file riding along. `manifest.json` carries the map, so it's
+	 * excluded (matching IdentityExportService.hashFiles). */
+	private assertFilesMatch(
+		files: Record<string, Uint8Array>,
+		declared: Record<string, string>
+	): void {
+		const actual = new Map<string, string>();
+		for (const name of Object.keys(files)) {
+			if (name === 'manifest.json') continue;
+			actual.set(name, createHash('sha256').update(files[name]).digest('hex'));
 		}
-		return hash.digest('hex');
+		for (const [name, hash] of Object.entries(declared)) {
+			const got = actual.get(name);
+			if (got === undefined) {
+				throw new HttpException(`Bundle is missing declared file: ${name}`, 400);
+			}
+			if (got !== hash) {
+				throw new HttpException('Bundle content digest mismatch — archive is corrupt or tampered', 400);
+			}
+			actual.delete(name);
+		}
+		if (actual.size > 0) {
+			throw new HttpException('Bundle contains undeclared files not covered by the manifest', 400);
+		}
+	}
+
+	/** The manifest object with its detached `signature` block removed — the
+	 * exact shape IdentityExportService signed. JCS of this must equal the
+	 * manifest's stored `signed_payload_json`. */
+	private manifestSansSignature(m: IdentityExportManifest): Record<string, unknown> {
+		return {
+			format_version: m.format_version,
+			did: m.did,
+			created_at: m.created_at,
+			rotation_seq: m.rotation_seq,
+			counts: m.counts,
+			files: m.files
+		};
 	}
 
 	/**

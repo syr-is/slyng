@@ -1,5 +1,4 @@
 import { HttpException, Injectable, Logger } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
 import { zipSync, strToU8 } from 'fflate';
 import { createHash } from 'node:crypto';
 import { canonicalize, encodeMultibase, sign } from '@slyng/idp-crypto';
@@ -38,7 +37,6 @@ export class IdentityExportService {
 	private readonly logger = new Logger(IdentityExportService.name);
 
 	constructor(
-		private readonly config: ConfigService,
 		private readonly crypto: IdpCryptoService,
 		private readonly storage: IdpStorageService,
 		private readonly accounts: LocalAccountRepository,
@@ -184,7 +182,7 @@ export class IdentityExportService {
 		}
 		addJson('assets.json', assetIndex);
 
-		// ── Digest + manifest + signature ─────────────────────────────────
+		// ── Per-file digest map + v2 manifest + detached signature ────────
 		const counts: IdentityExportCounts = {
 			posts: postRows.length,
 			stories: storyRows.length,
@@ -197,35 +195,37 @@ export class IdentityExportService {
 			registries: 0,
 			assets: assetIndex.length
 		};
-		const contentDigest = this.digestFiles(files);
-		const exportedAt = new Date().toISOString();
-		const manifest: IdentityExportManifest = {
-			version: 1,
+		const createdAt = new Date().toISOString();
+		// SHA-256 of every bundle file. `manifest.json` is added to the archive
+		// AFTER this runs, so it's naturally excluded from its own integrity map.
+		const fileHashes = this.hashFiles(files);
+		const manifestSansSig = {
+			format_version: 2 as const,
 			did,
-			public_key: identity.public_key,
-			username: account.username,
-			host: this.getPublicUrl(),
-			exported_at: exportedAt,
-			includes_seed: true,
+			created_at: createdAt,
+			rotation_seq: rotationChain.length,
 			counts,
-			content_digest: contentDigest,
-			signing_key: signingKey,
-			rotation_seq: rotationChain.length
+			files: fileHashes
+		};
+		// Sign the RFC 8785 (JCS) canonicalization of the manifest (minus the
+		// signature block) with the CURRENT root — the Aegis seed IS the current
+		// root after any rotation, so `signing_key` is that key.
+		const signedPayloadJson = canonicalize(manifestSansSig);
+		const signature = encodeMultibase(await rootSign(signedPayloadJson));
+		const manifest: IdentityExportManifest = {
+			...manifestSansSig,
+			signature: {
+				signed_payload_json: signedPayloadJson,
+				signature,
+				signing_key: signingKey
+			}
 		};
 		addJson('manifest.json', manifest);
 
-		const signaturePayload = canonicalize({ did, content_digest: contentDigest, exported_at: exportedAt });
-		const signature = encodeMultibase(await rootSign(signaturePayload));
-		files['export.sig'] = strToU8(signature);
-
 		const zip = zipSync(files, { level: 6 });
-		const stamp = exportedAt.replace(/[:.]/g, '-');
+		const stamp = createdAt.replace(/[:.]/g, '-');
 		this.logger.log(`Exported ${did.slice(0, 24)}… (${zip.length} bytes, ${assetIndex.length} assets)`);
 		return { zip, filename: `slyng-identity-${account.username}-${stamp}.zip` };
-	}
-
-	private getPublicUrl(): string {
-		return this.config.get('PUBLIC_URL', 'http://localhost:5174').replace(/\/+$/, '');
 	}
 
 	/** `{ local_id, record }` with the composite `id` and non-portable RecordId
@@ -276,22 +276,15 @@ export class IdentityExportService {
 		return map[ext] ?? 'application/octet-stream';
 	}
 
-	/** SHA-256 over every file except the manifest + signature, in sorted
-	 * filename order. Each entry is length-prefixed (name length + byte length,
-	 * u32 BE) so no boundary shift between name and content can collide.
-	 * Import's `digestFiles` MUST stay byte-identical to this. */
-	private digestFiles(files: Record<string, Uint8Array>): string {
-		const hash = createHash('sha256');
+	/** SHA-256 (hex) of every bundle file, keyed by its zip path — the v2
+	 * manifest's integrity map. `manifest.json` is written to the archive AFTER
+	 * this runs (it carries the map), so it's excluded here. Import recomputes
+	 * this byte-for-byte and checks the file set + every hash. */
+	private hashFiles(files: Record<string, Uint8Array>): Record<string, string> {
+		const out: Record<string, string> = {};
 		for (const name of Object.keys(files).sort()) {
-			if (name === 'manifest.json' || name === 'export.sig') continue;
-			const nameBuf = Buffer.from(name, 'utf8');
-			const lens = Buffer.alloc(8);
-			lens.writeUInt32BE(nameBuf.length, 0);
-			lens.writeUInt32BE(files[name].length, 4);
-			hash.update(lens);
-			hash.update(nameBuf);
-			hash.update(files[name]);
+			out[name] = createHash('sha256').update(files[name]).digest('hex');
 		}
-		return hash.digest('hex');
+		return out;
 	}
 }

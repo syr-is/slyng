@@ -1055,27 +1055,48 @@ export const IdentityExportCountsSchema = z.object({
 });
 export type IdentityExportCounts = z.infer<typeof IdentityExportCountsSchema>;
 
-/** `manifest.json` at the root of an export bundle. */
+/**
+ * The detached-signature block of a `.syr` v2 manifest. `signed_payload_json`
+ * is the RFC 8785 (JCS) canonicalization of the manifest with THIS block
+ * removed — the exact bytes the root key signed. Import recomputes the JCS and
+ * checks it matches before verifying the signature, so the block can't lie
+ * about what was signed.
+ */
+export const IdentityExportSignatureSchema = z.object({
+	/** JCS(manifest sans this `signature` block) — the signed bytes. */
+	signed_payload_json: z.string(),
+	/** Multibase Ed25519 signature over `signed_payload_json`. */
+	signature: z.string(),
+	/** Multibase of the root key current at export time (chain head, P12). */
+	signing_key: z.string()
+});
+export type IdentityExportSignature = z.infer<typeof IdentityExportSignatureSchema>;
+
+/**
+ * `manifest.json` at the root of a `.syr` v2 export bundle. Byte-for-byte
+ * wire-compatible with syr's v2 bundle, so a bundle produced by one host
+ * verifies on the other. Integrity is a per-file SHA-256 map (`files`); trust
+ * is the detached `signature` block, verified against the root key resolved
+ * from the rotation chain embedded in `identity.json` (which self-verifies
+ * offline). A self-custody export that cannot sign sets `unsigned: true`
+ * EXPLICITLY — never a silent downgrade.
+ */
 export const IdentityExportManifestSchema = z.object({
-	version: z.literal(1),
+	format_version: z.literal(2),
 	did: z.string(),
-	public_key: z.string(),
-	username: z.string(),
-	host: z.string().url(),
-	exported_at: z.string(),
-	includes_seed: z.boolean(),
-	counts: IdentityExportCountsSchema,
-	/** SHA-256 (hex) over the sorted record+asset digest — what the signature
-	 * covers. Recomputed on import and checked byte-for-byte. */
-	content_digest: z.string(),
-	/** Multibase of the root key that SIGNED this bundle — the current root at
-	 * export time (P12). Absent ⇒ the genesis (DID-deriving) key. The bundle's
-	 * `identity.json` carries the full `rotation_chain`, so import re-verifies
-	 * that the chain resolves to this key and checks the signature under it,
-	 * offline. */
-	signing_key: z.string().optional(),
+	created_at: z.string(),
 	/** Rotation chain length at export time (0 = un-rotated). */
-	rotation_seq: z.number().int().nonnegative().optional()
+	rotation_seq: z.number().int().nonnegative(),
+	counts: IdentityExportCountsSchema,
+	/** SHA-256 (hex) of every bundle file, keyed by its zip path — every entry
+	 * except `manifest.json` itself. Recomputed on import and checked
+	 * byte-for-byte, so no file can be added, dropped, or altered. */
+	files: z.record(z.string(), z.string()),
+	/** Present on signed bundles (custodial or device-signed). */
+	signature: IdentityExportSignatureSchema.optional(),
+	/** Explicit marker: a self-custody export that could not sign. Mutually
+	 * exclusive with `signature`. */
+	unsigned: z.literal(true).optional()
 });
 export type IdentityExportManifest = z.infer<typeof IdentityExportManifestSchema>;
 
@@ -1183,3 +1204,21 @@ export const RotationResultSchema = z.object({
 	new_root: z.string()
 });
 export type RotationResult = z.infer<typeof RotationResultSchema>;
+
+/**
+ * Consuming-side trust anchor (P12). When slyng — acting as a syr CLIENT —
+ * needs a REMOTE identity's current root, it asks its OWN backend, which
+ * fetches the remote `rotations` endpoint (SSRF-exempt server fetch) and
+ * re-verifies the chain locally before answering. The browser therefore never
+ * fetches the remote host for this and never trusts a remote-advertised head:
+ * `current_root` here is always slyng-verified. `rotation_seq` is 0 for an
+ * un-rotated / unverifiable / unreachable peer (genesis fallback).
+ */
+export const RemoteRootResponseSchema = z.object({
+	did: z.string(),
+	/** Multibase of the slyng-verified current root (genesis on fallback). */
+	current_root: z.string(),
+	/** Verified chain length (0 = un-rotated or fell back to genesis). */
+	rotation_seq: z.number().int().nonnegative()
+});
+export type RemoteRootResponse = z.infer<typeof RemoteRootResponseSchema>;
