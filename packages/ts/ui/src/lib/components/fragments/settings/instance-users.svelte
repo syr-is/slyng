@@ -1,7 +1,7 @@
 <script lang="ts">
 	import * as Dialog from '@slyng/ui/dialog';
 	import { FolderOpen, Shield, Globe, Lock, ImageIcon, Film, FileIcon, User } from '@lucide/svelte';
-	import { proxied } from '@slyng/app-core/utils/proxy';
+	import { proxied, formatBytes } from '@slyng/app-core/utils/proxy';
 	import { adminListUsers, adminListUserFiles } from '@slyng/app-core/stores/instance.svelte';
 	import type { InstanceUser, OwnedUpload } from '@slyng/types';
 	import PaginatedTable from '../paginated-table.svelte';
@@ -63,13 +63,6 @@
 		{ key: 'created_at', label: 'Added', sortable: true, class: 'whitespace-nowrap' }
 	];
 
-	function formatBytes(bytes: number): string {
-		if (!bytes) return '0 B';
-		const k = 1024;
-		const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
-		const i = Math.min(sizes.length - 1, Math.floor(Math.log(bytes) / Math.log(k)));
-		return `${parseFloat((bytes / Math.pow(k, i)).toFixed(1))} ${sizes[i]}`;
-	}
 	function formatDate(iso: string): string {
 		return new Date(iso).toLocaleDateString();
 	}

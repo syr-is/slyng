@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { onDestroy, onMount } from 'svelte';
-	import { goto } from '$app/navigation';
+	import { beforeNavigate, goto } from '$app/navigation';
 	import { toast } from 'svelte-sonner';
 	import {
 		ArrowLeft,
@@ -79,6 +79,7 @@
 	import InstanceUsers from '@slyng/ui/fragments/settings/instance-users.svelte';
 	import DiscoveryPanel from '@slyng/ui/fragments/settings/discovery-panel.svelte';
 	import IdentityPanel from '@slyng/ui/fragments/settings/identity-panel.svelte';
+	import DiscardChangesDialog from '../fragments/discard-changes-dialog.svelte';
 	import { loadAdminStatus } from '@slyng/app-core/stores/instance.svelte';
 	import { isLocalIdentity } from '@slyng/app-core/upload/idp-upload';
 
@@ -102,6 +103,56 @@
 	const trusted = getTrustedDomainsList();
 
 	let activeTab = $state<Tab>('profile');
+
+	// Unsaved profile edits (display name / bio) — reported by ProfileEditor.
+	// Tab-switch and route navigation away from a dirty profile interpose a
+	// discard confirm instead of silently vaporizing the edits.
+	let profileDirty = $state(false);
+	let showProfileDiscard = $state(false);
+	let pendingTab = $state<Tab | null>(null);
+	let pendingNavUrl = $state<string | null>(null);
+
+	function switchTab(next: Tab) {
+		if (next !== activeTab && activeTab === 'profile' && profileDirty) {
+			pendingTab = next;
+			pendingNavUrl = null;
+			showProfileDiscard = true;
+			return;
+		}
+		activeTab = next;
+	}
+
+	beforeNavigate((nav) => {
+		if (activeTab !== 'profile' || !profileDirty) return;
+		nav.cancel();
+		// `leave` (tab close / hard reload) can only surface the browser's own
+		// beforeunload prompt — cancel() above arms it; nothing more to do.
+		if (nav.type === 'leave') return;
+		pendingTab = null;
+		pendingNavUrl = nav.to?.url
+			? nav.to.url.pathname + nav.to.url.search + nav.to.url.hash
+			: null;
+		showProfileDiscard = true;
+	});
+
+	function keepEditingProfile() {
+		showProfileDiscard = false;
+		pendingTab = null;
+		pendingNavUrl = null;
+	}
+
+	function discardProfileChanges() {
+		showProfileDiscard = false;
+		profileDirty = false;
+		if (pendingTab) {
+			activeTab = pendingTab;
+			pendingTab = null;
+		} else if (pendingNavUrl) {
+			const url = pendingNavUrl;
+			pendingNavUrl = null;
+			goto(url);
+		}
+	}
 
 	let devices = $state<DeviceLists>({ mics: [], cameras: [], speakers: [] });
 	let mediaError = $state<string | null>(null);
@@ -336,7 +387,7 @@
 			{#each tabs as tab (tab.id)}
 				{@const Icon = tab.icon}
 				<button
-					onclick={() => (activeTab = tab.id)}
+					onclick={() => switchTab(tab.id)}
 					class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm transition-colors
 						{activeTab === tab.id
 						? 'bg-sidebar-accent text-sidebar-accent-foreground font-medium'
@@ -426,6 +477,7 @@
 							did={auth.identity.did}
 							instanceUrl={auth.identity.syr_instance_url}
 							onUpdated={refreshProfile}
+							onDirtyChange={(d: boolean) => (profileDirty = d)}
 						/>
 					</div>
 				{:else if auth.identity?.syr_instance_url}
@@ -668,3 +720,11 @@
 		</div>
 	</main>
 </div>
+
+<DiscardChangesDialog
+	open={showProfileDiscard}
+	title="Discard profile changes?"
+	description="Your unsaved display name and bio edits will be lost."
+	onKeepEditing={keepEditingProfile}
+	onDiscard={discardProfileChanges}
+/>

@@ -1,6 +1,9 @@
 <script lang="ts">
 	import { type Snippet } from 'svelte';
+	import { page } from '$app/state';
+	import { prefersReducedMotion } from 'svelte/motion';
 	import { IsMobile } from '../../ui/sidebar/is-mobile.svelte.js';
+	import BottomNav from '../bottom-nav.svelte';
 	import { getPaneState, setPane } from './swipe-pane.svelte.js';
 
 	interface Props {
@@ -116,51 +119,79 @@
 	const trackWidth = $derived(
 		`calc(${LEFT_DRAWER_PX}px + 100vw${members ? ` + ${RIGHT_DRAWER_PX}px` : ''})`
 	);
+
+	// Route-switch crossfade: fade the main pane in (opacity only, 150ms)
+	// whenever the pathname changes. Runs via the Web Animations API on the
+	// persistent wrapper so the content itself is never remounted — data
+	// loading, scroll anchoring, and store effects are untouched. Skipped
+	// entirely under prefers-reduced-motion and on first mount. The effect
+	// also re-runs when `mainEl` rebinds (a breakpoint flip across 768px
+	// swaps the desktop/mobile branches), so it tracks the previous
+	// pathname and only plays when the pathname actually changed.
+	let mainEl = $state<HTMLDivElement | null>(null);
+	let prevPathname: string | null = null;
+	$effect(() => {
+		const routeKey = page.url.pathname;
+		const el = mainEl;
+		if (!routeKey || !el) return;
+		if (prevPathname === routeKey) return;
+		const isFirst = prevPathname === null;
+		prevPathname = routeKey;
+		if (isFirst) return;
+		if (prefersReducedMotion.current) return;
+		el.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 150, easing: 'ease-out' });
+	});
 </script>
 
 {#if isDesktop}
 	<div class="flex h-full w-full overflow-hidden bg-background">
 		{#if rail}<div class="shrink-0">{@render rail()}</div>{/if}
 		{#if sidebar}<div class="shrink-0">{@render sidebar()}</div>{/if}
-		<div class="min-h-0 min-w-0 flex-1">{@render main()}</div>
+		<div class="min-h-0 min-w-0 flex-1" bind:this={mainEl}>{@render main()}</div>
 		{#if members}<div class="shrink-0">{@render members()}</div>{/if}
 	</div>
 {:else}
-	<div
-		class="relative h-full w-full overflow-hidden bg-background"
-		style="touch-action: pan-y"
-		ontouchstart={onTouchStart}
-		ontouchend={onTouchEnd}
-		ontouchcancel={onTouchCancel}
-	>
+	<div class="flex h-full w-full flex-col overflow-hidden bg-background">
 		<div
-			class="flex h-full transition-transform duration-200 ease-out will-change-transform"
-			style="width: {trackWidth}; transform: translateX({trackTransform});"
+			class="relative min-h-0 w-full flex-1 overflow-hidden"
+			style="touch-action: pan-y"
+			ontouchstart={onTouchStart}
+			ontouchend={onTouchEnd}
+			ontouchcancel={onTouchCancel}
 		>
-			<!-- Left drawer: rail (72px) + sidebar (240px) -->
-			<div class="flex h-full w-[312px] shrink-0">
-				{#if rail}<div class="h-full w-[72px] shrink-0">{@render rail()}</div>{/if}
-				{#if sidebar}<div class="h-full w-[240px] shrink-0">{@render sidebar()}</div>{/if}
-			</div>
-			<!-- Main pane: full viewport. When a drawer is open, the
-			     dim overlay covers the visible portion as a tap-to-close
-			     affordance (Discord/Telegram pattern). -->
-			<div class="relative h-full w-screen shrink-0">
-				{@render main()}
-				{#if pane !== 'main'}
-					<button
-						type="button"
-						aria-label="Close drawer"
-						class="absolute inset-0 z-50 bg-background/40"
-						onclick={closeDrawer}
-					></button>
+			<div
+				class="flex h-full transition-transform duration-200 ease-out will-change-transform motion-reduce:transition-none"
+				style="width: {trackWidth}; transform: translateX({trackTransform});"
+			>
+				<!-- Left drawer: rail (72px) + sidebar (240px) -->
+				<div class="flex h-full w-[312px] shrink-0">
+					{#if rail}<div class="h-full w-[72px] shrink-0">{@render rail()}</div>{/if}
+					{#if sidebar}<div class="h-full w-[240px] shrink-0">{@render sidebar()}</div>{/if}
+				</div>
+				<!-- Main pane: full viewport. When a drawer is open, the
+				     dim overlay covers the visible portion as a tap-to-close
+				     affordance (Discord/Telegram pattern). -->
+				<div class="relative h-full w-screen shrink-0" bind:this={mainEl}>
+					{@render main()}
+					{#if pane !== 'main'}
+						<button
+							type="button"
+							aria-label="Close drawer"
+							class="absolute inset-0 z-50 bg-background/40"
+							onclick={closeDrawer}
+						></button>
+					{/if}
+				</div>
+				<!-- Right drawer: 240px wide; main pane stays partially visible
+				     to its left and serves as the tap-to-close backdrop. -->
+				{#if members}
+					<div class="h-full w-[240px] shrink-0">{@render members()}</div>
 				{/if}
 			</div>
-			<!-- Right drawer: 240px wide; main pane stays partially visible
-			     to its left and serves as the tap-to-close backdrop. -->
-			{#if members}
-				<div class="h-full w-[240px] shrink-0">{@render members()}</div>
-			{/if}
 		</div>
+		<!-- Mobile-only bottom tab bar: the always-visible navigation
+		     affordance. Swipe remains the shortcut; the bar mirrors the
+		     drawer state (Home tab lights up while the drawer is open). -->
+		<BottomNav />
 	</div>
 {/if}
