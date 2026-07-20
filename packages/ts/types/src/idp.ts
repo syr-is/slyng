@@ -1100,11 +1100,61 @@ export const IdentityExportManifestSchema = z.object({
 });
 export type IdentityExportManifest = z.infer<typeof IdentityExportManifestSchema>;
 
-/** Export request — password root-signs the bundle digest (Aegis accounts). */
+/**
+ * Legacy `manifest.json` of a v1 `.syr` bundle (pre-rotation). slyng no longer
+ * PRODUCES v1, but still imports it for backward-compat. Its trust model — a
+ * single aggregate `content_digest` + a detached `export.sig` — predates the v2
+ * per-file-hash map and the chain-resolved signature, so a v1 bundle is imported
+ * with an integrity check only and surfaced as `legacy-unverified`: its
+ * authenticity cannot be attested under the v2 model. Only `did` +
+ * `content_digest` are load-bearing for import; the rest is tolerated so a
+ * bundle from any v1 host still parses.
+ */
+export const IdentityExportManifestV1Schema = z.object({
+	version: z.literal(1),
+	did: z.string(),
+	/** SHA-256 (hex) over the sorted, length-prefixed file set — checked on import. */
+	content_digest: z.string(),
+	public_key: z.string().optional(),
+	username: z.string().optional(),
+	host: z.string().optional(),
+	exported_at: z.string().optional(),
+	includes_seed: z.boolean().optional(),
+	counts: IdentityExportCountsSchema.optional()
+});
+export type IdentityExportManifestV1 = z.infer<typeof IdentityExportManifestV1Schema>;
+
+/**
+ * How a bundle's authenticity was established on import:
+ * - `signed` — the manifest carried a signature that verified against the root
+ *   key resolved from its (self-verifying) rotation chain.
+ * - `unsigned` — an explicit self-custody v2 bundle (`unsigned: true`); integrity
+ *   is proven by the per-file hash map, authenticity by the caller's own session.
+ * - `legacy-unverified` — a v1 bundle: integrity-checked but its pre-rotation
+ *   trust model can't be attested here. Surface this visibly in the UI.
+ */
+export const IdentityImportVerificationSchema = z.enum(['signed', 'unsigned', 'legacy-unverified']);
+export type IdentityImportVerification = z.infer<typeof IdentityImportVerificationSchema>;
+
+/** Export request — password root-signs the bundle digest (Aegis accounts). A
+ * self-custody account (no server-held seed) omits it and gets an unsigned
+ * data-only bundle. */
 export const IdentityExportRequestSchema = z.object({
-	password: z.string().min(1)
+	password: z.string().min(1).optional()
 });
 export type IdentityExportRequest = z.infer<typeof IdentityExportRequestSchema>;
+
+/**
+ * GET /identity/export-info — tells the export UI which bundle it will get:
+ * a custodial account (`has_aegis: true`) must supply its password so the root
+ * seed can SIGN a full bundle; a self-custody account produces an unsigned,
+ * data-only bundle (the seed lives on the device, so the manifest is marked
+ * `unsigned: true` — never a silent downgrade).
+ */
+export const IdentityExportInfoSchema = z.object({
+	has_aegis: z.boolean()
+});
+export type IdentityExportInfo = z.infer<typeof IdentityExportInfoSchema>;
 
 /** Register-with-import form (multipart; the zip rides alongside as a file). */
 export const RegisterWithImportSchema = z.object({
@@ -1118,10 +1168,12 @@ export const RegisterWithImportSchema = z.object({
 });
 export type RegisterWithImport = z.infer<typeof RegisterWithImportSchema>;
 
-/** Result of an import run. */
+/** Result of an import run. `verification` tells the UI whether to flag the
+ * bundle as legacy-unverified / unsigned. */
 export const IdentityImportResultSchema = z.object({
 	did: z.string(),
-	imported: IdentityExportCountsSchema
+	imported: IdentityExportCountsSchema,
+	verification: IdentityImportVerificationSchema
 });
 export type IdentityImportResult = z.infer<typeof IdentityImportResultSchema>;
 
