@@ -5,6 +5,7 @@
 // MENTION_EVERYONE). Selecting one inserts a MentionNode serializing to
 // `<@did>`; the backend re-validates on send, so the popup is advisory only.
 import { Extension } from '@tiptap/core';
+import { PluginKey } from '@tiptap/pm/state';
 import Suggestion from '@tiptap/suggestion';
 import { Permissions } from '@slyng/types';
 import { getAuth } from '@slyng/app-core/stores/auth.svelte';
@@ -114,6 +115,9 @@ class MentionSuggestionController {
 
 export const mentionSuggestion = new MentionSuggestionController();
 
+/** Distinct from the emoji suggestion's key — see the note there. */
+const mentionSuggestionKey = new PluginKey('mentionSuggestion');
+
 export function MentionSuggestion() {
 	return Extension.create({
 		name: 'mentionSuggestion',
@@ -121,6 +125,7 @@ export function MentionSuggestion() {
 			return [
 				Suggestion<MentionCandidate>({
 					editor: this.editor,
+					pluginKey: mentionSuggestionKey,
 					char: '@',
 					allowSpaces: false,
 					startOfLine: false,
