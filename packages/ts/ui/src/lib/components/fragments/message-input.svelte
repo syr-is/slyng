@@ -341,7 +341,7 @@
 			onchange={handleFilePick}
 		/>
 		<button
-			class="shrink-0 pb-0.5 text-muted-foreground hover:text-foreground"
+			class="flex shrink-0 items-center justify-center pb-0.5 text-muted-foreground hover:text-foreground"
 			title="Attach file"
 			onclick={() => fileInput?.click()}
 		>
@@ -349,7 +349,7 @@
 		</button>
 
 		<button
-			class="shrink-0 pb-0.5 text-muted-foreground hover:text-foreground"
+			class="flex shrink-0 items-center justify-center pb-0.5 text-muted-foreground hover:text-foreground"
 			title="From my syr uploads"
 			onclick={() => (showSyrPicker = true)}
 		>
@@ -366,13 +366,17 @@
 			/>
 		</div>
 
-		<div class="shrink-0 self-end pb-0.5">
+		<!-- Flex (not block) so the inline-flex trigger inside doesn't sit on a
+		     text baseline — that descender gap is what lifted this icon a few px
+		     above the bare-<button> icons either side of it. -->
+		<div class="flex shrink-0 items-center justify-center pb-0.5">
 			<MediaPicker
 				side="top"
 				align="end"
 				onpick={handleClipPicked}
 				onpicksaved={handleSavedPicked}
 				triggerClass="size-auto p-0 hover:bg-transparent hover:text-foreground"
+				iconClass="size-5"
 			/>
 		</div>
 
@@ -380,14 +384,18 @@
 			onclick={() => {
 				showEmojiPicker = !showEmojiPicker;
 			}}
-			class="shrink-0 pb-0.5 text-muted-foreground hover:text-foreground"
+			class="flex shrink-0 items-center justify-center pb-0.5 text-muted-foreground hover:text-foreground"
 			title="Emoji"
 		>
 			<Smile class="h-5 w-5" />
 		</button>
 
 		{#if canSend}
-			<button onclick={submit} class="shrink-0 pb-0.5 text-primary hover:text-primary/80" title="Send">
+			<button
+				onclick={submit}
+				class="flex shrink-0 items-center justify-center pb-0.5 text-primary hover:text-primary/80"
+				title="Send"
+			>
 				<Send class="h-5 w-5" />
 			</button>
 		{/if}

@@ -31,7 +31,8 @@
 		disabled = false,
 		side = 'bottom',
 		align = 'start',
-		triggerClass = 'size-8'
+		triggerClass = 'size-8',
+		iconClass = 'size-4'
 	}: {
 		onpick: (item: ClipItem) => void;
 		/** Insert one of the user's own hosted GIFs. Enables the "Saved" tab. */
@@ -43,6 +44,10 @@
 		align?: 'start' | 'center' | 'end';
 		/** Extra classes for the trigger button (size differs per host). */
 		triggerClass?: string;
+		/** Trigger icon size. `size-4` suits the post editor's `size-8` toolbar
+		 *  buttons; the chat composer overrides to `size-5` to match the Plus /
+		 *  Cloud / Smile icons sitting beside it. */
+		iconClass?: string;
 	} = $props();
 
 	const auth = getAuth();
@@ -234,7 +239,7 @@
 		aria-label="GIFs, stickers & memes"
 		title="GIFs, stickers & memes"
 	>
-		<Sticker class="size-4" />
+		<Sticker class={iconClass} />
 	</Popover.Trigger>
 	<Popover.Content
 		class="flex max-h-[var(--bits-popover-content-available-height)] w-[min(92vw,420px)] flex-col overflow-hidden p-0"
