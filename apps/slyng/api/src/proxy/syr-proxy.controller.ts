@@ -2,6 +2,7 @@ import { Controller, Get, Query, Req, HttpException, HttpStatus, Logger } from '
 import { ApiTags, ApiOperation } from '@nestjs/swagger';
 import { SkipServerAccess } from '../auth/server-access.decorator';
 import type { Request } from 'express';
+import type { AuthedRequest } from '../auth/authed-request';
 
 /**
  * Proxies authenticated GET requests to the user's syr instance using
@@ -16,8 +17,8 @@ export class SyrProxyController {
 	@Get()
 	@SkipServerAccess()
 	@ApiOperation({ summary: 'Proxy a GET request to the user\'s syr instance' })
-	async proxy(@Query('path') path: string, @Req() req: Request) {
-		const user = (req as any).user;
+	async proxy(@Query('path') path: string, @Req() req: AuthedRequest) {
+		const user = req.user;
 		if (!user?.syr_instance_url || !user?.platform_token) {
 			throw new HttpException('No linked syr instance', HttpStatus.BAD_REQUEST);
 		}

@@ -6,6 +6,8 @@ import { RequirePermission } from '../auth/require-permission.decorator';
 import { SkipServerAccess } from '../auth/server-access.decorator';
 import { PaginatedQuery, type DateRangeOptions } from '../common/pagination';
 import { ChannelReorderDto, CreateChannelDto, CreateDmDto, UpdateChannelDto } from '../dto';
+import { ChannelTypeSchema } from '@slyng/types';
+import type { AuthedRequest } from '../auth/authed-request';
 
 @ApiTags('channels')
 @Controller()
@@ -17,7 +19,7 @@ export class ChannelController {
 
 	@Get('servers/:serverId/channels')
 	@ApiOperation({ summary: 'List channels in a server (filtered by READ_MESSAGES)' })
-	async listByServer(@Param('serverId') serverId: string, @Req() req: any) {
+	async listByServer(@Param('serverId') serverId: string, @Req() req: AuthedRequest) {
 		const userId = req?.user?.id;
 		if (!userId) return this.channelService.findByServer(serverId);
 		return this.channelService.findVisibleByServer(serverId, userId);
@@ -29,12 +31,25 @@ export class ChannelController {
 	async create(
 		@Param('serverId') serverId: string,
 		@Body() body: CreateChannelDto,
-		@Req() req: any
+		@Req() req: AuthedRequest
 	) {
 		const userId = req.user?.id;
 		if (!userId) throw new HttpException('Unauthorized', 401);
+		// `CreateChannelInputSchema.type` is only `z.string().optional()`, so an
+		// arbitrary string used to reach the row unchecked and persist as the
+		// channel kind. Validate against the canonical enum at the boundary.
+		const parsedType = ChannelTypeSchema.safeParse(body.type ?? 'text');
+		if (!parsedType.success) {
+			throw new HttpException(`Invalid channel type: ${String(body.type)}`, 400);
+		}
 		try {
-			return await this.channelService.create(serverId, userId, body.name, body.type, body.category_id);
+			return await this.channelService.create(
+				serverId,
+				userId,
+				body.name,
+				parsedType.data,
+				body.category_id
+			);
 		} catch (err) {
 			throw new HttpException(err instanceof Error ? err.message : 'Failed', 403);
 		}
@@ -46,7 +61,7 @@ export class ChannelController {
 	async update(
 		@Param('channelId') channelId: string,
 		@Body() body: UpdateChannelDto,
-		@Req() req: any
+		@Req() req: AuthedRequest
 	) {
 		const userId = req.user?.id;
 		if (!userId) throw new HttpException('Unauthorized', 401);
@@ -63,7 +78,7 @@ export class ChannelController {
 	async reorder(
 		@Param('serverId') serverId: string,
 		@Body() body: ChannelReorderDto,
-		@Req() req: any
+		@Req() req: AuthedRequest
 	) {
 		const userId = req.user?.id;
 		if (!userId) throw new HttpException('Unauthorized', 401);
@@ -80,7 +95,7 @@ export class ChannelController {
 	@Delete('channels/:channelId')
 	@RequirePermission('MANAGE_CHANNELS')
 	@ApiOperation({ summary: 'Soft-delete a channel (move to trash)' })
-	async remove(@Param('channelId') channelId: string, @Req() req: any) {
+	async remove(@Param('channelId') channelId: string, @Req() req: AuthedRequest) {
 		const userId = req.user?.id;
 		if (!userId) throw new HttpException('Unauthorized', 401);
 		try {
@@ -120,7 +135,7 @@ export class ChannelController {
 	@ApiOperation({ summary: 'Search messages across the channels a member can read (paginated)' })
 	async searchMessages(
 		@Param('serverId') serverId: string,
-		@Req() req: any,
+		@Req() req: AuthedRequest,
 		@PaginatedQuery({ dateRange: true }) p: DateRangeOptions,
 		@Query('sender_id') senderId?: string,
 		@Query('channel_id') channelId?: string,
@@ -148,7 +163,7 @@ export class ChannelController {
 	@Get('mentions')
 	@SkipServerAccess()
 	@ApiOperation({ summary: 'Global mention inbox: recent messages mentioning the caller across all their servers' })
-	async mentionInbox(@Req() req: any, @PaginatedQuery() p: DateRangeOptions) {
+	async mentionInbox(@Req() req: AuthedRequest, @PaginatedQuery() p: DateRangeOptions) {
 		const userId = req?.user?.id;
 		if (!userId) throw new HttpException('Unauthorized', 401);
 		return this.messageService.findAllMentionsForUser(userId, {
@@ -160,7 +175,7 @@ export class ChannelController {
 	@Post('channels/:channelId/restore')
 	@RequirePermission('VIEW_TRASH')
 	@ApiOperation({ summary: 'Restore a soft-deleted channel' })
-	async restore(@Param('channelId') channelId: string, @Req() req: any) {
+	async restore(@Param('channelId') channelId: string, @Req() req: AuthedRequest) {
 		const userId = req.user?.id;
 		if (!userId) throw new HttpException('Unauthorized', 401);
 		try {
@@ -173,7 +188,7 @@ export class ChannelController {
 	@Delete('channels/:channelId/hard')
 	@RequirePermission('HARD_DELETE')
 	@ApiOperation({ summary: 'Permanently delete a trashed channel and its messages' })
-	async hardDelete(@Param('channelId') channelId: string, @Req() req: any) {
+	async hardDelete(@Param('channelId') channelId: string, @Req() req: AuthedRequest) {
 		const userId = req.user?.id;
 		if (!userId) throw new HttpException('Unauthorized', 401);
 		try {
@@ -187,7 +202,7 @@ export class ChannelController {
 	@Get('users/@me/channels')
 	@SkipServerAccess()
 	@ApiOperation({ summary: 'List DM channels for current user' })
-	async listDMs(@Req() req: any) {
+	async listDMs(@Req() req: AuthedRequest) {
 		const userId = req.user?.id;
 		if (!userId) throw new HttpException('Unauthorized', 401);
 		return this.channelService.findDMChannels(userId);
@@ -196,7 +211,7 @@ export class ChannelController {
 	@Post('users/@me/channels')
 	@SkipServerAccess()
 	@ApiOperation({ summary: 'Create or get DM channel' })
-	async createDM(@Body() body: CreateDmDto, @Req() req: any) {
+	async createDM(@Body() body: CreateDmDto, @Req() req: AuthedRequest) {
 		const userId = req.user?.id;
 		if (!userId) throw new HttpException('Unauthorized', 401);
 		return this.channelService.createDM(userId, body.recipient_id, body.syr_instance_url);

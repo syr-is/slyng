@@ -208,7 +208,7 @@ export class AuthService {
 
 		if (!response.ok) {
 			const error = await response.json().catch(() => ({}));
-			const msg = `Token exchange failed: ${response.status} ${(error as any).error_description || ''}`;
+			const msg = `Token exchange failed: ${response.status} ${error.error_description || ''}`;
 			this.logger.error(msg);
 			throw new Error(msg);
 		}

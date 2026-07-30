@@ -11,8 +11,40 @@ import { RecordId } from 'surrealdb';
 import { Permissions, WsOp, hasPermission, stringToRecordId } from '@slyng/types';
 import { ServerRepository, ServerMemberRepository, ServerRoleRepository } from '../server/server.repository';
 import { PermissionOverrideRepository } from '../permission-override/override.repository';
+import type { ChannelRow, ChannelCategoryRow } from '../channel/channel.repository';
 import { ChatGateway } from '../gateway/chat.gateway';
 import { AuditLogService } from '../audit-log/audit-log.service';
+
+/**
+ * Shape of `buildPermissionTree`. Exported because consumers (channel listing,
+ * message search, the mention inbox) filter on `can_view` and previously had to
+ * cast every node to `any` to reach it.
+ *
+ * `permissions` is a decimal string, not a bigint — it crosses the wire.
+ */
+export interface PermissionTreeChannel {
+	id: string;
+	name: string;
+	type: string;
+	position: number;
+	permissions: string;
+	/** READ_MESSAGES resolved for this actor on this channel. */
+	can_view: boolean;
+}
+
+export interface PermissionTreeCategory {
+	id: string;
+	name: string;
+	position: number;
+	permissions: string;
+	channels: PermissionTreeChannel[];
+}
+
+export interface PermissionTree {
+	server: { permissions: string };
+	categories: PermissionTreeCategory[];
+	uncategorized: PermissionTreeChannel[];
+}
 
 @Injectable()
 export class RoleService {
@@ -39,7 +71,7 @@ export class RoleService {
 	/** Public read path: hides soft-deleted roles. Use `findByIdRaw` for trash flows. */
 	async findById(roleId: string) {
 		const r = await this.roles.findById(roleId);
-		if (!r || (r as any).deleted) return null;
+		if (!r || r.deleted) return null;
 		return r;
 	}
 
@@ -60,11 +92,11 @@ export class RoleService {
 		// Enrich with member_count so the UI can show how many will get the role back
 		const enriched = await Promise.all(
 			rows.map(async (r) => {
-				const ridRef = (r as any).id as RecordId;
+				const ridRef = r.id as RecordId;
 				const ridEnc = stringToRecordId.encode(ridRef);
 				const allMembers = await this.members.findMany({ server_id: ref });
 				const member_count = allMembers.filter((m) => {
-					const ids = ((m as any).role_ids ?? []) as RecordId[];
+					const ids = (m.role_ids ?? []) as RecordId[];
 					return ids.some((x) => stringToRecordId.encode(x) === ridEnc);
 				}).length;
 				return { ...(r as any), member_count };
@@ -101,9 +133,9 @@ export class RoleService {
 		//     then place the new role at position 1.
 		const existing = await this.roles.findMany({ server_id: ref });
 		const customRoles = existing
-			.filter((r) => !(r as any).is_default && !(r as any).deleted)
+			.filter((r) => !r.is_default && !r.deleted)
 			.sort(
-				(a, b) => (((b as any).position as number) ?? 0) - (((a as any).position as number) ?? 0)
+				(a, b) => ((b.position as number) ?? 0) - ((a.position as number) ?? 0)
 			);
 		let position: number;
 		if (customRoles.length === 0) {
@@ -115,8 +147,8 @@ export class RoleService {
 			} else {
 				// Sequential high-to-low bump avoids transient position collisions.
 				for (const r of customRoles) {
-					const id = stringToRecordId.encode((r as any).id as RecordId);
-					const next = (((r as any).position as number) ?? 0) + 1;
+					const id = stringToRecordId.encode(r.id as RecordId);
+					const next = ((r.position as number) ?? 0) + 1;
 					await this.roles.merge(id, { position: next, updated_at: now });
 					const bumped = await this.roles.findById(id);
 					this.gateway?.emitToServer(serverId, { op: WsOp.ROLE_UPDATE, d: bumped });
@@ -155,7 +187,7 @@ export class RoleService {
 			actorId: userId,
 			action: 'role_create',
 			targetKind: 'role',
-			targetId: stringToRecordId.encode((role as any).id),
+			targetId: stringToRecordId.encode(role.id),
 			metadata: {
 				name: data.name,
 				color: data.color ?? null,
@@ -163,7 +195,7 @@ export class RoleService {
 				permissions_deny: deny.toString()
 			}
 		});
-		this.logger.log(`Role created: ${(role as any).id}`);
+		this.logger.log(`Role created: ${role.id}`);
 		return role;
 	}
 
@@ -181,13 +213,13 @@ export class RoleService {
 	) {
 		const role = await this.roles.findById(roleId);
 		if (!role) throw new NotFoundException('Role not found');
-		const serverId = stringToRecordId.encode((role as any).server_id);
+		const serverId = stringToRecordId.encode(role.server_id);
 
 		// Hierarchy: actor must outrank the role they're editing.
 		if (!(await this.canActorManageRole(userId, serverId, role as any))) {
 			throw new ForbiddenException('You cannot manage roles at or above your highest role');
 		}
-		if ((role as any).is_default && data.name !== undefined) {
+		if (role.is_default && data.name !== undefined) {
 			throw new ForbiddenException('Cannot rename the default role');
 		}
 		// Position is managed exclusively via swapPositions.
@@ -196,8 +228,8 @@ export class RoleService {
 		}
 
 		// Permission-grant cap.
-		const oldAllow = BigInt(((role as any).permissions_allow as string) ?? ((role as any).permissions as string) ?? '0');
-		const oldDeny = BigInt(((role as any).permissions_deny as string) ?? '0');
+		const oldAllow = BigInt((role.permissions_allow as string) ?? (role.permissions as string) ?? '0');
+		const oldDeny = BigInt((role.permissions_deny as string) ?? '0');
 		const newAllow =
 			data.permissions_allow !== undefined
 				? BigInt(data.permissions_allow)
@@ -229,8 +261,8 @@ export class RoleService {
 		// Audit metadata calls out allow/deny diffs separately so reviewers
 		// can tell what was granted vs revoked at a glance.
 		const changes: Record<string, unknown> = {};
-		if (data.name !== undefined && data.name !== (role as any).name) changes.name = data.name;
-		if (data.color !== undefined && data.color !== (role as any).color) changes.color = data.color;
+		if (data.name !== undefined && data.name !== role.name) changes.name = data.name;
+		if (data.color !== undefined && data.color !== role.color) changes.color = data.color;
 		if (newAllow !== oldAllow)
 			changes.permissions_allow = { from: oldAllow.toString(), to: newAllow.toString() };
 		if (newDeny !== oldDeny)
@@ -241,7 +273,7 @@ export class RoleService {
 			action: 'role_update',
 			targetKind: 'role',
 			targetId: roleId,
-			metadata: { changes, name: (role as any).name }
+			metadata: { changes, name: role.name }
 		});
 		return updated;
 	}
@@ -255,15 +287,15 @@ export class RoleService {
 		const a = await this.roles.findById(roleAId);
 		const b = await this.roles.findById(roleBId);
 		if (!a || !b) throw new NotFoundException('Role not found');
-		if (stringToRecordId.encode((a as any).server_id) !== stringToRecordId.encode((b as any).server_id)) {
+		if (stringToRecordId.encode(a.server_id) !== stringToRecordId.encode(b.server_id)) {
 			throw new ForbiddenException('Roles belong to different servers');
 		}
-		if ((a as any).is_default || (b as any).is_default) {
+		if (a.is_default || b.is_default) {
 			throw new ForbiddenException('Cannot move the default role');
 		}
-		const serverId = stringToRecordId.encode((a as any).server_id);
-		const posA = (a as any).position as number;
-		const posB = (b as any).position as number;
+		const serverId = stringToRecordId.encode(a.server_id);
+		const posA = a.position as number;
+		const posB = b.position as number;
 
 		const isOwner = await this.isOwner(userId, serverId);
 		if (!isOwner) {
@@ -291,7 +323,7 @@ export class RoleService {
 				targetId: roleAId,
 				metadata: {
 					changes: { position: { from: posA, to: posB } },
-					name: (a as any).name
+					name: a.name
 				}
 			}),
 			this.audit.record({
@@ -302,7 +334,7 @@ export class RoleService {
 				targetId: roleBId,
 				metadata: {
 					changes: { position: { from: posB, to: posA } },
-					name: (b as any).name
+					name: b.name
 				}
 			})
 		]);
@@ -367,10 +399,10 @@ export class RoleService {
 	async delete(roleId: string, userId: string) {
 		const role = await this.roles.findById(roleId);
 		if (!role) throw new NotFoundException('Role not found');
-		if ((role as any).is_default) throw new ForbiddenException('Cannot delete the default role');
-		if ((role as any).deleted) throw new ForbiddenException('Role already in trash');
+		if (role.is_default) throw new ForbiddenException('Cannot delete the default role');
+		if (role.deleted) throw new ForbiddenException('Role already in trash');
 
-		const serverId = stringToRecordId.encode((role as any).server_id);
+		const serverId = stringToRecordId.encode(role.server_id);
 		if (!(await this.canActorManageRole(userId, serverId, role as any))) {
 			throw new ForbiddenException('You cannot manage roles at or above your highest role');
 		}
@@ -394,7 +426,7 @@ export class RoleService {
 			action: 'role_delete',
 			targetKind: 'role',
 			targetId: roleId,
-			metadata: { name: (role as any).name, color: (role as any).color ?? null }
+			metadata: { name: role.name, color: role.color ?? null }
 		});
 		this.logger.log(`Role soft-deleted: ${roleId}`);
 	}
@@ -402,8 +434,8 @@ export class RoleService {
 	async restore(roleId: string, userId: string) {
 		const role = await this.roles.findById(roleId);
 		if (!role) throw new NotFoundException('Role not found');
-		if (!(role as any).deleted) throw new ForbiddenException('Role is not in trash');
-		const serverId = stringToRecordId.encode((role as any).server_id);
+		if (!role.deleted) throw new ForbiddenException('Role is not in trash');
+		const serverId = stringToRecordId.encode(role.server_id);
 		if (!(await this.canActorManageRole(userId, serverId, role as any))) {
 			throw new ForbiddenException('You cannot restore roles at or above your highest role');
 		}
@@ -424,7 +456,7 @@ export class RoleService {
 			action: 'role_restore',
 			targetKind: 'role',
 			targetId: roleId,
-			metadata: { name: (role as any).name, color: (role as any).color ?? null }
+			metadata: { name: role.name, color: role.color ?? null }
 		});
 		this.logger.log(`Role restored: ${roleId}`);
 		return restored;
@@ -433,26 +465,26 @@ export class RoleService {
 	async hardDelete(roleId: string, userId: string) {
 		const role = await this.roles.findById(roleId);
 		if (!role) throw new NotFoundException('Role not found');
-		if ((role as any).is_default)
+		if (role.is_default)
 			throw new ForbiddenException('Cannot hard-delete the default role');
-		if (!(role as any).deleted)
+		if (!role.deleted)
 			throw new ForbiddenException('Role must be in trash before hard delete');
 
-		const serverId = stringToRecordId.encode((role as any).server_id);
+		const serverId = stringToRecordId.encode(role.server_id);
 		if (!(await this.canActorManageRole(userId, serverId, role as any))) {
 			throw new ForbiddenException('You cannot hard-delete roles at or above your highest role');
 		}
-		const ref = (role as any).id as RecordId;
+		const ref = role.id as RecordId;
 		const refEnc = stringToRecordId.encode(ref);
 		// Scrub this role from every member.role_ids and emit MEMBER_UPDATE
-		const allMembers = await this.members.findMany({ server_id: (role as any).server_id });
+		const allMembers = await this.members.findMany({ server_id: role.server_id });
 		let member_count = 0;
 		for (const m of allMembers) {
-			const roleIds = ((m as any).role_ids ?? []) as RecordId[];
+			const roleIds = (m.role_ids ?? []) as RecordId[];
 			const filtered = roleIds.filter((rid) => stringToRecordId.encode(rid) !== refEnc);
 			if (filtered.length !== roleIds.length) {
 				member_count++;
-				const updated = await this.members.merge((m as any).id, { role_ids: filtered });
+				const updated = await this.members.merge(m.id, { role_ids: filtered });
 				this.gateway?.emitToServer(serverId, { op: WsOp.MEMBER_UPDATE, d: updated });
 			}
 		}
@@ -464,7 +496,7 @@ export class RoleService {
 			action: 'role_hard_delete',
 			targetKind: 'role',
 			targetId: roleId,
-			metadata: { name: (role as any).name, color: (role as any).color ?? null, member_count }
+			metadata: { name: role.name, color: role.color ?? null, member_count }
 		});
 		this.logger.log(`Role hard-deleted: ${roleId} (${member_count} members affected)`);
 	}
@@ -476,20 +508,20 @@ export class RoleService {
 
 		const role = await this.roles.findById(roleId);
 		if (!role) throw new NotFoundException('Role not found');
-		if (stringToRecordId.encode((role as any).server_id) !== stringToRecordId.encode(ref))
+		if (stringToRecordId.encode(role.server_id) !== stringToRecordId.encode(ref))
 			throw new ForbiddenException('Role does not belong to this server');
-		if ((role as any).deleted) throw new ForbiddenException('Cannot assign a trashed role');
+		if (role.deleted) throw new ForbiddenException('Cannot assign a trashed role');
 
 		// Hierarchy: actor must outrank the role being granted.
 		if (!(await this.canActorAssignRole(actorUserId, serverId, role as any))) {
 			throw new ForbiddenException('You cannot assign roles at or above your highest role');
 		}
 
-		const roleIds = ((member as any).role_ids ?? []) as RecordId[];
-		const roleRef = (role as any).id as RecordId;
+		const roleIds = (member.role_ids ?? []) as RecordId[];
+		const roleRef = role.id as RecordId;
 		if (roleIds.some((rid) => stringToRecordId.encode(rid) === stringToRecordId.encode(roleRef))) return member;
 
-		const updated = await this.members.merge((member as any).id, {
+		const updated = await this.members.merge(member.id, {
 			role_ids: [...roleIds, roleRef],
 			updated_at: new Date()
 		});
@@ -501,7 +533,7 @@ export class RoleService {
 			targetKind: 'member',
 			targetId: targetUserId,
 			targetUserId,
-			metadata: { role_id: roleId, role_name: (role as any).name, role_color: (role as any).color ?? null }
+			metadata: { role_id: roleId, role_name: role.name, role_color: role.color ?? null }
 		});
 		return updated;
 	}
@@ -511,7 +543,7 @@ export class RoleService {
 		const member = await this.members.findOne({ server_id: ref, user_id: targetUserId });
 		if (!member) throw new NotFoundException('Member not found');
 
-		const roleIds = ((member as any).role_ids ?? []) as RecordId[];
+		const roleIds = (member.role_ids ?? []) as RecordId[];
 		const filtered = roleIds.filter((rid) => stringToRecordId.encode(rid) !== roleId);
 		// Skip the no-op case so we don't spam the audit log
 		if (filtered.length === roleIds.length) return member;
@@ -521,7 +553,7 @@ export class RoleService {
 		if (role && !(await this.canActorAssignRole(actorUserId, serverId, role as any))) {
 			throw new ForbiddenException('You cannot unassign roles at or above your highest role');
 		}
-		const updated = await this.members.merge((member as any).id, {
+		const updated = await this.members.merge(member.id, {
 			role_ids: filtered,
 			updated_at: new Date()
 		});
@@ -570,34 +602,34 @@ export class RoleService {
 	async computePermissions(userId: string, serverId: string, channelId?: string): Promise<bigint> {
 		const server = await this.servers.findById(serverId);
 		if (!server) return 0n;
-		if ((server as any).owner_id === userId) return Permissions.ADMINISTRATOR;
+		if (server.owner_id === userId) return Permissions.ADMINISTRATOR;
 
 		const ref = stringToRecordId.decode(serverId);
 		const member = await this.members.findOne({ server_id: ref, user_id: userId });
 		if (!member) return 0n;
 
-		const roleIds = ((member as any).role_ids ?? []) as RecordId[];
+		const roleIds = (member.role_ids ?? []) as RecordId[];
 		const assignedSet = new Set(roleIds.map((rid) => stringToRecordId.encode(rid)));
 
 		const allRoles = (await this.roles.findMany({ server_id: ref }))
-			.filter((r) => !(r as any).deleted)
+			.filter((r) => !r.deleted)
 			.sort(
 				(a, b) =>
-					(((a as any).position as number) ?? 0) -
-					(((b as any).position as number) ?? 0)
+					((a.position as number) ?? 0) -
+					((b.position as number) ?? 0)
 			);
 
 		const applicable = allRoles.filter(
 			(r) =>
-				(r as any).is_default ||
-				assignedSet.has(stringToRecordId.encode((r as any).id as RecordId))
+				r.is_default ||
+				assignedSet.has(stringToRecordId.encode(r.id as RecordId))
 		);
 
 		// Layer 1: server role perms
 		let perms = 0n;
 		for (const r of applicable) {
-			const allow = BigInt(((r as any).permissions_allow as string) ?? ((r as any).permissions as string) ?? '0');
-			const deny = BigInt(((r as any).permissions_deny as string) ?? '0');
+			const allow = BigInt((r.permissions_allow as string) ?? (r.permissions as string) ?? '0');
+			const deny = BigInt((r.permissions_deny as string) ?? '0');
 			perms = (perms & ~deny) | allow;
 		}
 
@@ -608,8 +640,8 @@ export class RoleService {
 		const allOverrides = await this.permOverrides.findMany({ server_id: ref });
 
 		const applyOverride = (o: any) => {
-			const allow = BigInt(((o as any).allow as string) ?? '0');
-			const deny = BigInt(((o as any).deny as string) ?? '0');
+			const allow = BigInt((o.allow as string) ?? '0');
+			const deny = BigInt((o.deny as string) ?? '0');
 			perms = (perms & ~deny) | allow;
 		};
 
@@ -621,11 +653,11 @@ export class RoleService {
 					const oScopeId = o.scope_id ? stringToRecordId.encode(o.scope_id as RecordId) : null;
 					if (oScopeId !== scopeId) return false;
 					return assignedSet.has(o.target_id as string) ||
-						allRoles.some((r) => (r as any).is_default && stringToRecordId.encode((r as any).id as RecordId) === o.target_id);
+						allRoles.some((r) => r.is_default && stringToRecordId.encode(r.id as RecordId) === o.target_id);
 				})
 				.sort((a: any, b: any) => {
-					const posA = allRoles.find((r) => stringToRecordId.encode((r as any).id as RecordId) === a.target_id);
-					const posB = allRoles.find((r) => stringToRecordId.encode((r as any).id as RecordId) === b.target_id);
+					const posA = allRoles.find((r) => stringToRecordId.encode(r.id as RecordId) === a.target_id);
+					const posB = allRoles.find((r) => stringToRecordId.encode(r.id as RecordId) === b.target_id);
 					return (((posA as any)?.position as number) ?? 0) - (((posB as any)?.position as number) ?? 0);
 				});
 		};
@@ -695,37 +727,37 @@ export class RoleService {
 	async highestRolePosition(userId: string, serverId: string): Promise<number> {
 		const server = await this.servers.findById(serverId);
 		if (!server) return -1;
-		if ((server as any).owner_id === userId) return Number.MAX_SAFE_INTEGER;
+		if (server.owner_id === userId) return Number.MAX_SAFE_INTEGER;
 
 		const ref = stringToRecordId.decode(serverId);
 		const member = await this.members.findOne({ server_id: ref, user_id: userId });
 		if (!member) return -1;
 
-		const roleIds = ((member as any).role_ids ?? []) as RecordId[];
+		const roleIds = (member.role_ids ?? []) as RecordId[];
 		if (!roleIds.length) return 0;
 		const assignedSet = new Set(roleIds.map((rid) => stringToRecordId.encode(rid)));
 
 		const myRoles = (await this.roles.findMany({ server_id: ref }))
-			.filter((r) => !(r as any).deleted)
+			.filter((r) => !r.deleted)
 			.filter((r) =>
-				assignedSet.has(stringToRecordId.encode((r as any).id as RecordId))
+				assignedSet.has(stringToRecordId.encode(r.id as RecordId))
 			);
 		return myRoles.reduce(
-			(max, r) => Math.max(max, ((r as any).position as number) ?? 0),
+			(max, r) => Math.max(max, (r.position as number) ?? 0),
 			0
 		);
 	}
 
 	async isOwner(userId: string, serverId: string): Promise<boolean> {
 		const server = await this.servers.findById(serverId);
-		return !!server && (server as any).owner_id === userId;
+		return !!server && server.owner_id === userId;
 	}
 
 	async findMemberRoleIds(userId: string, serverId: string): Promise<string[]> {
 		const ref = stringToRecordId.decode(serverId);
 		const member = await this.members.findOne({ server_id: ref, user_id: userId });
 		if (!member) return [];
-		return ((member as any).role_ids ?? []).map((rid: RecordId) =>
+		return (member.role_ids ?? []).map((rid: RecordId) =>
 			stringToRecordId.encode(rid)
 		);
 	}
@@ -750,7 +782,7 @@ export class RoleService {
 		}));
 	}
 
-	async buildPermissionTree(userId: string, serverId: string) {
+	async buildPermissionTree(userId: string, serverId: string): Promise<PermissionTree> {
 		const ref = stringToRecordId.decode(serverId);
 		const db = (this.roles as any).db;
 
@@ -767,11 +799,11 @@ export class RoleService {
 			)
 		]);
 
-		const allCategories = ((catResult as any)[0] ?? []) as any[];
-		const allChannels = ((chResult as any)[0] ?? []) as any[];
+		const allCategories = (catResult[0] ?? []) as ChannelCategoryRow[];
+		const allChannels = (chResult[0] ?? []) as ChannelRow[];
 
-		const channelsByCategory = new Map<string, any[]>();
-		const uncategorized: any[] = [];
+		const channelsByCategory = new Map<string, ChannelRow[]>();
+		const uncategorized: ChannelRow[] = [];
 		for (const ch of allChannels) {
 			const catId = ch.category_id ? stringToRecordId.encode(ch.category_id as RecordId) : null;
 			if (catId) {
@@ -783,7 +815,7 @@ export class RoleService {
 			}
 		}
 
-		const buildChannelNode = async (ch: any) => {
+		const buildChannelNode = async (ch: ChannelRow): Promise<PermissionTreeChannel> => {
 			const chId = stringToRecordId.encode(ch.id as RecordId);
 			const perms = await this.computePermissions(userId, serverId, chId);
 			return {

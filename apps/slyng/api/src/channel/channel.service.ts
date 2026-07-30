@@ -5,7 +5,8 @@ import { RelationService } from '../relation/relation.service';
 import {
 	ChannelRepository,
 	ChannelParticipantRepository,
-	ChannelReadStateRepository
+	ChannelReadStateRepository,
+	type ChannelRowType
 } from './channel.repository';
 import {
 	MessageRepository,
@@ -38,7 +39,7 @@ export class ChannelService {
 	private async getServerIdForChannel(channelId: string): Promise<string> {
 		const channel = await this.channels.findById(channelId);
 		if (!channel) throw new Error('Channel not found');
-		const sid = (channel as any).server_id;
+		const sid = channel.server_id;
 		if (!sid) throw new Error('Channel has no server (DM)');
 		return stringToRecordId.encode(sid);
 	}
@@ -55,7 +56,7 @@ export class ChannelService {
 		const all = await this.findByServer(serverId);
 		const results = await Promise.all(
 			all.map(async (ch) => {
-				const chId = stringToRecordId.encode((ch as any).id as RecordId);
+				const chId = stringToRecordId.encode(ch.id as RecordId);
 				const perms = await this.roleService.computePermissions(userId, serverId, chId);
 				const canRead = hasPermission(perms, Permissions.READ_MESSAGES);
 				return { channel: ch, perms, canRead };
@@ -76,7 +77,7 @@ export class ChannelService {
 	 */
 	async findById(channelId: string) {
 		const ch = await this.channels.findById(channelId);
-		if (!ch || (ch as any).deleted) return null;
+		if (!ch || ch.deleted) return null;
 		return ch;
 	}
 
@@ -93,7 +94,7 @@ export class ChannelService {
 		// Enrich with message_count so the UI can show blast radius
 		const enriched = await Promise.all(
 			rows.map(async (r) => {
-				const message_count = await this.messages.count({ channel_id: (r as any).id });
+				const message_count = await this.messages.count({ channel_id: r.id });
 				return { ...(r as any), message_count };
 			})
 		);
@@ -129,7 +130,7 @@ export class ChannelService {
 		const serverId = await this.getServerIdForChannel(channelId);
 		const snapshot = await this.channels.findById(channelId);
 		if (!snapshot) throw new NotFoundException('Channel not found');
-		if ((snapshot as any).deleted) throw new ForbiddenException('Channel already in trash');
+		if (snapshot.deleted) throw new ForbiddenException('Channel already in trash');
 		const now = new Date();
 		await this.channels.merge(channelId, {
 			deleted: true,
@@ -157,7 +158,7 @@ export class ChannelService {
 		const serverId = await this.getServerIdForChannel(channelId);
 		const snapshot = await this.channels.findById(channelId);
 		if (!snapshot) throw new NotFoundException('Channel not found');
-		if (!(snapshot as any).deleted) throw new ForbiddenException('Channel is not in trash');
+		if (!snapshot.deleted) throw new ForbiddenException('Channel is not in trash');
 		await this.channels.merge(channelId, {
 			deleted: false,
 			deleted_at: null,
@@ -184,7 +185,7 @@ export class ChannelService {
 		const serverId = await this.getServerIdForChannel(channelId);
 		const snapshot = await this.channels.findById(channelId);
 		if (!snapshot) throw new NotFoundException('Channel not found');
-		if (!(snapshot as any).deleted)
+		if (!snapshot.deleted)
 			throw new ForbiddenException('Channel must be in trash before hard delete');
 		const id = stringToRecordId.decode(channelId);
 		const message_count = await this.messages.count({ channel_id: id });
@@ -208,7 +209,13 @@ export class ChannelService {
 		this.logger.log(`Channel hard-deleted: ${channelId} (${message_count} messages purged)`);
 	}
 
-	async create(serverId: string, createdBy: string, name: string, type = 'text', categoryId?: string) {
+	async create(
+		serverId: string,
+		createdBy: string,
+		name: string,
+		type: ChannelRowType = 'text',
+		categoryId?: string
+	) {
 		const now = new Date();
 		const serverRef = stringToRecordId.decode(serverId);
 		const categoryRef = categoryId ? stringToRecordId.decode(categoryId) : null;
@@ -232,7 +239,7 @@ export class ChannelService {
 			updated_at: now
 		});
 		this.gateway?.emitToServer(serverId, { op: WsOp.CHANNEL_CREATE, d: channel });
-		const newChannelId = stringToRecordId.encode((channel as any).id);
+		const newChannelId = stringToRecordId.encode(channel.id);
 		await this.audit.record({
 			serverId,
 			actorId: createdBy,
@@ -311,13 +318,13 @@ export class ChannelService {
 		const myParticipations = await this.participants.findMany({ user_id: userId });
 		if (!myParticipations.length) return [];
 
-		const channelIds = myParticipations.map((p) => (p as any).channel_id as RecordId);
+		const channelIds = myParticipations.map((p) => p.channel_id as RecordId);
 		const all = await this.channels.findByIds(channelIds);
 		const dms = all
-			.filter((c) => (c as any).type === 'direct' || (c as any).type === 'group')
+			.filter((c) => c.type === 'direct' || c.type === 'group')
 			.sort((a, b) => {
-				const aTime = new Date((a as any).last_message_at ?? 0).getTime();
-				const bTime = new Date((b as any).last_message_at ?? 0).getTime();
+				const aTime = new Date(a.last_message_at ?? 0).getTime();
+				const bTime = new Date(b.last_message_at ?? 0).getTime();
 				return bTime - aTime;
 			});
 		if (!dms.length) return dms;
@@ -335,12 +342,12 @@ export class ChannelService {
 
 		const enriched = await Promise.all(
 			dms.map(async (c) => {
-				const channelRef = (c as any).id as RecordId;
+				const channelRef = c.id as RecordId;
 				const parts = await this.participants.findMany({ channel_id: channelRef });
 				const others = parts
-					.map((p) => (p as any).user_id as string)
+					.map((p) => p.user_id as string)
 					.filter((u) => u !== userId);
-				const other_user_id = (c as any).type === 'direct' ? (others[0] ?? null) : null;
+				const other_user_id = c.type === 'direct' ? (others[0] ?? null) : null;
 				return {
 					...(c as any),
 					other_user_id,
@@ -362,8 +369,8 @@ export class ChannelService {
 		const allUsers = await this.users.findMany();
 		const instanceByDid = new Map<string, string>(
 			allUsers
-				.filter((u) => otherDids.includes((u as any).did as string))
-				.map((u) => [(u as any).did as string, (u as any).syr_instance_url as string])
+				.filter((u) => otherDids.includes(u.did as string))
+				.map((u) => [u.did as string, u.syr_instance_url as string])
 		);
 		return enriched.map((c) => ({
 			...c,
@@ -401,13 +408,13 @@ export class ChannelService {
 		const theirParticipations = await this.participants.findMany({ user_id: otherUserId });
 
 		const theirSet = new Set(
-			theirParticipations.map((p) => stringToRecordId.encode((p as any).channel_id as RecordId))
+			theirParticipations.map((p) => stringToRecordId.encode(p.channel_id as RecordId))
 		);
 		for (const p of myParticipations) {
-			const channelIdStr = stringToRecordId.encode((p as any).channel_id as RecordId);
+			const channelIdStr = stringToRecordId.encode(p.channel_id as RecordId);
 			if (theirSet.has(channelIdStr)) {
-				const ch = await this.channels.findById((p as any).channel_id);
-				if (ch && (ch as any).type === 'direct') return ch;
+				const ch = await this.channels.findById(p.channel_id);
+				if (ch && ch.type === 'direct') return ch;
 			}
 		}
 
@@ -418,7 +425,7 @@ export class ChannelService {
 			created_at: now,
 			updated_at: now
 		});
-		const channelId = (channel as any).id as RecordId;
+		const channelId = channel.id as RecordId;
 
 		for (const uid of [userId, otherUserId]) {
 			await this.participants.create({

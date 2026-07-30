@@ -9,6 +9,7 @@ import {
 	ServerRoleRepository
 } from '../server/server.repository';
 import { ChannelRepository, ChannelCategoryRepository } from '../channel/channel.repository';
+import type { AuthedRequest } from './authed-request';
 
 /**
  * Shared server-access authoriser used by:
@@ -45,7 +46,7 @@ export class MemberAccessService {
 		if (topicId.startsWith('channel:')) {
 			const channel = await this.channels.findById(topicId);
 			if (!channel) return null;
-			const sid = (channel as any).server_id as RecordId | string | undefined;
+			const sid = channel.server_id as RecordId | string | undefined;
 			return sid ? stringToRecordId.encode(sid as RecordId) : null;
 		}
 		// Unknown prefix — not a server-scoped topic
@@ -57,25 +58,37 @@ export class MemberAccessService {
 	 * null when the route isn't server-scoped (e.g. /servers/@me, /users/...).
 	 * Shared by `ServerAccessGuard` + `PermissionGuard`.
 	 */
-	async resolveRouteServerId(req: any): Promise<string | null> {
+	async resolveRouteServerId(req: AuthedRequest): Promise<string | null> {
 		const params = req?.params ?? {};
-		if (params.serverId) return params.serverId as string;
-		if (params.channelId) {
-			const channel = await this.channels.findById(params.channelId);
+		// Express types route params as `string | string[]` — a repeated param
+		// (`?serverId=a&serverId=b` style path matching) yields an array, which
+		// must not be handed to the repositories as an id. Take the first value.
+		const param = (key: string): string | null => {
+			const v = params[key] as string | string[] | undefined;
+			if (Array.isArray(v)) return v[0] ?? null;
+			return v ?? null;
+		};
+		const serverIdParam = param('serverId');
+		if (serverIdParam) return serverIdParam;
+		const channelIdParam = param('channelId');
+		if (channelIdParam) {
+			const channel = await this.channels.findById(channelIdParam);
 			if (!channel) return null;
-			const sid = (channel as any).server_id as RecordId | string | undefined;
+			const sid = channel.server_id as RecordId | string | undefined;
 			return sid ? stringToRecordId.encode(sid as RecordId) : null;
 		}
-		if (params.roleId) {
-			const role = await this.roles.findById(params.roleId);
+		const roleIdParam = param('roleId');
+		if (roleIdParam) {
+			const role = await this.roles.findById(roleIdParam);
 			if (!role) return null;
-			const sid = (role as any).server_id as RecordId | string | undefined;
+			const sid = role.server_id as RecordId | string | undefined;
 			return sid ? stringToRecordId.encode(sid as RecordId) : null;
 		}
-		if (params.categoryId) {
-			const cat = await this.categories.findById(params.categoryId);
+		const categoryIdParam = param('categoryId');
+		if (categoryIdParam) {
+			const cat = await this.categories.findById(categoryIdParam);
 			if (!cat) return null;
-			const sid = (cat as any).server_id as RecordId | string | undefined;
+			const sid = cat.server_id as RecordId | string | undefined;
 			return sid ? stringToRecordId.encode(sid as RecordId) : null;
 		}
 		return null;
@@ -104,7 +117,7 @@ export class MemberAccessService {
 	async canReadChannel(userId: string, channelId: string): Promise<boolean> {
 		const channel = await this.channels.findById(channelId);
 		if (!channel) return false;
-		const sid = (channel as any).server_id as RecordId | string | undefined;
+		const sid = channel.server_id as RecordId | string | undefined;
 		if (!sid) return true; // DM channels — no server scope
 		const serverId = stringToRecordId.encode(sid as RecordId);
 
@@ -112,7 +125,7 @@ export class MemberAccessService {
 
 		// Check if server owner — always allowed
 		const server = await this.servers.findById(serverId);
-		if (server && (server as any).owner_id === userId) return true;
+		if (server && server.owner_id === userId) return true;
 
 		// Compute permissions with channel context inline (lightweight version
 		// to avoid circular dep on RoleService). Mirrors the 6-layer cascade.
@@ -120,22 +133,22 @@ export class MemberAccessService {
 		const member = await this.members.findOne({ server_id: ref, user_id: userId });
 		if (!member) return false;
 
-		const roleIds = ((member as any).role_ids ?? []) as RecordId[];
+		const roleIds = (member.role_ids ?? []) as RecordId[];
 		const assignedSet = new Set(roleIds.map((rid) => stringToRecordId.encode(rid)));
 
 		const allRoles = (await this.roles.findMany({ server_id: ref }))
-			.filter((r) => !(r as any).deleted)
-			.sort((a, b) => (((a as any).position as number) ?? 0) - (((b as any).position as number) ?? 0));
+			.filter((r) => !r.deleted)
+			.sort((a, b) => ((a.position as number) ?? 0) - ((b.position as number) ?? 0));
 
 		const applicable = allRoles.filter(
-			(r) => (r as any).is_default || assignedSet.has(stringToRecordId.encode((r as any).id as RecordId))
+			(r) => r.is_default || assignedSet.has(stringToRecordId.encode(r.id as RecordId))
 		);
 
 		// Layer 1: server role perms
 		let perms = 0n;
 		for (const r of applicable) {
-			const allow = BigInt(((r as any).permissions_allow as string) ?? ((r as any).permissions as string) ?? '0');
-			const deny = BigInt(((r as any).permissions_deny as string) ?? '0');
+			const allow = BigInt((r.permissions_allow as string) ?? (r.permissions as string) ?? '0');
+			const deny = BigInt((r.permissions_deny as string) ?? '0');
 			perms = (perms & ~deny) | allow;
 		}
 		if (hasPermission(perms, Permissions.ADMINISTRATOR)) return true;
@@ -156,11 +169,11 @@ export class MemberAccessService {
 					const oSid = o.scope_id ? stringToRecordId.encode(o.scope_id as RecordId) : null;
 					if (oSid !== scopeId) return false;
 					return assignedSet.has(o.target_id as string) ||
-						allRoles.some((r) => (r as any).is_default && stringToRecordId.encode((r as any).id as RecordId) === o.target_id);
+						allRoles.some((r) => r.is_default && stringToRecordId.encode(r.id as RecordId) === o.target_id);
 				})
 				.sort((a: any, b: any) => {
-					const pa = allRoles.find((r) => stringToRecordId.encode((r as any).id as RecordId) === a.target_id);
-					const pb = allRoles.find((r) => stringToRecordId.encode((r as any).id as RecordId) === b.target_id);
+					const pa = allRoles.find((r) => stringToRecordId.encode(r.id as RecordId) === a.target_id);
+					const pb = allRoles.find((r) => stringToRecordId.encode(r.id as RecordId) === b.target_id);
 					return (((pa as any)?.position as number) ?? 0) - (((pb as any)?.position as number) ?? 0);
 				});
 
@@ -176,8 +189,8 @@ export class MemberAccessService {
 		if (srvUser) applyOverride(srvUser);
 
 		// Resolve category
-		const catId = (channel as any).category_id
-			? stringToRecordId.encode((channel as any).category_id as RecordId)
+		const catId = channel.category_id
+			? stringToRecordId.encode(channel.category_id as RecordId)
 			: null;
 
 		// Layer 3-4: category role + channel role

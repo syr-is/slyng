@@ -12,6 +12,7 @@ import {
 	UpdateInviteDto,
 	UpdateServerDto
 } from '../dto';
+import type { AuthedRequest } from '../auth/authed-request';
 
 @ApiTags('servers')
 @Controller('servers')
@@ -21,7 +22,7 @@ export class ServerController {
 	@Get('@me')
 	@SkipServerAccess()
 	@ApiOperation({ summary: 'List servers for current user' })
-	async listMine(@Req() req: any) {
+	async listMine(@Req() req: AuthedRequest) {
 		const userId = req.user?.id;
 		if (!userId) throw new HttpException('Unauthorized', 401);
 		return this.serverService.findByMember(userId);
@@ -32,7 +33,7 @@ export class ServerController {
 	@ApiOperation({ summary: 'Create a new server' })
 	async create(
 		@Body() body: CreateServerDto,
-		@Req() req: any
+		@Req() req: AuthedRequest
 	) {
 		const userId = req.user?.id;
 		if (!userId) throw new HttpException('Unauthorized', 401);
@@ -58,7 +59,7 @@ export class ServerController {
 	async update(
 		@Param('serverId') serverId: string,
 		@Body() body: UpdateServerDto,
-		@Req() req: any
+		@Req() req: AuthedRequest
 	) {
 		const userId = req.user?.id;
 		if (!userId) throw new HttpException('Unauthorized', 401);
@@ -74,7 +75,7 @@ export class ServerController {
 	async transferOwnership(
 		@Param('serverId') serverId: string,
 		@Body() body: TransferOwnershipDto,
-		@Req() req: any
+		@Req() req: AuthedRequest
 	) {
 		const userId = req.user?.id;
 		if (!userId) throw new HttpException('Unauthorized', 401);
@@ -87,7 +88,7 @@ export class ServerController {
 
 	@Delete(':serverId')
 	@ApiOperation({ summary: 'Delete server (owner only)' })
-	async remove(@Param('serverId') serverId: string, @Req() req: any) {
+	async remove(@Param('serverId') serverId: string, @Req() req: AuthedRequest) {
 		const userId = req.user?.id;
 		if (!userId) throw new HttpException('Unauthorized', 401);
 		try {
@@ -104,7 +105,7 @@ export class ServerController {
 	async createInvite(
 		@Param('serverId') serverId: string,
 		@Body() body: CreateInviteDto,
-		@Req() req: any
+		@Req() req: AuthedRequest
 	) {
 		const userId = req.user?.id;
 		if (!userId) throw new HttpException('Unauthorized', 401);
@@ -141,7 +142,7 @@ export class ServerController {
 		@Param('serverId') serverId: string,
 		@Param('code') code: string,
 		@Body() body: UpdateInviteDto,
-		@Req() req: any
+		@Req() req: AuthedRequest
 	) {
 		const userId = req.user?.id;
 		if (!userId) throw new HttpException('Unauthorized', 401);
@@ -157,7 +158,7 @@ export class ServerController {
 	async deleteInvite(
 		@Param('serverId') serverId: string,
 		@Param('code') code: string,
-		@Req() req: any
+		@Req() req: AuthedRequest
 	) {
 		const userId = req.user?.id;
 		if (!userId) throw new HttpException('Unauthorized', 401);
@@ -189,7 +190,7 @@ export class InviteController {
 	@Post(':code')
 	@SkipServerAccess()
 	@ApiOperation({ summary: 'Join server via invite code' })
-	async join(@Param('code') code: string, @Req() req: any) {
+	async join(@Param('code') code: string, @Req() req: AuthedRequest) {
 		const userId = req.user?.id;
 		if (!userId) throw new HttpException('Unauthorized', 401);
 		try {

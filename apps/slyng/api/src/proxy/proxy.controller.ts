@@ -8,6 +8,7 @@ import {
 	HttpStatus,
 	Logger
 } from '@nestjs/common';
+import type { AuthedRequest } from '../auth/authed-request';
 import { ApiTags, ApiOperation } from '@nestjs/swagger';
 import { ConfigService } from '@nestjs/config';
 import { Public } from '../auth/public.decorator';
@@ -264,11 +265,11 @@ export class ProxyController {
 		return headers;
 	}
 
-	private getActorDid(req: Request): string {
+	private getActorDid(req: AuthedRequest): string {
 		// Prefer the authenticated session's DID; fall back to client IP so the
 		// rate-limit bucket still meaningfully throttles unauthenticated callers
 		// (e.g. native app loading <img> cross-origin without cookies).
-		const did = (req as any).user?.did ?? (req as any).user?.id;
+		const did = req.user?.did ?? req.user?.id;
 		if (did) return did;
 		const fwd = req.headers['x-forwarded-for'];
 		const ip = Array.isArray(fwd) ? fwd[0] : fwd?.split(',')[0]?.trim();

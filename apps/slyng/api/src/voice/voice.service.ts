@@ -26,8 +26,10 @@ export class VoiceService {
 
 	async join(userId: string, channelId: string, serverId: string): Promise<VoiceState> {
 		if (!serverId) {
+			// DM channels have no server_id, so this stays '' for them rather
+			// than encoding an undefined link.
 			const channel = await this.channels.findById(channelId);
-			serverId = channel ? stringToRecordId.encode((channel as any).server_id) : '';
+			serverId = channel?.server_id ? stringToRecordId.encode(channel.server_id) : '';
 		}
 		await this.leave(userId);
 
@@ -49,7 +51,7 @@ export class VoiceService {
 
 		const existing = await this.voiceStates.findOne({ user_id: userId });
 		if (existing) {
-			await this.voiceStates.merge((existing as any).id, {
+			await this.voiceStates.merge(existing.id, {
 				channel_id: dbChannelId,
 				server_id: dbServerId,
 				self_mute: false,
@@ -87,7 +89,7 @@ export class VoiceService {
 
 		const existing = await this.voiceStates.findOne({ user_id: userId });
 		if (existing) {
-			await this.voiceStates.merge((existing as any).id, {
+			await this.voiceStates.merge(existing.id, {
 				self_mute: selfMute,
 				self_deaf: selfDeaf,
 				updated_at: new Date()
@@ -130,7 +132,7 @@ export class VoiceService {
 	async loadFromDb(): Promise<void> {
 		const rows = await this.voiceStates.findMany();
 		for (const row of rows) {
-			this.states.set((row as any).user_id, row as any);
+			this.states.set(row.user_id, row as any);
 		}
 	}
 }

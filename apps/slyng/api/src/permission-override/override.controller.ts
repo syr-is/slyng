@@ -3,6 +3,7 @@ import { ApiTags, ApiOperation } from '@nestjs/swagger';
 import { RequirePermission } from '../auth/require-permission.decorator';
 import { OverrideService } from './override.service';
 import { UpsertOverrideDto } from '../dto';
+import type { AuthedRequest } from '../auth/authed-request';
 
 @ApiTags('permission-overrides')
 @Controller()
@@ -42,7 +43,7 @@ export class OverrideController {
 	async upsert(
 		@Param('serverId') serverId: string,
 		@Body() body: UpsertOverrideDto,
-		@Req() req: any
+		@Req() req: AuthedRequest
 	) {
 		const actor = req.user?.id;
 		if (!actor) throw new HttpException('Unauthorized', 401);
@@ -62,7 +63,7 @@ export class OverrideController {
 	async remove(
 		@Param('serverId') serverId: string,
 		@Param('overrideId') overrideId: string,
-		@Req() req: any
+		@Req() req: AuthedRequest
 	) {
 		const actor = req.user?.id;
 		if (!actor) throw new HttpException('Unauthorized', 401);

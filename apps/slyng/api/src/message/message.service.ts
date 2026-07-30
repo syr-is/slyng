@@ -1,4 +1,4 @@
-import { Injectable, Inject, Optional, Logger, ForbiddenException } from '@nestjs/common';
+import { Injectable, Inject, Optional, Logger, ForbiddenException, NotFoundException } from '@nestjs/common';
 import { RecordId } from 'surrealdb';
 import { Permissions, WsOp, stringToRecordId } from '@slyng/types';
 import { EmbedService } from '../embed/embed.service';
@@ -16,7 +16,8 @@ import { AuditLogService } from '../audit-log/audit-log.service';
 import {
 	MessageRepository,
 	MessageReactionRepository,
-	PinnedMessageRepository
+	PinnedMessageRepository,
+	type MessageRow
 } from './message.repository';
 
 @Injectable()
@@ -70,7 +71,7 @@ export class MessageService {
 	private async getServerIdForChannel(channelRef: RecordId | string): Promise<string | null> {
 		const channel = await this.channels.findById(channelRef as any);
 		if (!channel) return null;
-		const sid = (channel as any).server_id;
+		const sid = channel.server_id;
 		return sid ? stringToRecordId.encode(sid) : null;
 	}
 
@@ -85,8 +86,8 @@ export class MessageService {
 		const users = await this.users.findMany();
 		const instanceByDid = new Map<string, string>(
 			users
-				.filter((u) => dids.includes((u as any).did as string))
-				.map((u) => [(u as any).did as string, (u as any).syr_instance_url as string])
+				.filter((u) => dids.includes(u.did as string))
+				.map((u) => [u.did as string, u.syr_instance_url as string])
 		);
 		return msgs.map((m) => ({
 			...m,
@@ -112,9 +113,9 @@ export class MessageService {
 		const channels = await this.channels.findMany({ server_id: serverRef });
 		if (!channels.length) return { items: [], total: 0 };
 
-		const channelIds = channels.map((c) => (c as any).id as RecordId);
+		const channelIds = channels.map((c) => c.id as RecordId);
 		const nameByChannel = new Map<string, string>(
-			channels.map((c) => [stringToRecordId.encode((c as any).id as RecordId), (c as any).name as string])
+			channels.map((c) => [stringToRecordId.encode(c.id as RecordId), c.name as string])
 		);
 
 		const db = (this.messages as any).db;
@@ -146,13 +147,13 @@ export class MessageService {
 		const total = allRows.length;
 		const pageRows = allRows.slice(offset, offset + limit);
 
-		const enriched = await this.enrich(pageRows as any);
+		const enriched = await this.enrich(pageRows);
 		const reveal = await this.canRevealRemoved(actorUserId, serverId);
 		const withChannel = enriched.map((m) => {
 			const row = this.maskIfDeleted(m as any, reveal);
 			return {
 				...row,
-				channel_name: nameByChannel.get(stringToRecordId.encode((row as any).channel_id as RecordId)) ?? null
+				channel_name: nameByChannel.get(stringToRecordId.encode(row.channel_id as RecordId)) ?? null
 			};
 		});
 		return { items: withChannel, total };
@@ -188,11 +189,11 @@ export class MessageService {
 		const channels = await this.channels.findMany({ server_id: serverRef });
 		if (!channels.length) return { items: [], total: 0 };
 
-		const channelIds = channels.map((c) => (c as any).id as RecordId);
+		const channelIds = channels.map((c) => c.id as RecordId);
 		const nameByChannel = new Map<string, string>(
 			channels.map((c) => [
-				stringToRecordId.encode((c as any).id as RecordId),
-				(c as any).name as string
+				stringToRecordId.encode(c.id as RecordId),
+				c.name as string
 			])
 		);
 
@@ -236,11 +237,11 @@ export class MessageService {
 		const total = allRows.length;
 		const pageRows = allRows.slice(offset, offset + limit);
 
-		const enriched = await this.enrich(pageRows as any);
+		const enriched = await this.enrich(pageRows);
 		const withChannel = enriched.map((m) => ({
 			...(m as any),
 			channel_name:
-				nameByChannel.get(stringToRecordId.encode((m as any).channel_id as RecordId)) ?? null
+				nameByChannel.get(stringToRecordId.encode(m.channel_id as RecordId)) ?? null
 		}));
 		return { items: withChannel, total };
 	}
@@ -282,12 +283,12 @@ export class MessageService {
 		const tree = await this.roleService.buildPermissionTree(actorUserId, serverId);
 		const readable = [
 			...tree.uncategorized,
-			...tree.categories.flatMap((c: any) => c.channels as any[])
-		].filter((c: any) => c.can_view);
+			...tree.categories.flatMap((c) => c.channels)
+		].filter((c) => c.can_view);
 		if (!readable.length) return { items: [], total: 0 };
 
-		const nameById = new Map<string, string>(readable.map((c: any) => [c.id as string, c.name as string]));
-		let readableIds = readable.map((c: any) => c.id as string);
+		const nameById = new Map<string, string>(readable.map((c) => [c.id, c.name]));
+		let readableIds = readable.map((c) => c.id);
 
 		// `in:` narrows to a single channel — but only one the actor can read.
 		if (options.channel_id?.trim()) {
@@ -297,39 +298,16 @@ export class MessageService {
 
 		const channelRefs = readableIds.map((id) => stringToRecordId.decode(id));
 
-		const db = (this.messages as any).db;
-		const bindings: Record<string, unknown> = { channels: channelRefs };
-		const where = ['channel_id IN $channels', '(deleted = NONE OR deleted = false)'];
-		if (options.q?.trim()) {
-			bindings.q = options.q.trim().toLowerCase();
-			where.push('string::lowercase(content) CONTAINS $q');
-		}
-		if (options.sender_id?.trim()) {
-			bindings.sender = options.sender_id.trim();
-			where.push('sender_id = $sender');
-		}
-		if (options.mentions?.trim()) {
-			bindings.mention = options.mentions.trim();
-			where.push('mentions CONTAINS $mention');
-		}
-		if (options.pinned) {
-			where.push('pinned = true');
-		}
-		if (options.since) {
-			bindings.since = options.since;
-			where.push('created_at >= $since');
-		}
-		if (options.until) {
-			bindings.until = options.until;
-			where.push('created_at <= $until');
-		}
-		const whereSql = `WHERE ${where.join(' AND ')}`;
-
-		const allResult = (await db.query(
-			`SELECT * FROM message ${whereSql} ORDER BY created_at DESC`,
-			bindings
-		)) as any[];
-		let allRows = (allResult[0] ?? []) as any[];
+		// SQL-expressible predicates live in the repository; only `has:` (which
+		// needs attachment/embed introspection) is applied here.
+		let allRows = await this.messages.searchInChannels(channelRefs, {
+			q: options.q,
+			sender_id: options.sender_id,
+			mentions: options.mentions,
+			pinned: options.pinned,
+			since: options.since,
+			until: options.until
+		});
 
 		// `has:` predicates are AND-combined (Discord semantics).
 		const has = (options.has ?? []).map((h) => h.toLowerCase()).filter(Boolean);
@@ -340,11 +318,11 @@ export class MessageService {
 		const total = allRows.length;
 		const pageRows = allRows.slice(offset, offset + limit);
 
-		const enriched = await this.enrich(pageRows as any);
+		const enriched = await this.enrich(pageRows);
 		const withChannel = enriched.map((m) => ({
 			...(m as any),
 			channel_name:
-				nameById.get(stringToRecordId.encode((m as any).channel_id as RecordId)) ?? null
+				nameById.get(stringToRecordId.encode(m.channel_id as RecordId)) ?? null
 		}));
 		return { items: withChannel, total };
 	}
@@ -365,7 +343,7 @@ export class MessageService {
 
 		const memberships = await this.members.findMany({ user_id: actorUserId });
 		const serverIds = [
-			...new Set(memberships.map((m) => stringToRecordId.encode((m as any).server_id as RecordId)))
+			...new Set(memberships.map((m) => stringToRecordId.encode(m.server_id as RecordId)))
 		];
 		if (!serverIds.length) return { items: [], total: 0 };
 
@@ -376,8 +354,8 @@ export class MessageService {
 			const tree = await this.roleService.buildPermissionTree(actorUserId, sid);
 			const readable = [
 				...tree.uncategorized,
-				...tree.categories.flatMap((c: any) => c.channels as any[])
-			].filter((c: any) => c.can_view);
+				...tree.categories.flatMap((c) => c.channels)
+			].filter((c) => c.can_view);
 			for (const c of readable) {
 				nameByChannel.set(c.id, c.name);
 				serverByChannel.set(c.id, sid);
@@ -386,30 +364,17 @@ export class MessageService {
 		}
 		if (!channelRefs.length) return { items: [], total: 0 };
 
-		const db = (this.messages as any).db;
-		const bindings: Record<string, unknown> = {
-			channels: channelRefs,
-			self: actorUserId,
-			everyone: 'everyone'
-		};
-		const whereSql = [
-			'channel_id IN $channels',
-			'(deleted = NONE OR deleted = false)',
-			'sender_id != $self',
-			'(mentions CONTAINS $self OR mentions CONTAINS $everyone)'
-		].join(' AND ');
-
-		const allResult = (await db.query(
-			`SELECT * FROM message WHERE ${whereSql} ORDER BY created_at DESC LIMIT 500`,
-			bindings
-		)) as any[];
-		const allRows = (allResult[0] ?? []) as any[];
+		const allRows = await this.messages.findMentioning(
+			channelRefs,
+			actorUserId,
+			MessageService.MENTION_INBOX_CANDIDATES
+		);
 		const total = allRows.length;
 		const pageRows = allRows.slice(offset, offset + limit);
 
-		const enriched = await this.enrich(pageRows as any);
+		const enriched = await this.enrich(pageRows);
 		const withChannel = enriched.map((m) => {
-			const cid = stringToRecordId.encode((m as any).channel_id as RecordId);
+			const cid = stringToRecordId.encode(m.channel_id as RecordId);
 			return {
 				...(m as any),
 				channel_name: nameByChannel.get(cid) ?? null,
@@ -418,6 +383,13 @@ export class MessageService {
 		});
 		return { items: withChannel, total };
 	}
+
+	/**
+	 * Upper bound on rows the mention inbox considers. Deliberately a cap, not
+	 * true pagination — past this the older mentions are simply not reachable
+	 * from the inbox.
+	 */
+	private static readonly MENTION_INBOX_CANDIDATES = 500;
 
 	private static readonly URL_RE = /https?:\/\/\S+/i;
 	private static readonly MENTION_RE = /<@([^\s<>]+)>/g;
@@ -452,7 +424,7 @@ export class MessageService {
 		if (!raw.dids.length && !raw.everyone) return { mentions: [], recipients: [] };
 
 		const members = await this.members.findMany({ server_id: stringToRecordId.decode(serverId) });
-		const memberDids = new Set(members.map((mm) => (mm as any).user_id as string));
+		const memberDids = new Set(members.map((mm) => mm.user_id as string));
 
 		const canRead = (did: string) =>
 			this.roleService.hasPermission(did, serverId, Permissions.READ_MESSAGES, channelId);
@@ -479,7 +451,7 @@ export class MessageService {
 		const recipients = new Set(explicit);
 		if (everyoneOk) {
 			for (const mm of members) {
-				const did = (mm as any).user_id as string;
+				const did = mm.user_id as string;
 				if (did === senderId) continue;
 				if (await canRead(did)) recipients.add(did);
 			}
@@ -492,8 +464,8 @@ export class MessageService {
 		const existing = await this.readStates.findOne({ user_id: userId, channel_id: channelRef });
 		const now = new Date();
 		if (existing) {
-			await this.readStates.merge((existing as any).id, {
-				mention_count: ((existing as any).mention_count ?? 0) + 1,
+			await this.readStates.merge(existing.id, {
+				mention_count: (existing.mention_count ?? 0) + 1,
 				updated_at: now
 			});
 		} else {
@@ -536,9 +508,9 @@ export class MessageService {
 	}
 
 	/** Backing check for a single `has:` predicate. */
-	private messageHas(row: any, kind: string): boolean {
-		const attachments: any[] = Array.isArray(row.attachments) ? row.attachments : [];
-		const embeds: any[] = Array.isArray(row.embeds) ? row.embeds : [];
+	private messageHas(row: MessageRow, kind: string): boolean {
+		const attachments = Array.isArray(row.attachments) ? row.attachments : [];
+		const embeds = Array.isArray(row.embeds) ? row.embeds : [];
 		switch (kind) {
 			case 'file':
 				return attachments.length > 0;
@@ -569,7 +541,7 @@ export class MessageService {
 		if (!channels.length) {
 			return { total: 0, first_at: null, last_at: null, per_channel: [] };
 		}
-		const channelIds = channels.map((c) => (c as any).id as RecordId);
+		const channelIds = channels.map((c) => c.id as RecordId);
 		const db = (this.messages as any).db;
 
 		const [aggResult, perChannelResult] = await Promise.all([
@@ -586,7 +558,7 @@ export class MessageService {
 		const agg = ((aggResult as any)[0]?.[0] as any) ?? {};
 		const perChannelRows = ((perChannelResult as any)[0] ?? []) as any[];
 		const nameByChannel = new Map<string, string>(
-			channels.map((c) => [stringToRecordId.encode((c as any).id as RecordId), (c as any).name as string])
+			channels.map((c) => [stringToRecordId.encode(c.id as RecordId), c.name as string])
 		);
 
 		return {
@@ -630,8 +602,8 @@ export class MessageService {
 		const includeDeleted = !!options.includeDeleted && reveal;
 		const postDeletedFilter = includeDeleted
 			? all
-			: all.filter((m) => !(m as any).deleted);
-		const enriched = await this.enrich(postDeletedFilter as any);
+			: all.filter((m) => !m.deleted);
+		const enriched = await this.enrich(postDeletedFilter);
 		// Even when includeDeleted is true for a privileged caller, run through
 		// maskIfDeleted as a no-op safety (reveal=true means no mask). Cheap.
 		const masked = enriched.map((m) => this.maskIfDeleted(m as any, reveal));
@@ -660,9 +632,9 @@ export class MessageService {
 		// deferring the check doesn't create a safety hole — participants
 		// voluntarily joined.
 		const channel = await this.channels.findById(channelRef as any);
-		if (channel && (channel as any).type === 'direct') {
+		if (channel && channel.type === 'direct') {
 			const parts = await this.participants.findMany({ channel_id: channelRef });
-			const other = parts.find((p) => (p as any).user_id !== senderId) as any;
+			const other = parts.find((p) => p.user_id !== senderId) as any;
 			if (other?.user_id) {
 				const check = await this.relations.canDM(senderId, other.user_id);
 				if (!check.allowed) {
@@ -691,7 +663,7 @@ export class MessageService {
 		// row (drives inbox + `mentions:` search). Only server channels — DM
 		// mentions aren't a concept here.
 		const serverIdForCh =
-			channel && (channel as any).type !== 'direct'
+			channel && channel.type !== 'direct'
 				? await this.getServerIdForChannel(channelRef)
 				: null;
 		const { mentions, recipients } = serverIdForCh
@@ -714,7 +686,7 @@ export class MessageService {
 
 		await this.channels.merge(channelRef, { last_message_at: now });
 
-		const [enriched] = await this.enrich([message as any]);
+		const [enriched] = await this.enrich([message]);
 
 		if (this.gateway) {
 			this.gateway.emitToChannel(channelId, { op: WsOp.MESSAGE_CREATE, d: enriched });
@@ -733,12 +705,12 @@ export class MessageService {
 
 		if (this.embedService) {
 			this.embedService.resolveFromContent(content).then(async (embeds) => {
-				if (embeds.length > 0 && (message as any).id) {
-					const updated = await this.messages.merge((message as any).id as RecordId, {
+				if (embeds.length > 0 && message.id) {
+					const updated = await this.messages.merge(message.id as RecordId, {
 						embeds,
 						updated_at: new Date()
 					});
-					const [updEnriched] = await this.enrich([updated as any]);
+					const [updEnriched] = await this.enrich([updated]);
 					this.gateway?.emitToChannel(channelId, { op: WsOp.MESSAGE_UPDATE, d: updEnriched });
 				}
 			}).catch(() => {});
@@ -750,17 +722,17 @@ export class MessageService {
 	async update(messageId: string, senderId: string, content: string) {
 		const existing = await this.messages.findById(messageId);
 		if (!existing) throw new Error('Message not found');
-		if ((existing as any).sender_id !== senderId) throw new Error("Cannot edit others' messages");
+		if (existing.sender_id !== senderId) throw new Error("Cannot edit others' messages");
 
 		const updated = await this.messages.merge(messageId, {
 			content,
 			edited_at: new Date(),
 			updated_at: new Date()
 		});
-		const [enriched] = await this.enrich([updated as any]);
+		const [enriched] = await this.enrich([updated]);
 
 		if (this.gateway) {
-			const chId = stringToRecordId.encode((existing as any).channel_id);
+			const chId = stringToRecordId.encode(existing.channel_id);
 			this.gateway.emitToChannel(chId, { op: WsOp.MESSAGE_UPDATE, d: enriched });
 		}
 		return enriched;
@@ -769,16 +741,16 @@ export class MessageService {
 	async clearEmbeds(messageId: string, senderId: string) {
 		const existing = await this.messages.findById(messageId);
 		if (!existing) throw new Error('Message not found');
-		if ((existing as any).sender_id !== senderId) throw new Error('Only sender can remove embeds');
+		if (existing.sender_id !== senderId) throw new Error('Only sender can remove embeds');
 
 		const updated = await this.messages.merge(messageId, {
 			embeds: [],
 			updated_at: new Date()
 		});
-		const [enriched] = await this.enrich([updated as any]);
+		const [enriched] = await this.enrich([updated]);
 
 		if (this.gateway) {
-			const chId = stringToRecordId.encode((existing as any).channel_id);
+			const chId = stringToRecordId.encode(existing.channel_id);
 			this.gateway.emitToChannel(chId, { op: WsOp.MESSAGE_UPDATE, d: enriched });
 		}
 		return enriched;
@@ -788,9 +760,9 @@ export class MessageService {
 		const existing = await this.messages.findById(messageId);
 		if (!existing) throw new Error('Message not found');
 
-		const chId = stringToRecordId.encode((existing as any).channel_id);
-		const isOwn = (existing as any).sender_id === actorUserId;
-		const senderId = (existing as any).sender_id as string;
+		const chId = stringToRecordId.encode(existing.channel_id);
+		const isOwn = existing.sender_id === actorUserId;
+		const senderId = existing.sender_id as string;
 
 		// Sender can always delete their own; otherwise need MANAGE_MESSAGES in the server.
 		// Route-layer guard doesn't fit here (mixed identity) so the check stays inline.
@@ -816,8 +788,10 @@ export class MessageService {
 			// signal in their WS stream. Seamless timeline for non-priv users.
 			const subscribers = this.gateway.getChannelSubscribers(chId);
 			if (subscribers.size > 0) {
+				// Re-read can miss if the row was hard-deleted between the soft
+				// delete and this broadcast; fall through to MESSAGE_DELETE only.
 				const updated = await this.messages.findById(messageId);
-				const [enriched] = await this.enrich([updated as any]);
+				const [enriched] = updated ? await this.enrich([updated]) : [undefined];
 				const deleteEvent = {
 					op: WsOp.MESSAGE_DELETE,
 					d: { id: messageId, channel_id: chId }
@@ -856,11 +830,11 @@ export class MessageService {
 	async restore(messageId: string, actorUserId: string) {
 		const existing = await this.messages.findById(messageId);
 		if (!existing) throw new Error('Message not found');
-		if (!(existing as any).deleted) throw new Error('Message is not in trash');
+		if (!existing.deleted) throw new Error('Message is not in trash');
 
-		const chId = stringToRecordId.encode((existing as any).channel_id);
+		const chId = stringToRecordId.encode(existing.channel_id);
 		const serverId = await this.getServerIdForChannel(chId);
-		const senderId = (existing as any).sender_id as string;
+		const senderId = existing.sender_id as string;
 
 		await this.messages.merge(messageId, {
 			deleted: false,
@@ -870,7 +844,8 @@ export class MessageService {
 		});
 
 		const restored = await this.messages.findById(messageId);
-		const [enriched] = await this.enrich([restored as any]);
+		if (!restored) throw new NotFoundException('Message not found after restore');
+		const [enriched] = await this.enrich([restored]);
 
 		if (this.gateway) {
 			// Broadcast un-masked row so every client gets the content back.
@@ -895,13 +870,13 @@ export class MessageService {
 	async hardDelete(messageId: string, actorUserId: string) {
 		const existing = await this.messages.findById(messageId);
 		if (!existing) throw new Error('Message not found');
-		if (!(existing as any).deleted)
+		if (!existing.deleted)
 			throw new Error('Message must be in trash before hard delete');
 
-		const chId = stringToRecordId.encode((existing as any).channel_id);
+		const chId = stringToRecordId.encode(existing.channel_id);
 		const serverId = await this.getServerIdForChannel(chId);
-		const senderId = (existing as any).sender_id as string;
-		const contentLength = ((existing as any).content as string | undefined)?.length ?? 0;
+		const senderId = existing.sender_id as string;
+		const contentLength = (existing.content as string | undefined)?.length ?? 0;
 
 		const msgRef = stringToRecordId.decode(messageId);
 		await Promise.all([
@@ -1023,7 +998,7 @@ export class MessageService {
 		);
 		if (!pins.length) return [];
 
-		const messageIds = pins.map((p) => (p as any).message_id as RecordId);
+		const messageIds = pins.map((p) => p.message_id as RecordId);
 		const messages = await this.messages.findByIds(messageIds);
 
 		// Same viewer-aware filter as findByChannel.
@@ -1032,7 +1007,7 @@ export class MessageService {
 		const includeDeleted = !!options.includeDeleted && reveal;
 		const filtered = includeDeleted
 			? messages
-			: messages.filter((m) => !(m as any).deleted);
+			: messages.filter((m) => !m.deleted);
 		return filtered.map((m) => this.maskIfDeleted(m as any, reveal));
 	}
 }
