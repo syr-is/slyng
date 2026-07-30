@@ -73,6 +73,9 @@ pub enum WsOp {
 	IgnoreUpdate = 56,
 	DmPolicyUpdate = 57,
 	DmChannelCreate = 58,
+
+	ServerEmojiUpdate = 59,
+	MentionAdd = 60,
 }
 
 impl From<WsOp> for u32 {
@@ -130,6 +133,8 @@ impl TryFrom<u32> for WsOp {
 			56 => IgnoreUpdate,
 			57 => DmPolicyUpdate,
 			58 => DmChannelCreate,
+			59 => ServerEmojiUpdate,
+			60 => MentionAdd,
 			other => return Err(format!("unknown WsOp {other}")),
 		})
 	}

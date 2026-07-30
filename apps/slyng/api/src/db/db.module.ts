@@ -41,6 +41,10 @@ import {
 import { PostRepository } from '../idp/idp-post.repository';
 import { EmojiRepository, GifRepository } from '../idp/idp-media.repository';
 import {
+	ServerEmojiRepository,
+	ServerGifRepository
+} from '../server-media/server-media.repository';
+import {
 	CommentRepository,
 	ReactionRepository,
 	FollowRepository
@@ -83,6 +87,8 @@ const repositories = [
 	PostRepository,
 	EmojiRepository,
 	GifRepository,
+	ServerEmojiRepository,
+	ServerGifRepository,
 	CommentRepository,
 	ReactionRepository,
 	FollowRepository,

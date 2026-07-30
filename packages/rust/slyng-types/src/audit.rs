@@ -60,6 +60,14 @@ pub enum AuditAction {
 	InviteUpdate,
 	#[serde(rename = "invite_delete")]
 	InviteDelete,
+	#[serde(rename = "emoji_create")]
+	EmojiCreate,
+	#[serde(rename = "emoji_delete")]
+	EmojiDelete,
+	#[serde(rename = "gif_create")]
+	GifCreate,
+	#[serde(rename = "gif_delete")]
+	GifDelete,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, ZodSchema)]
@@ -78,6 +86,10 @@ pub enum AuditTargetKind {
 	Server,
 	#[serde(rename = "invite")]
 	Invite,
+	#[serde(rename = "emoji")]
+	Emoji,
+	#[serde(rename = "gif")]
+	Gif,
 }
 
 /// Free-form metadata on each audit entry. The API attaches whatever

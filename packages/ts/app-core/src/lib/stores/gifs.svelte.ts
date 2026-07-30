@@ -41,7 +41,10 @@ async function fetchAndCache(did: string, instanceUrl: string, query: string) {
 		const sep = base.includes('?') ? '&' : '?';
 		const url = `${base}${sep}limit=24${query ? `&search=${encodeURIComponent(query)}` : ''}`;
 
-		const res = await fetch(proxied(url));
+		// no-store: this SvelteMap is the cache of record and this fetch only runs
+		// on a miss or after a PROFILE_UPDATE invalidation, so bypass the media
+		// proxy's max-age=60 or a fresh gif lags up to a minute.
+		const res = await fetch(proxied(url), { cache: 'no-store' });
 		if (!res.ok) throw new Error('gif fetch failed');
 		const body = (await res.json()) as { data: GifEntry[] };
 		cache.set(k, {

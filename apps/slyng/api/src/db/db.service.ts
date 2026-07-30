@@ -172,6 +172,17 @@ export class DbService implements OnModuleDestroy {
 			DEFINE TABLE IF NOT EXISTS gif SCHEMALESS;
 			DEFINE INDEX IF NOT EXISTS idx_gif_status ON TABLE gif COLUMNS status;
 
+			-- Server-owned emoji/sticker + GIF sets (server-native, NOT federated).
+			-- Keyed by server_id (plain auto-id rows, no composite). Every member
+			-- reads them; MANAGE_EMOJIS gates mutations. Capped at 250 each in the
+			-- service. Used platform-wide (a member can type them in any channel/DM).
+			DEFINE TABLE IF NOT EXISTS server_emoji SCHEMALESS;
+			DEFINE INDEX IF NOT EXISTS idx_server_emoji_server ON TABLE server_emoji COLUMNS server_id;
+			DEFINE INDEX IF NOT EXISTS idx_server_emoji_status ON TABLE server_emoji COLUMNS status;
+			DEFINE TABLE IF NOT EXISTS server_gif SCHEMALESS;
+			DEFINE INDEX IF NOT EXISTS idx_server_gif_server ON TABLE server_gif COLUMNS server_id;
+			DEFINE INDEX IF NOT EXISTS idx_server_gif_status ON TABLE server_gif COLUMNS status;
+
 			-- Interactions (P8): comments + reactions (composite ids), follows
 			-- (composite id keyed by follower did). Post/target lookups index
 			-- the flat columns; per-author + by-follower listings ride the

@@ -116,6 +116,47 @@ export class ChannelController {
 		});
 	}
 
+	@Get('servers/:serverId/messages/search')
+	@ApiOperation({ summary: 'Search messages across the channels a member can read (paginated)' })
+	async searchMessages(
+		@Param('serverId') serverId: string,
+		@Req() req: any,
+		@PaginatedQuery({ dateRange: true }) p: DateRangeOptions,
+		@Query('sender_id') senderId?: string,
+		@Query('channel_id') channelId?: string,
+		@Query('has') has?: string,
+		@Query('mentions') mentions?: string,
+		@Query('pinned') pinned?: string
+	) {
+		const userId = req?.user?.id;
+		if (!userId) throw new HttpException('Unauthorized', 401);
+		return this.messageService.searchInServer(serverId, userId, {
+			...p,
+			sender_id: senderId,
+			channel_id: channelId,
+			mentions,
+			has: has
+				? has
+						.split(',')
+						.map((h) => h.trim())
+						.filter(Boolean)
+				: undefined,
+			pinned: pinned === 'true' || pinned === '1'
+		});
+	}
+
+	@Get('mentions')
+	@SkipServerAccess()
+	@ApiOperation({ summary: 'Global mention inbox: recent messages mentioning the caller across all their servers' })
+	async mentionInbox(@Req() req: any, @PaginatedQuery() p: DateRangeOptions) {
+		const userId = req?.user?.id;
+		if (!userId) throw new HttpException('Unauthorized', 401);
+		return this.messageService.findAllMentionsForUser(userId, {
+			limit: p.limit,
+			offset: p.offset
+		});
+	}
+
 	@Post('channels/:channelId/restore')
 	@RequirePermission('VIEW_TRASH')
 	@ApiOperation({ summary: 'Restore a soft-deleted channel' })

@@ -7,7 +7,7 @@ Federated real-time chat on the syr platform.
 ## Dev
 
 ```bash
-docker compose up -d   # SurrealDB + SeaweedFS + LiveKit
+docker compose up -d   # SurrealDB + MinIO + LiveKit
 pnpm install
 pnpm dev               # all apps
 # or
@@ -56,7 +56,7 @@ delegation.
 
 ### LiveKit (voice/video)
 
-Voice and video use a self-hosted [LiveKit](https://livekit.io) SFU running in Docker. The `docker compose up -d` command starts it alongside SurrealDB and SeaweedFS.
+Voice and video use a self-hosted [LiveKit](https://livekit.io) SFU running in Docker. The `docker compose up -d` command starts it alongside SurrealDB and MinIO.
 
 For **cross-device testing**, set `LIVEKIT_NODE_IP` in `.env` to your machine's LAN IP so ICE candidates are routable:
 

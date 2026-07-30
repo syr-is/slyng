@@ -5,9 +5,11 @@
 	import EmojiPicker from './emoji-picker.svelte';
 	import MediaPicker from './media-picker.svelte';
 	import SyrUploadPicker from './syr-upload-picker.svelte';
+	import MessageEditor from './chat-editor/message-editor.svelte';
 	import type { ClipItem } from '@slyng/types';
 	import { uploadFile, type Attachment, type UploadHandle } from '@slyng/app-core/upload/upload-client';
 	import { proxied } from '@slyng/app-core/utils/proxy';
+	import { composerEmojiList } from '@slyng/app-core/stores/usable-emojis.svelte';
 
 	const {
 		channelId,
@@ -36,12 +38,12 @@
 		attachment?: Attachment;
 	}
 
-	let content = $state('');
 	let lastTypingSent = 0;
 	let showEmojiPicker = $state(false);
 	let showSyrPicker = $state(false);
 	let dragOver = $state(false);
-	let inputEl: HTMLTextAreaElement | undefined = $state();
+	let editorRef: ReturnType<typeof MessageEditor> | undefined = $state();
+	let editorEmpty = $state(true);
 	let fileInput: HTMLInputElement | undefined = $state();
 
 	// Uploads in flight + finished local attachments (mix)
@@ -51,22 +53,14 @@
 	const hasPending = $derived(pending.some((p) => !p.attachment && !p.error));
 	const canSend = $derived(
 		!hasPending &&
-			(content.trim().length > 0 ||
+			(!editorEmpty ||
 				readyAttachments.length > 0 ||
 				pending.some((p) => !!p.attachment))
 	);
 
-	function handleKeydown(e: KeyboardEvent) {
-		if (e.key === 'Enter' && !e.shiftKey) {
-			e.preventDefault();
-			submit();
-			return;
-		}
-	}
-
-	// `oninput` fires after the textarea value actually changes — catches
-	// keystrokes, paste, IME composition, autocomplete. Fire typing on the
-	// first input, then throttle so we don't flood the WS.
+	// `oninput` fires after the editor doc changes — keystrokes, paste, IME,
+	// autocomplete. Fire typing on the first input, then throttle so we don't
+	// flood the WS.
 	function handleInput() {
 		const now = Date.now();
 		// Re-arm faster than the receiver's 3.5s auto-clear so sustained
@@ -79,11 +73,11 @@
 
 	function submit() {
 		if (!canSend) return;
-		const text = content.trim();
+		const text = editorRef?.getMarkdown() ?? '';
 		const finishedUploads = pending.filter((p) => !!p.attachment).map((p) => p.attachment!);
 		const attachments = [...finishedUploads, ...readyAttachments];
 		onSend(text, replyTo.map((r) => r.id), attachments);
-		content = '';
+		editorRef?.clear();
 		pending = [];
 		// After sending, any new keystroke should immediately re-fire typing.
 		lastTypingSent = 0;
@@ -91,21 +85,21 @@
 		showEmojiPicker = false;
 	}
 
-	function insertEmoji(emoji: string) {
-		const el = inputEl;
-		if (!el) {
-			content += emoji;
-			return;
+	// The emoji picker emits a string: a unicode glyph, `:code:` (custom emoji),
+	// or `::code::` (sticker). Custom shortcodes become an inline emoji NODE (so
+	// the art shows live in the composer); everything else is inserted as text.
+	function insertEmoji(token: string) {
+		const m = token.match(/^(:{1,2})([a-zA-Z0-9_~+-]+):{1,2}$/);
+		if (m) {
+			const isSticker = m[1] === '::';
+			const code = m[2];
+			const entry = composerEmojiList().find((e) => e.shortcode === code);
+			if (entry) {
+				editorRef?.insertEmoji({ shortcode: code, url: entry.url, isSticker });
+				return;
+			}
 		}
-		const start = el.selectionStart ?? content.length;
-		const end = el.selectionEnd ?? content.length;
-		content = content.slice(0, start) + emoji + content.slice(end);
-		// restore caret
-		queueMicrotask(() => {
-			el.focus();
-			const pos = start + emoji.length;
-			el.setSelectionRange(pos, pos);
-		});
+		editorRef?.insertText(token);
 	}
 
 	function queueFile(file: File) {
@@ -338,7 +332,7 @@
 		</div>
 	{/if}
 
-	<div class="flex items-end gap-2 rounded-lg bg-muted/40 px-3 py-2">
+	<div class="flex items-end gap-2 rounded-lg bg-muted/40 px-3 py-2" onpaste={handlePaste}>
 		<input
 			type="file"
 			multiple
@@ -347,7 +341,7 @@
 			onchange={handleFilePick}
 		/>
 		<button
-			class="shrink-0 pb-0.5 text-muted-foreground hover:text-foreground"
+			class="flex shrink-0 items-center justify-center pb-0.5 text-muted-foreground hover:text-foreground"
 			title="Attach file"
 			onclick={() => fileInput?.click()}
 		>
@@ -355,31 +349,34 @@
 		</button>
 
 		<button
-			class="shrink-0 pb-0.5 text-muted-foreground hover:text-foreground"
+			class="flex shrink-0 items-center justify-center pb-0.5 text-muted-foreground hover:text-foreground"
 			title="From my syr uploads"
 			onclick={() => (showSyrPicker = true)}
 		>
 			<Cloud class="h-5 w-5" />
 		</button>
 
-		<textarea
-			bind:this={inputEl}
-			bind:value={content}
-			onkeydown={handleKeydown}
-			oninput={handleInput}
-			onpaste={handlePaste}
-			placeholder="Message #{channelName || 'channel'}"
-			rows={1}
-			class="max-h-40 min-h-[24px] flex-1 resize-none bg-transparent text-sm text-foreground placeholder:text-muted-foreground focus:outline-none"
-		></textarea>
+		<div class="min-h-[24px] flex-1 self-center py-0.5">
+			<MessageEditor
+				bind:this={editorRef}
+				bind:empty={editorEmpty}
+				placeholder="Message #{channelName || 'channel'}"
+				onEnter={submit}
+				oninput={handleInput}
+			/>
+		</div>
 
-		<div class="shrink-0 self-end pb-0.5">
+		<!-- Flex (not block) so the inline-flex trigger inside doesn't sit on a
+		     text baseline — that descender gap is what lifted this icon a few px
+		     above the bare-<button> icons either side of it. -->
+		<div class="flex shrink-0 items-center justify-center pb-0.5">
 			<MediaPicker
 				side="top"
 				align="end"
 				onpick={handleClipPicked}
 				onpicksaved={handleSavedPicked}
 				triggerClass="size-auto p-0 hover:bg-transparent hover:text-foreground"
+				iconClass="size-5"
 			/>
 		</div>
 
@@ -387,14 +384,18 @@
 			onclick={() => {
 				showEmojiPicker = !showEmojiPicker;
 			}}
-			class="shrink-0 pb-0.5 text-muted-foreground hover:text-foreground"
+			class="flex shrink-0 items-center justify-center pb-0.5 text-muted-foreground hover:text-foreground"
 			title="Emoji"
 		>
 			<Smile class="h-5 w-5" />
 		</button>
 
 		{#if canSend}
-			<button onclick={submit} class="shrink-0 pb-0.5 text-primary hover:text-primary/80" title="Send">
+			<button
+				onclick={submit}
+				class="flex shrink-0 items-center justify-center pb-0.5 text-primary hover:text-primary/80"
+				title="Send"
+			>
 				<Send class="h-5 w-5" />
 			</button>
 		{/if}

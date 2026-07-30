@@ -16,21 +16,25 @@ services:
       start_period: 10s
     restart: unless-stopped
 
-  seaweedfs:
-    image: chrislusf/seaweedfs:latest
-    command: server -s3 -dir=/data -s3.port=8333 -volume.max=100 -ip=0.0.0.0
-    volumes:
-      - seaweedfs-prod-data:/data
+  # MinIO - S3-compatible object storage. Root creds = the app's S3 creds;
+  # the API (ObjectStoreService) creates the bucket + anonymous public-read
+  # policy at startup. Expose ONLY the S3 API (9000) at s3.slyng.gg — keep the
+  # console (9001) private. To fall back to SeaweedFS, set S3_PROVIDER=seaweedfs.
+  minio:
+    image: minio/minio:latest
+    command: server /data --console-address ":9001"
     environment:
-      - WEED_MASTER_VOLUME_GROWTH_COPY_1=2
-      - WEED_MASTER_VOLUME_GROWTH_COPY_2=1
-      - WEED_MASTER_VOLUME_GROWTH_COPY_OTHER=0
+      - MINIO_ROOT_USER=${S3_ACCESS_KEY_ID:-slyng-access-key}
+      - MINIO_ROOT_PASSWORD=${S3_SECRET_ACCESS_KEY}
+      - MINIO_API_CORS_ALLOW_ORIGIN=${S3_CORS_ORIGINS:-https://app.slyng.gg}
+    volumes:
+      - minio-prod-data:/data
     healthcheck:
-      test: ["CMD-SHELL", "wget -q --spider http://127.0.0.1:8333/ || exit 1"]
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
       interval: 10s
       timeout: 5s
-      retries: 10
-      start_period: 15s
+      retries: 5
+      start_period: 10s
     restart: unless-stopped
 
   livekit:
@@ -61,7 +65,8 @@ services:
       - SURREALDB_DATABASE=${SURREALDB_DATABASE:-slyng}
       - SURREALDB_USER=${SURREALDB_USER:-root}
       - SURREALDB_PASS=${SURREALDB_PASS}
-      - S3_ENDPOINT=http://seaweedfs:8333
+      - S3_PROVIDER=${S3_PROVIDER:-minio}
+      - S3_ENDPOINT=http://minio:9000
       - S3_BUCKET=${S3_BUCKET:-slyng}
       - S3_REGION=${S3_REGION:-us-east-1}
       - S3_ACCESS_KEY_ID=${S3_ACCESS_KEY_ID:-slyng-access-key}
@@ -80,7 +85,7 @@ services:
     depends_on:
       surrealdb:
         condition: service_healthy
-      seaweedfs:
+      minio:
         condition: service_healthy
     restart: unless-stopped
 
@@ -96,5 +101,5 @@ services:
 volumes:
   surrealdb-prod-data:
     driver: local
-  seaweedfs-prod-data:
+  minio-prod-data:
     driver: local

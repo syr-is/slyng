@@ -14,7 +14,7 @@ import { ApiOperation, ApiTags } from '@nestjs/swagger';
 import type { Request } from 'express';
 import { Public } from '../auth/public.decorator';
 import { SkipServerAccess } from '../auth/server-access.decorator';
-import { EmojiPresignDto, EmojiCompleteDto } from '../dto';
+import { EmojiPresignDto, EmojiCompleteDto, EmojiCopyDto } from '../dto';
 import { EmojiService } from './emoji.service';
 import { IdpPublicService } from './idp-public.service';
 
@@ -60,6 +60,14 @@ export class EmojiController {
 	async complete(@Req() req: Request, @Param('id') id: string, @Body() body: EmojiCompleteDto) {
 		const did = this.requireDid(req);
 		return { status: 'success', data: await this.emojis.complete(did, id, body) };
+	}
+
+	@SkipServerAccess()
+	@Post('emojis/copy')
+	@ApiOperation({ summary: "Copy an emoji seen in chat into the caller's own set" })
+	async copy(@Req() req: Request, @Body() body: EmojiCopyDto) {
+		const did = this.requireDid(req);
+		return { status: 'success', data: await this.emojis.copyFromUrl(did, body) };
 	}
 
 	@SkipServerAccess()

@@ -25,7 +25,7 @@ Federated real-time chat on the **syr platform**. Users authenticate via their s
 - **Backend**: NestJS 11, `@nestjs/platform-ws`, SurrealDB via schemaless tables + repository pattern.
 - **Validation**: Zod v4 everywhere; schemas live in `@slyng/types`.
 - **Federation**: syr `.well-known/syr/<did>` manifest → profile / stories / emojis / GIFs / `public_hash` endpoints. Fetches always go through `proxied()` (see below).
-- **Media**: SeaweedFS (S3-compatible) for uploads, presign → PUT → finalize.
+- **Media**: MinIO (S3-compatible) for uploads, presign → PUT → finalize. Provider-switched via `S3_PROVIDER` (`minio` | `seaweedfs`); `ObjectStoreService` (`apps/slyng/api/src/storage/`) owns the clients + boot-time bucket/public-read-policy setup. Mirrors syr's `object-store.ts`.
 - **Voice**: WebRTC mesh. Gateway is a signaling relay only.
 
 ## Commands
@@ -37,7 +37,7 @@ pnpm build        # build all packages + apps
 pnpm check        # type-check all workspaces (svelte-check + tsc)
 pnpm lint
 pnpm format
-docker compose up -d   # SurrealDB + SeaweedFS on dev ports
+docker compose up -d   # SurrealDB + MinIO on dev ports
 ```
 
 Always run `pnpm --filter @slyng/types build` after editing `packages/ts/types/` before building api/app.

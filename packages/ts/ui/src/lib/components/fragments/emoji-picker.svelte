@@ -2,6 +2,7 @@
 	import { Search } from '@lucide/svelte';
 	import { getAuth } from '@slyng/app-core/stores/auth.svelte';
 	import { resolveEmojis, type EmojiEntry } from '@slyng/app-core/stores/emojis.svelte';
+	import { composerEmojiList } from '@slyng/app-core/stores/usable-emojis.svelte';
 	import { proxied } from '@slyng/app-core/utils/proxy';
 
 	const {
@@ -66,10 +67,13 @@
 			: categories
 	);
 
+	// The custom tab shows the user's OWN emoji ∪ every server they're in, so
+	// server emoji are click-insertable too (the `:`-autocomplete already merges
+	// the same source). `customBundle` still drives the loading/error state.
 	const filteredCustom = $derived<EmojiEntry[]>(
 		(() => {
 			const q = searchQuery.trim().toLowerCase();
-			const list = customBundle.entries ?? [];
+			const list = composerEmojiList();
 			if (!q) return list;
 			return list.filter((e) => e.shortcode.toLowerCase().includes(q));
 		})()

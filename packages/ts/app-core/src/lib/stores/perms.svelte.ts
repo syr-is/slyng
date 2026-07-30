@@ -152,6 +152,9 @@ export function getPerms() {
 		get canManageChannels() {
 			return effectiveCan(Permissions.MANAGE_CHANNELS);
 		},
+		get canManageEmojis() {
+			return effectiveCan(Permissions.MANAGE_EMOJIS);
+		},
 		get canManageRoles() {
 			return effectiveCan(Permissions.MANAGE_ROLES);
 		},

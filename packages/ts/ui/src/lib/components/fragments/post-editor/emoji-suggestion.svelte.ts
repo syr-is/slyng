@@ -8,6 +8,7 @@
 // The @tiptap/suggestion render() hooks drive a small reactive `$state`
 // controller; <EmojiSuggestionPopup> (rendered inside post-editor.svelte) reads it.
 import { Extension } from '@tiptap/core';
+import { PluginKey } from '@tiptap/pm/state';
 import Suggestion from '@tiptap/suggestion';
 import { getAuth } from '@slyng/app-core/stores/auth.svelte';
 import { resolveEmojis, type EmojiEntry } from '@slyng/app-core/stores/emojis.svelte';
@@ -93,13 +94,30 @@ class EmojiSuggestionController {
 
 export const emojiSuggestion = new EmojiSuggestionController();
 
-export function EmojiSuggestion() {
+/**
+ * Every @tiptap/suggestion plugin defaults to the same `suggestion$` key, so
+ * two of them on one editor (the chat composer runs `:` emoji + `@` mention)
+ * make ProseMirror throw "Adding different instances of a keyed plugin".
+ * Each suggestion owns an explicit key instead.
+ */
+const emojiSuggestionKey = new PluginKey('emojiSuggestion');
+
+/**
+ * `search` selects the catalog: the post editor omits it (defaults to the
+ * caller's OWN hosted emoji), while the chat composer passes
+ * `searchComposerEmojis` (own ∪ their servers'). The controller + popup are
+ * shared — only one editor is ever mounted at a time.
+ */
+export function EmojiSuggestion(
+	search: (query: string, limit: number) => EmojiEntry[] = searchEmojis
+) {
 	return Extension.create({
 		name: 'emojiSuggestion',
 		addProseMirrorPlugins() {
 			return [
 				Suggestion<EmojiEntry>({
 					editor: this.editor,
+					pluginKey: emojiSuggestionKey,
 					char: ':',
 					allowSpaces: false,
 					// Let the trigger ':' appear in the query so typing the SECOND colon
@@ -111,7 +129,7 @@ export function EmojiSuggestion() {
 					// searching. Syntax (`:` vs `::`) drives size, mirroring syr/slyng.
 					items: ({ query }) => {
 						const q = query.startsWith(':') ? query.slice(1) : query;
-						return searchEmojis(q, 10);
+						return search(q, 10);
 					},
 					command: ({ editor, props }) => {
 						// Recompute the replace span from the LIVE doc rather than trust the

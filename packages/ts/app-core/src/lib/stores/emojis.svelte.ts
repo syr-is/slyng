@@ -52,7 +52,10 @@ async function fetchAndCache(did: string, instanceUrl: string) {
 		// Paginate until has_more=false or cap reached
 		while (collected.length < MAX_TOTAL) {
 			const url = `${base}${base.includes('?') ? '&' : '?'}limit=${LIMIT}&offset=${offset}`;
-			const res = await fetch(proxied(url));
+			// no-store: this store is the cache of record and this fetch only runs
+			// on a miss or after a PROFILE_UPDATE invalidation, so bypass the media
+			// proxy's max-age=60 or a fresh emoji lags up to a minute.
+			const res = await fetch(proxied(url), { cache: 'no-store' });
 			if (!res.ok) throw new Error('emoji fetch failed');
 			const body = (await res.json()) as {
 				data: { shortcode: string; url: string; is_sticker: boolean }[];
