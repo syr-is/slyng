@@ -77,10 +77,20 @@ Open these ports for LiveKit:
   apps/slyng/api/**
   packages/ts/types/**
   packages/ts/ui/**
+  packages/ts/app-core/**
+  packages/ts/client/**
+  packages/ts/idp-crypto/**
+  packages/rust/**
   docker-compose.prod.yml
   docker/prod/**
-  s3/s3_config.json
+  scripts/**
   ```
+
+  Both prod Dockerfiles build `app-core`, `idp-crypto` and `packages/rust`
+  (wasm-pack) — not just `types` + `ui` — so those must be watched or a push
+  touching only a store or a Rust type silently fails to trigger a deploy.
+  `s3/s3_config.json` is deliberately absent: it was SeaweedFS IAM config, and
+  `ObjectStoreService` now does bucket + policy setup at runtime.
 
 ### Domain Routing
 
