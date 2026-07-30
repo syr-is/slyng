@@ -13,14 +13,23 @@ import type { EmojiEntry } from '../stores/emojis.svelte';
 export type RenderToken =
 	| { kind: 'text'; value: string }
 	| { kind: 'link'; url: string }
+	| { kind: 'mention'; did: string }
 	| { kind: 'emoji'; entry: EmojiEntry; shortcode: string }
 	| { kind: 'sticker'; entry: EmojiEntry; shortcode: string }
 	| { kind: 'unknown_shortcode'; shortcode: string; sticker: boolean };
 
 const STICKER_RE = /::([a-zA-Z0-9_~+-]+)::/g;
 const EMOJI_RE = /(?<!:):([a-zA-Z0-9_~+-]+):(?!:)/g;
+// `<@did:syr:…>` / `<@everyone>` only — a stray literal `<@foo>` stays as text.
+const MENTION_RE = /<@(everyone|did:[^\s<>]+)>/g;
 
-type Match = { start: number; end: number; shortcode: string; sticker: boolean };
+type Match = {
+	start: number;
+	end: number;
+	shortcode: string;
+	sticker: boolean;
+	mention?: boolean;
+};
 
 export function renderEmojis(
 	content: string,
@@ -29,18 +38,38 @@ export function renderEmojis(
 	if (!content) return [];
 
 	const matches: Match[] = [];
+	let m: RegExpExecArray | null;
+	// Mentions first, as exact `<@…>` spans. A DID contains single colons
+	// (`did:syr:…`) which the emoji pattern would otherwise mis-match as `:syr:`,
+	// so mention spans are captured up front and later matches that overlap them
+	// are dropped.
+	MENTION_RE.lastIndex = 0;
+	while ((m = MENTION_RE.exec(content)) !== null) {
+		matches.push({
+			start: m.index,
+			end: m.index + m[0].length,
+			shortcode: m[1],
+			sticker: false,
+			mention: true
+		});
+	}
+	const overlapsMention = (s: number, e: number) =>
+		matches.some((x) => x.mention && s < x.end && e > x.start);
 	// Stickers first so `::x::` isn't greedy-swallowed by the single-colon
 	// pattern's `:x:` half.
-	let m: RegExpExecArray | null;
 	STICKER_RE.lastIndex = 0;
 	while ((m = STICKER_RE.exec(content)) !== null) {
-		matches.push({ start: m.index, end: m.index + m[0].length, shortcode: m[1], sticker: true });
+		const s = m.index;
+		const e = m.index + m[0].length;
+		if (overlapsMention(s, e)) continue;
+		matches.push({ start: s, end: e, shortcode: m[1], sticker: true });
 	}
 	EMOJI_RE.lastIndex = 0;
 	while ((m = EMOJI_RE.exec(content)) !== null) {
 		const s = m.index;
 		const e = m.index + m[0].length;
-		// Drop emoji matches that overlap with an already-captured sticker span
+		// Drop emoji matches that overlap an already-captured sticker or mention span
+		if (overlapsMention(s, e)) continue;
 		if (matches.some((x) => x.sticker && s >= x.start && e <= x.end)) continue;
 		matches.push({ start: s, end: e, shortcode: m[1], sticker: false });
 	}
@@ -51,6 +80,11 @@ export function renderEmojis(
 	for (const match of matches) {
 		if (match.start > cursor) {
 			tokens.push({ kind: 'text', value: content.slice(cursor, match.start) });
+		}
+		if (match.mention) {
+			tokens.push({ kind: 'mention', did: match.shortcode });
+			cursor = match.end;
+			continue;
 		}
 		const entry = map?.get(match.shortcode);
 		if (entry) {
@@ -115,4 +149,19 @@ export function isStickerOnly(tokens: RenderToken[]): boolean {
 		}
 	}
 	return sawSticker;
+}
+
+/** True if the message is only custom-emoji references (+ whitespace) — render
+ *  them larger, like a jumbo reaction (pendi/Discord behaviour). */
+export function isEmojiOnly(tokens: RenderToken[]): boolean {
+	let sawEmoji = false;
+	for (const t of tokens) {
+		if (t.kind === 'emoji') sawEmoji = true;
+		else if (t.kind === 'text') {
+			if (t.value.trim().length > 0) return false;
+		} else {
+			return false;
+		}
+	}
+	return sawEmoji;
 }

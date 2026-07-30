@@ -1,12 +1,15 @@
 <script lang="ts">
 	import { onDestroy } from 'svelte';
-	import { Hash, Users, Pin, ScrollText, Eye, EyeOff } from '@lucide/svelte';
+	import { Hash, Users, Pin, ScrollText, Eye, EyeOff, Search, Inbox } from '@lucide/svelte';
 	import { goto } from '$app/navigation';
 	import { toast } from 'svelte-sonner';
 	import MessageItem from '@slyng/ui/fragments/message-item.svelte';
 	import MessageInput from '@slyng/ui/fragments/message-input.svelte';
 	import MemberList from '@slyng/ui/fragments/member-list.svelte';
 	import PinsPanel from '@slyng/ui/fragments/pins-panel.svelte';
+	import SearchDialog from '../fragments/message-search/search-dialog.svelte';
+	import InboxPanel from '../fragments/mention-inbox/inbox-panel.svelte';
+	import { getMentionInbox } from '@slyng/app-core/stores/mention-inbox.svelte';
 	import VoiceRoomView from '@slyng/ui/fragments/voice-room-view.svelte';
 	import { Permissions } from '@slyng/types';
 	import { setPageMembers, setPane } from '@slyng/ui/fragments/swipe-layout';
@@ -38,6 +41,9 @@
 
 	let showMembers = $state(true);
 	let showPins = $state(false);
+	let showSearch = $state(false);
+	let showInbox = $state(false);
+	const mentionInbox = getMentionInbox();
 	/**
 	 * Channel-scoped "show removed messages" toggle. Ephemeral — resets on
 	 * channel switch. Only meaningful for users with VIEW_REMOVED_MESSAGES;
@@ -214,18 +220,15 @@
 	$effect(() => {
 		const target = page.url.searchParams.get('jump');
 		if (!target) return;
-		// Wait a tick for the channel load to hydrate the DOM
-		const attempt = () => {
-			const el = document.querySelector(`[data-message-id="${CSS.escape(target)}"]`);
-			if (el) {
-				jumpToMessage(target);
-				// Strip the query param without adding a history entry
-				const url = new URL(page.url);
-				url.searchParams.delete('jump');
-				history.replaceState(history.state, '', url.toString());
-			}
-		};
-		const t = setTimeout(attempt, 250);
+		// Wait a tick for the initial channel load to hydrate the store, then
+		// jump — loading older pages first if the target is deeper in history.
+		const t = setTimeout(() => {
+			void ensureAndJump(target);
+			// Strip the query param without adding a history entry
+			const url = new URL(page.url);
+			url.searchParams.delete('jump');
+			history.replaceState(history.state, '', url.toString());
+		}, 300);
 		return () => clearTimeout(t);
 	});
 
@@ -410,6 +413,51 @@
 			}, 1500);
 		}
 	}
+
+	/**
+	 * Jump that works even for a message that isn't loaded yet (the common
+	 * case for a search hit deeper in history). If it's already on screen we
+	 * scroll straight to it; otherwise we page older — reusing the same
+	 * older-page fetch as infinite scroll — until the target lands in the
+	 * store, then scroll to it. Paging from the present keeps the timeline
+	 * contiguous (no gap), so WS appends and scroll-up stay correct. Capped so
+	 * a target thousands of messages back gives up gracefully rather than
+	 * hammering the API.
+	 */
+	async function ensureAndJump(id: string) {
+		if (document.querySelector(`[data-message-id="${CSS.escape(id)}"]`)) {
+			jumpToMessage(id);
+			return;
+		}
+		const chId = channelId;
+		stickToBottom = false; // paging older — don't let auto-scroll fight us
+		const MAX_PAGES = 10;
+		for (let i = 0; i < MAX_PAGES && !messageStore.find(id); i++) {
+			if (loadedChannelId !== chId) return;
+			const oldest = messageStore.list[0];
+			if (!oldest) break;
+			let older;
+			try {
+				older = await api.channels.messages(chId, {
+					before: oldest.created_at,
+					limit: 50,
+					include_deleted: perms.canViewRemovedMessages
+				});
+			} catch {
+				break;
+			}
+			if (loadedChannelId !== chId) return;
+			if (older.length) setCurrentChannel(chId, [...older, ...messageStore.list]);
+			if (older.length < 50) {
+				hasMoreMessages = false;
+				break;
+			}
+		}
+		if (messageStore.find(id)) {
+			// Two frames: one for the prepended rows to render, one to settle.
+			requestAnimationFrame(() => requestAnimationFrame(() => jumpToMessage(id)));
+		}
+	}
 </script>
 
 <div class="flex min-h-0 min-w-0 flex-1">
@@ -428,6 +476,27 @@
 				{/if}
 			</div>
 			<div class="flex items-center gap-1">
+				<button
+					onclick={() => (showInbox = true)}
+					class="relative rounded p-1 text-muted-foreground hover:text-foreground"
+					title="Inbox"
+				>
+					<Inbox class="h-5 w-5" />
+					{#if mentionInbox.count > 0}
+						<span
+							class="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-destructive px-1 text-[9px] font-bold leading-none text-destructive-foreground"
+						>
+							{mentionInbox.count > 99 ? '99+' : mentionInbox.count}
+						</span>
+					{/if}
+				</button>
+				<button
+					onclick={() => (showSearch = true)}
+					class="rounded p-1 text-muted-foreground hover:text-foreground"
+					title="Search messages"
+				>
+					<Search class="h-5 w-5" />
+				</button>
 				<button
 					onclick={() => (showPins = true)}
 					class="rounded p-1 text-muted-foreground hover:text-foreground"
@@ -552,5 +621,21 @@
 	canModerate={perms.canManageMessages}
 	{showRemoved}
 	onClose={() => (showPins = false)}
-	onJump={jumpToMessage}
+	onJump={ensureAndJump}
+/>
+
+<SearchDialog
+	open={showSearch}
+	{serverId}
+	currentChannelId={channelId}
+	onClose={() => (showSearch = false)}
+	onJump={ensureAndJump}
+/>
+
+<InboxPanel
+	open={showInbox}
+	currentServerId={serverId}
+	currentChannelId={channelId}
+	onClose={() => (showInbox = false)}
+	onJump={ensureAndJump}
 />

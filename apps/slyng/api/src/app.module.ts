@@ -4,6 +4,7 @@ import { APP_PIPE, APP_INTERCEPTOR } from '@nestjs/core';
 import { ZodValidationPipe } from 'nestjs-zod';
 import { RecordIdInterceptor } from './common/record-id.interceptor';
 import { DbModule } from './db/db.module';
+import { StorageModule } from './storage/storage.module';
 import { DbService } from './db/db.service';
 import { ServerModule } from './server/server.module';
 import { ChannelModule } from './channel/channel.module';
@@ -23,6 +24,7 @@ import { RelationModule } from './relation/relation.module';
 import { OverrideModule } from './permission-override/override.module';
 import { CategoryModule } from './category/category.module';
 import { IdpModule } from './idp/idp.module';
+import { ServerMediaModule } from './server-media/server-media.module';
 import { ClipsModule } from './clips/clips.module';
 import { join } from 'node:path';
 
@@ -36,6 +38,7 @@ import { join } from 'node:path';
 			]
 		}),
 		DbModule,
+		StorageModule,
 		ServerModule,
 		ChannelModule,
 		MessageModule,
@@ -54,6 +57,7 @@ import { join } from 'node:path';
 		OverrideModule,
 		CategoryModule,
 		IdpModule,
+		ServerMediaModule,
 		ClipsModule
 	],
 	providers: [

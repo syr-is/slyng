@@ -53,5 +53,11 @@ export const WsOp = {
 	BLOCK_UPDATE: 55,
 	IGNORE_UPDATE: 56,
 	DM_POLICY_UPDATE: 57,
-	DM_CHANNEL_CREATE: 58
+	DM_CHANNEL_CREATE: 58,
+
+	/** A server's custom emoji/sticker/gif set changed — members re-fetch it. */
+	SERVER_EMOJI_UPDATE: 59,
+
+	/** The recipient was mentioned in a message — drives the mention inbox + count. */
+	MENTION_ADD: 60
 } as const;

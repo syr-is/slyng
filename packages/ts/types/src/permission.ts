@@ -16,6 +16,8 @@ export const Permissions = {
 	ATTACH_FILES: 1n << 4n,
 	ADD_REACTIONS: 1n << 5n,
 	MENTION_EVERYONE: 1n << 6n,
+	/** Add / remove a server's custom emoji, sticker, and GIF sets. */
+	MANAGE_EMOJIS: 1n << 7n,
 
 	CONNECT: 1n << 10n,
 	SPEAK: 1n << 11n,

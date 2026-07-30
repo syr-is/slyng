@@ -6,12 +6,15 @@
 	import { resolveProfile, displayName } from '@slyng/app-core/stores/profiles.svelte';
 	import { getMembers } from '@slyng/app-core/stores/members.svelte';
 	import { getRoles } from '@slyng/app-core/stores/roles.svelte';
-	import { resolveEmojis } from '@slyng/app-core/stores/emojis.svelte';
+	import { renderEmojiMap } from '@slyng/app-core/stores/usable-emojis.svelte';
 	import { getMessages } from '@slyng/app-core/stores/messages.svelte';
 	import { getRelations } from '@slyng/app-core/stores/relations.svelte';
-	import { renderEmojis, isStickerOnly } from '@slyng/app-core/utils/emoji-render';
+	import { renderEmojis, isStickerOnly, isEmojiOnly } from '@slyng/app-core/utils/emoji-render';
+	import { renderInlineMarkdown } from '../../markdown.js';
 	import { proxied } from '@slyng/app-core/utils/proxy';
 	import ProfileHoverCard from './profile-hover-card.svelte';
+	import EmojiChip from './emoji-chip.svelte';
+	import MentionChip from './mention-chip.svelte';
 	import SafeMedia from './safe-media.svelte';
 	import { IsMobile } from '../ui/sidebar/is-mobile.svelte.js';
 	import { getActiveMessageRow, setActiveMessageRow } from './active-message-row.svelte.js';
@@ -92,10 +95,14 @@
 	// grouped messages — the short "HH:MM" is visible, full context on hover.
 	const fullTime = $derived(new Date(message.created_at).toLocaleString());
 
-	// Inline emoji / sticker rendering — resolve against the SENDER's syr emojis
-	const senderEmojis = $derived(resolveEmojis(message.sender_id, message.sender_instance_url));
-	const renderedContent = $derived(renderEmojis(message.content, senderEmojis.map));
+	// Inline markdown + emoji/sticker rendering. Emoji resolve against the SENDER's
+	// own hosted set unioned with the viewer's accessible server emoji (so a server
+	// emoji used in a DM still resolves for a fellow member).
+	const renderedContent = $derived(
+		renderEmojis(message.content, renderEmojiMap(message.sender_id, message.sender_instance_url))
+	);
 	const stickerOnly = $derived(isStickerOnly(renderedContent));
+	const emojiOnly = $derived(isEmojiOnly(renderedContent));
 
 	// Resolve parent messages so we can render a preview for each.
 	// Server stores `reply_to` as an array; accept legacy single-string too.
@@ -410,22 +417,27 @@
 			>
 				{#each renderedContent as token, i (i)}
 					{#if token.kind === 'text'}
-						<span>{token.value}</span>
+						<!-- Inline markdown (bold/italic/code/strike/links). Emoji + bare
+						     URLs are already carved into their own tokens; only prose reaches
+						     here. Sanitized in renderInlineMarkdown. -->
+						<span>{@html renderInlineMarkdown(token.value)}</span>
 					{:else if token.kind === 'link'}
 						<SafeLink href={token.url} class="text-primary hover:underline">{token.url}</SafeLink>
+					{:else if token.kind === 'mention'}
+						<MentionChip did={token.did} />
 					{:else if token.kind === 'emoji'}
-						<img
-							src={proxied(token.entry.url)}
-							alt={':' + token.shortcode + ':'}
-							title={':' + token.shortcode + ':'}
-							class="inline-block h-[1.3em] w-[1.3em] align-[-0.2em] object-contain"
+						<EmojiChip
+							shortcode={token.shortcode}
+							url={token.entry.url}
+							size={emojiOnly ? 'big' : 'inline'}
+							allowAdd={!isOwn}
 						/>
 					{:else if token.kind === 'sticker'}
-						<img
-							src={proxied(token.entry.url)}
-							alt={'::' + token.shortcode + '::'}
-							title={'::' + token.shortcode + '::'}
-							class="max-h-32 w-auto object-contain"
+						<EmojiChip
+							shortcode={token.shortcode}
+							url={token.entry.url}
+							size="sticker"
+							allowAdd={!isOwn}
 						/>
 					{:else}
 						<span class="text-muted-foreground">

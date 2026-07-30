@@ -1,7 +1,5 @@
-import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
+import { Injectable, Logger } from '@nestjs/common';
 import {
-	S3Client,
 	PutObjectCommand,
 	GetObjectCommand,
 	HeadObjectCommand,
@@ -9,55 +7,24 @@ import {
 	type HeadObjectCommandOutput
 } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
+import { ObjectStoreService } from '../storage/object-store.service';
 
 /**
  * S3 access for owned identity content (profile assets, stories, and — in
  * later phases — posts, emojis, GIFs, library uploads). A thin wrapper over
  * presigned PUT + HeadObject + delete, keyed on caller-supplied S3 keys
  * (composite-id resources build their own `uploads/{did}/…/public/{ulid}`
- * layout). Mirrors the chat `UploadService` S3 setup but stays generic —
- * it does not own any upload table.
+ * layout). Shares the single `ObjectStoreService` (provider + clients) with
+ * the chat `UploadService`; it does not own any upload table.
  */
 @Injectable()
-export class IdpStorageService implements OnModuleInit {
+export class IdpStorageService {
 	private readonly logger = new Logger(IdpStorageService.name);
-	private s3!: S3Client;
-	private s3Public!: S3Client;
-	private bucket!: string;
-	private publicBase!: string;
 
-	constructor(private readonly config: ConfigService) {}
-
-	onModuleInit() {
-		const endpoint = this.config.get<string>('S3_ENDPOINT', 'http://localhost:8343');
-		const region = this.config.get<string>('S3_REGION', 'us-east-1');
-		const accessKeyId = this.config.get<string>('S3_ACCESS_KEY_ID', 'slyng-access-key');
-		const secretAccessKey = this.config.get<string>('S3_SECRET_ACCESS_KEY', 'slyng-secret-key');
-		this.bucket = this.config.get<string>('S3_BUCKET', 'slyng');
-		const publicUrl = this.config.get<string>('S3_PUBLIC_URL', `${endpoint}/${this.bucket}`);
-		this.publicBase = publicUrl.replace(/\/+$/, '');
-
-		const creds = { accessKeyId, secretAccessKey };
-		this.s3 = new S3Client({
-			endpoint,
-			region,
-			credentials: creds,
-			forcePathStyle: true,
-			requestHandler: { requestTimeout: 10_000, connectionTimeout: 5_000 } as never
-		});
-		// Public client signs URLs against the browser-reachable endpoint.
-		const publicEndpoint = new URL(publicUrl).origin;
-		this.s3Public = new S3Client({
-			endpoint: publicEndpoint,
-			region,
-			credentials: creds,
-			forcePathStyle: true
-		});
-		this.logger.log(`IdP storage ready — bucket=${this.bucket} publicUrl=${publicUrl}`);
-	}
+	constructor(private readonly store: ObjectStoreService) {}
 
 	buildUrl(key: string): string {
-		return `${this.publicBase}/${key}`;
+		return this.store.buildUrl(key);
 	}
 
 	/** Presigned PUT for a browser-side upload; SHA-256 (hex) enforced when given. */
@@ -68,9 +35,9 @@ export class IdpStorageService implements OnModuleInit {
 		expiresIn = 3600
 	): Promise<string> {
 		return getSignedUrl(
-			this.s3Public,
+			this.store.publicClient,
 			new PutObjectCommand({
-				Bucket: this.bucket,
+				Bucket: this.store.bucket,
 				Key: key,
 				ContentType: mimeType,
 				...(sha256 && { ChecksumSHA256: Buffer.from(sha256, 'hex').toString('base64') })
@@ -82,8 +49,8 @@ export class IdpStorageService implements OnModuleInit {
 	/** Presigned GET for a time-boxed share link (private library files). */
 	async presignGet(key: string, expiresIn = 3600): Promise<string> {
 		return getSignedUrl(
-			this.s3Public,
-			new GetObjectCommand({ Bucket: this.bucket, Key: key }),
+			this.store.publicClient,
+			new GetObjectCommand({ Bucket: this.store.bucket, Key: key }),
 			{ expiresIn }
 		);
 	}
@@ -96,7 +63,9 @@ export class IdpStorageService implements OnModuleInit {
 	): Promise<HeadObjectCommandOutput | null> {
 		for (let attempt = 0; attempt < maxAttempts; attempt++) {
 			try {
-				return await this.s3.send(new HeadObjectCommand({ Bucket: this.bucket, Key: key }));
+				return await this.store.client.send(
+					new HeadObjectCommand({ Bucket: this.store.bucket, Key: key })
+				);
 			} catch (err) {
 				const status = (err as { $metadata?: { httpStatusCode?: number } })?.$metadata
 					?.httpStatusCode;
@@ -113,7 +82,9 @@ export class IdpStorageService implements OnModuleInit {
 
 	async deleteObject(key: string): Promise<void> {
 		try {
-			await this.s3.send(new DeleteObjectCommand({ Bucket: this.bucket, Key: key }));
+			await this.store.client.send(
+				new DeleteObjectCommand({ Bucket: this.store.bucket, Key: key })
+			);
 		} catch (err) {
 			// Best-effort — the DB row is the source of truth. Orphaned objects
 			// are swept elsewhere; never fail a delete on a missing object.
@@ -127,9 +98,9 @@ export class IdpStorageService implements OnModuleInit {
 	 * through the API, so callers must cap the size upstream.
 	 */
 	async putObjectBuffer(key: string, body: Buffer, contentType: string): Promise<void> {
-		await this.s3.send(
+		await this.store.client.send(
 			new PutObjectCommand({
-				Bucket: this.bucket,
+				Bucket: this.store.bucket,
 				Key: key,
 				Body: body,
 				ContentType: contentType
@@ -143,7 +114,9 @@ export class IdpStorageService implements OnModuleInit {
 	 */
 	async getObjectBuffer(key: string): Promise<Buffer | null> {
 		try {
-			const res = await this.s3.send(new GetObjectCommand({ Bucket: this.bucket, Key: key }));
+			const res = await this.store.client.send(
+				new GetObjectCommand({ Bucket: this.store.bucket, Key: key })
+			);
 			const body = res.Body as { transformToByteArray?: () => Promise<Uint8Array> } | undefined;
 			if (!body?.transformToByteArray) return null;
 			return Buffer.from(await body.transformToByteArray());
@@ -158,6 +131,6 @@ export class IdpStorageService implements OnModuleInit {
 
 	/** The public S3 base URL, so import can detect + rewrite foreign asset URLs. */
 	getPublicBase(): string {
-		return this.publicBase;
+		return this.store.publicBase;
 	}
 }

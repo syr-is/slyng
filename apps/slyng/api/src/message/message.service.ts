@@ -3,7 +3,12 @@ import { RecordId } from 'surrealdb';
 import { Permissions, WsOp, stringToRecordId } from '@slyng/types';
 import { EmbedService } from '../embed/embed.service';
 import { ChatGateway } from '../gateway/chat.gateway';
-import { ChannelRepository, ChannelParticipantRepository } from '../channel/channel.repository';
+import {
+	ChannelRepository,
+	ChannelParticipantRepository,
+	ChannelReadStateRepository
+} from '../channel/channel.repository';
+import { ServerMemberRepository } from '../server/server.repository';
 import { UserRepository } from '../auth/user.repository';
 import { RoleService } from '../role/role.service';
 import { RelationService } from '../relation/relation.service';
@@ -24,6 +29,8 @@ export class MessageService {
 		private readonly pins: PinnedMessageRepository,
 		private readonly channels: ChannelRepository,
 		private readonly participants: ChannelParticipantRepository,
+		private readonly readStates: ChannelReadStateRepository,
+		private readonly members: ServerMemberRepository,
 		private readonly users: UserRepository,
 		private readonly roleService: RoleService,
 		private readonly relations: RelationService,
@@ -239,6 +246,320 @@ export class MessageService {
 	}
 
 	/**
+	 * Server-wide message search (the channel search bar). Scoped to the
+	 * channels the actor can READ — resolved from the same permission tree the
+	 * client renders — so a result never leaks from a channel they can't see.
+	 *
+	 * Soft-deleted messages are excluded entirely: the trash view (VIEW_TRASH)
+	 * is the surface for removed content, and excluding them here means search
+	 * can never surface a masked/leaked row regardless of the caller's perms.
+	 *
+	 * SQL handles the cheap predicates (content, sender, channel, dates,
+	 * pinned). `has:` needs attachment/embed/URL introspection, so it's applied
+	 * in JS over the fetched set — mirroring `findBySender`'s fetch-then-slice,
+	 * which also sidesteps the SurrealDB `GROUP ALL` total quirk.
+	 */
+	async searchInServer(
+		serverId: string,
+		actorUserId: string,
+		options: {
+			limit?: number;
+			offset?: number;
+			q?: string;
+			sender_id?: string;
+			channel_id?: string;
+			has?: string[];
+			pinned?: boolean;
+			mentions?: string;
+			since?: Date;
+			until?: Date;
+		} = {}
+	): Promise<{ items: any[]; total: number }> {
+		const limit = Math.min(options.limit ?? 25, 50);
+		const offset = options.offset ?? 0;
+
+		// Channels the actor can READ, from the same tree the client renders.
+		const tree = await this.roleService.buildPermissionTree(actorUserId, serverId);
+		const readable = [
+			...tree.uncategorized,
+			...tree.categories.flatMap((c: any) => c.channels as any[])
+		].filter((c: any) => c.can_view);
+		if (!readable.length) return { items: [], total: 0 };
+
+		const nameById = new Map<string, string>(readable.map((c: any) => [c.id as string, c.name as string]));
+		let readableIds = readable.map((c: any) => c.id as string);
+
+		// `in:` narrows to a single channel — but only one the actor can read.
+		if (options.channel_id?.trim()) {
+			if (!nameById.has(options.channel_id)) return { items: [], total: 0 };
+			readableIds = [options.channel_id];
+		}
+
+		const channelRefs = readableIds.map((id) => stringToRecordId.decode(id));
+
+		const db = (this.messages as any).db;
+		const bindings: Record<string, unknown> = { channels: channelRefs };
+		const where = ['channel_id IN $channels', '(deleted = NONE OR deleted = false)'];
+		if (options.q?.trim()) {
+			bindings.q = options.q.trim().toLowerCase();
+			where.push('string::lowercase(content) CONTAINS $q');
+		}
+		if (options.sender_id?.trim()) {
+			bindings.sender = options.sender_id.trim();
+			where.push('sender_id = $sender');
+		}
+		if (options.mentions?.trim()) {
+			bindings.mention = options.mentions.trim();
+			where.push('mentions CONTAINS $mention');
+		}
+		if (options.pinned) {
+			where.push('pinned = true');
+		}
+		if (options.since) {
+			bindings.since = options.since;
+			where.push('created_at >= $since');
+		}
+		if (options.until) {
+			bindings.until = options.until;
+			where.push('created_at <= $until');
+		}
+		const whereSql = `WHERE ${where.join(' AND ')}`;
+
+		const allResult = (await db.query(
+			`SELECT * FROM message ${whereSql} ORDER BY created_at DESC`,
+			bindings
+		)) as any[];
+		let allRows = (allResult[0] ?? []) as any[];
+
+		// `has:` predicates are AND-combined (Discord semantics).
+		const has = (options.has ?? []).map((h) => h.toLowerCase()).filter(Boolean);
+		if (has.length) {
+			allRows = allRows.filter((row) => has.every((h) => this.messageHas(row, h)));
+		}
+
+		const total = allRows.length;
+		const pageRows = allRows.slice(offset, offset + limit);
+
+		const enriched = await this.enrich(pageRows as any);
+		const withChannel = enriched.map((m) => ({
+			...(m as any),
+			channel_name:
+				nameById.get(stringToRecordId.encode((m as any).channel_id as RecordId)) ?? null
+		}));
+		return { items: withChannel, total };
+	}
+
+	/**
+	 * Global mention inbox: the most recent non-deleted messages that mention
+	 * the actor (directly or via `@everyone`) across every channel they can read
+	 * in *every* server they belong to, newest first. Own messages excluded.
+	 * Bounded to the latest 500 candidates. Each row carries `channel_name` +
+	 * `server_id` so the inbox can group + jump.
+	 */
+	async findAllMentionsForUser(
+		actorUserId: string,
+		options: { limit?: number; offset?: number } = {}
+	): Promise<{ items: any[]; total: number }> {
+		const limit = Math.min(options.limit ?? 25, 50);
+		const offset = options.offset ?? 0;
+
+		const memberships = await this.members.findMany({ user_id: actorUserId });
+		const serverIds = [
+			...new Set(memberships.map((m) => stringToRecordId.encode((m as any).server_id as RecordId)))
+		];
+		if (!serverIds.length) return { items: [], total: 0 };
+
+		const nameByChannel = new Map<string, string>();
+		const serverByChannel = new Map<string, string>();
+		const channelRefs: RecordId[] = [];
+		for (const sid of serverIds) {
+			const tree = await this.roleService.buildPermissionTree(actorUserId, sid);
+			const readable = [
+				...tree.uncategorized,
+				...tree.categories.flatMap((c: any) => c.channels as any[])
+			].filter((c: any) => c.can_view);
+			for (const c of readable) {
+				nameByChannel.set(c.id, c.name);
+				serverByChannel.set(c.id, sid);
+				channelRefs.push(stringToRecordId.decode(c.id as string));
+			}
+		}
+		if (!channelRefs.length) return { items: [], total: 0 };
+
+		const db = (this.messages as any).db;
+		const bindings: Record<string, unknown> = {
+			channels: channelRefs,
+			self: actorUserId,
+			everyone: 'everyone'
+		};
+		const whereSql = [
+			'channel_id IN $channels',
+			'(deleted = NONE OR deleted = false)',
+			'sender_id != $self',
+			'(mentions CONTAINS $self OR mentions CONTAINS $everyone)'
+		].join(' AND ');
+
+		const allResult = (await db.query(
+			`SELECT * FROM message WHERE ${whereSql} ORDER BY created_at DESC LIMIT 500`,
+			bindings
+		)) as any[];
+		const allRows = (allResult[0] ?? []) as any[];
+		const total = allRows.length;
+		const pageRows = allRows.slice(offset, offset + limit);
+
+		const enriched = await this.enrich(pageRows as any);
+		const withChannel = enriched.map((m) => {
+			const cid = stringToRecordId.encode((m as any).channel_id as RecordId);
+			return {
+				...(m as any),
+				channel_name: nameByChannel.get(cid) ?? null,
+				server_id: serverByChannel.get(cid) ?? null
+			};
+		});
+		return { items: withChannel, total };
+	}
+
+	private static readonly URL_RE = /https?:\/\/\S+/i;
+	private static readonly MENTION_RE = /<@([^\s<>]+)>/g;
+
+	/** Extract raw `<@did>` / `<@everyone>` tokens from message content. */
+	private parseRawMentions(content: string): { dids: string[]; everyone: boolean } {
+		const dids = new Set<string>();
+		let everyone = false;
+		let m: RegExpExecArray | null;
+		MessageService.MENTION_RE.lastIndex = 0;
+		while ((m = MessageService.MENTION_RE.exec(content)) !== null) {
+			if (m[1] === 'everyone') everyone = true;
+			else if (m[1].startsWith('did:')) dids.add(m[1]);
+		}
+		return { dids: [...dids], everyone };
+	}
+
+	/**
+	 * Resolve a message's content into the validated mention set: the field
+	 * stored on the row (drives inbox + search) and the recipient DIDs to
+	 * notify. `@everyone` is only honoured when the author holds
+	 * MENTION_EVERYONE; every recipient must actually be able to READ the
+	 * channel so nobody gets a mention badge on a channel they can't open.
+	 */
+	private async resolveMentions(
+		content: string,
+		senderId: string,
+		serverId: string,
+		channelId: string
+	): Promise<{ mentions: string[]; recipients: string[] }> {
+		const raw = this.parseRawMentions(content);
+		if (!raw.dids.length && !raw.everyone) return { mentions: [], recipients: [] };
+
+		const members = await this.members.findMany({ server_id: stringToRecordId.decode(serverId) });
+		const memberDids = new Set(members.map((mm) => (mm as any).user_id as string));
+
+		const canRead = (did: string) =>
+			this.roleService.hasPermission(did, serverId, Permissions.READ_MESSAGES, channelId);
+
+		const explicit: string[] = [];
+		for (const did of raw.dids) {
+			if (did === senderId || !memberDids.has(did)) continue;
+			if (await canRead(did)) explicit.push(did);
+		}
+
+		let everyoneOk = false;
+		if (raw.everyone) {
+			everyoneOk = await this.roleService.hasPermission(
+				senderId,
+				serverId,
+				Permissions.MENTION_EVERYONE,
+				channelId
+			);
+		}
+
+		const mentions = [...explicit];
+		if (everyoneOk) mentions.push('everyone');
+
+		const recipients = new Set(explicit);
+		if (everyoneOk) {
+			for (const mm of members) {
+				const did = (mm as any).user_id as string;
+				if (did === senderId) continue;
+				if (await canRead(did)) recipients.add(did);
+			}
+		}
+		return { mentions, recipients: [...recipients] };
+	}
+
+	/** Bump a recipient's per-channel mention badge (read-state upsert). */
+	private async incrementReadStateMention(userId: string, channelRef: RecordId): Promise<void> {
+		const existing = await this.readStates.findOne({ user_id: userId, channel_id: channelRef });
+		const now = new Date();
+		if (existing) {
+			await this.readStates.merge((existing as any).id, {
+				mention_count: ((existing as any).mention_count ?? 0) + 1,
+				updated_at: now
+			});
+		} else {
+			await this.readStates.create({
+				user_id: userId,
+				channel_id: channelRef,
+				mention_count: 1,
+				created_at: now,
+				updated_at: now
+			});
+		}
+	}
+
+	/**
+	 * Fan a fresh mention out to each recipient: bump their persistent badge
+	 * (restored on READY) and push a live MENTION_ADD so the inbox + count
+	 * update without a reload (AI.md rule 1). Fire-and-forget.
+	 */
+	private async notifyMentions(
+		recipients: string[],
+		channelId: string,
+		channelRef: RecordId,
+		serverId: string,
+		message: unknown,
+		channelName: string | null
+	): Promise<void> {
+		await Promise.all(
+			recipients.map(async (did) => {
+				try {
+					await this.incrementReadStateMention(did, channelRef);
+				} catch (err) {
+					this.logger.warn(`mention badge bump failed for ${did}: ${err}`);
+				}
+				this.gateway?.emitToUser(did, {
+					op: WsOp.MENTION_ADD,
+					d: { message, channel_id: channelId, channel_name: channelName, server_id: serverId }
+				});
+			})
+		);
+	}
+
+	/** Backing check for a single `has:` predicate. */
+	private messageHas(row: any, kind: string): boolean {
+		const attachments: any[] = Array.isArray(row.attachments) ? row.attachments : [];
+		const embeds: any[] = Array.isArray(row.embeds) ? row.embeds : [];
+		switch (kind) {
+			case 'file':
+				return attachments.length > 0;
+			case 'image':
+				return attachments.some(
+					(a) => typeof a?.mime_type === 'string' && a.mime_type.startsWith('image/')
+				);
+			case 'video':
+				return attachments.some(
+					(a) => typeof a?.mime_type === 'string' && a.mime_type.startsWith('video/')
+				);
+			case 'embed':
+				return embeds.length > 0;
+			case 'link':
+				return embeds.length > 0 || MessageService.URL_RE.test(String(row.content ?? ''));
+			default:
+				return true;
+		}
+	}
+
+	/**
 	 * Quick totals for the moderation view header. Counts + min/max timestamps
 	 * of a user's messages in every channel of the server.
 	 */
@@ -366,6 +687,17 @@ export class MessageService {
 			if (replyRefs.length >= 5) break;
 		}
 
+		// Resolve mentions before the write so the validated set is stored on the
+		// row (drives inbox + `mentions:` search). Only server channels — DM
+		// mentions aren't a concept here.
+		const serverIdForCh =
+			channel && (channel as any).type !== 'direct'
+				? await this.getServerIdForChannel(channelRef)
+				: null;
+		const { mentions, recipients } = serverIdForCh
+			? await this.resolveMentions(content, senderId, serverIdForCh, channelId)
+			: { mentions: [], recipients: [] };
+
 		const message = await this.messages.create({
 			channel_id: channelRef,
 			sender_id: senderId,
@@ -373,6 +705,7 @@ export class MessageService {
 			content,
 			attachments,
 			embeds: [],
+			mentions,
 			pinned: false,
 			reply_to: replyRefs,
 			created_at: now,
@@ -385,6 +718,17 @@ export class MessageService {
 
 		if (this.gateway) {
 			this.gateway.emitToChannel(channelId, { op: WsOp.MESSAGE_CREATE, d: enriched });
+		}
+
+		if (recipients.length && serverIdForCh) {
+			void this.notifyMentions(
+				recipients,
+				channelId,
+				channelRef,
+				serverIdForCh,
+				enriched,
+				(channel as any)?.name ?? null
+			);
 		}
 
 		if (this.embedService) {

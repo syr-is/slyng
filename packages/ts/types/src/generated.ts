@@ -24,15 +24,15 @@ export const AttachmentSchema = z.object({
 });
 export type Attachment = z.infer<typeof AttachmentSchema>;
 
-export const AuditActionSchema = z.enum(['message_delete', 'message_purge', 'member_kick', 'member_ban', 'member_unban', 'member_role_add', 'member_role_remove', 'role_create', 'role_update', 'role_delete', 'channel_create', 'channel_update', 'channel_delete', 'channel_restore', 'channel_hard_delete', 'role_restore', 'role_hard_delete', 'message_restore', 'message_hard_delete', 'server_update', 'server_transfer_ownership', 'invite_create', 'invite_update', 'invite_delete']);
+export const AuditActionSchema = z.enum(['message_delete', 'message_purge', 'member_kick', 'member_ban', 'member_unban', 'member_role_add', 'member_role_remove', 'role_create', 'role_update', 'role_delete', 'channel_create', 'channel_update', 'channel_delete', 'channel_restore', 'channel_hard_delete', 'role_restore', 'role_hard_delete', 'message_restore', 'message_hard_delete', 'server_update', 'server_transfer_ownership', 'invite_create', 'invite_update', 'invite_delete', 'emoji_create', 'emoji_delete', 'gif_create', 'gif_delete']);
 export type AuditAction = z.infer<typeof AuditActionSchema>;
 
 export const AuditLogSchema = z.object({
   id: z.string(),
   server_id: z.string(),
   actor_id: z.string(),
-  action: z.enum(['message_delete', 'message_purge', 'member_kick', 'member_ban', 'member_unban', 'member_role_add', 'member_role_remove', 'role_create', 'role_update', 'role_delete', 'channel_create', 'channel_update', 'channel_delete', 'channel_restore', 'channel_hard_delete', 'role_restore', 'role_hard_delete', 'message_restore', 'message_hard_delete', 'server_update', 'server_transfer_ownership', 'invite_create', 'invite_update', 'invite_delete']),
-  target_kind: z.enum(['message', 'member', 'role', 'channel', 'server', 'invite']),
+  action: z.enum(['message_delete', 'message_purge', 'member_kick', 'member_ban', 'member_unban', 'member_role_add', 'member_role_remove', 'role_create', 'role_update', 'role_delete', 'channel_create', 'channel_update', 'channel_delete', 'channel_restore', 'channel_hard_delete', 'role_restore', 'role_hard_delete', 'message_restore', 'message_hard_delete', 'server_update', 'server_transfer_ownership', 'invite_create', 'invite_update', 'invite_delete', 'emoji_create', 'emoji_delete', 'gif_create', 'gif_delete']),
+  target_kind: z.enum(['message', 'member', 'role', 'channel', 'server', 'invite', 'emoji', 'gif']),
   target_id: z.string().optional(),
   target_user_id: z.string().optional(),
   channel_id: z.string().optional(),
@@ -44,7 +44,7 @@ export const AuditLogSchema = z.object({
 });
 export type AuditLog = z.infer<typeof AuditLogSchema>;
 
-export const AuditTargetKindSchema = z.enum(['message', 'member', 'role', 'channel', 'server', 'invite']);
+export const AuditTargetKindSchema = z.enum(['message', 'member', 'role', 'channel', 'server', 'invite', 'emoji', 'gif']);
 export type AuditTargetKind = z.infer<typeof AuditTargetKindSchema>;
 
 export const BanMemberInputSchema = z.object({
@@ -434,8 +434,8 @@ export const PageAuditLogSchema = z.object({
   id: z.string(),
   server_id: z.string(),
   actor_id: z.string(),
-  action: z.enum(['message_delete', 'message_purge', 'member_kick', 'member_ban', 'member_unban', 'member_role_add', 'member_role_remove', 'role_create', 'role_update', 'role_delete', 'channel_create', 'channel_update', 'channel_delete', 'channel_restore', 'channel_hard_delete', 'role_restore', 'role_hard_delete', 'message_restore', 'message_hard_delete', 'server_update', 'server_transfer_ownership', 'invite_create', 'invite_update', 'invite_delete']),
-  target_kind: z.enum(['message', 'member', 'role', 'channel', 'server', 'invite']),
+  action: z.enum(['message_delete', 'message_purge', 'member_kick', 'member_ban', 'member_unban', 'member_role_add', 'member_role_remove', 'role_create', 'role_update', 'role_delete', 'channel_create', 'channel_update', 'channel_delete', 'channel_restore', 'channel_hard_delete', 'role_restore', 'role_hard_delete', 'message_restore', 'message_hard_delete', 'server_update', 'server_transfer_ownership', 'invite_create', 'invite_update', 'invite_delete', 'emoji_create', 'emoji_delete', 'gif_create', 'gif_delete']),
+  target_kind: z.enum(['message', 'member', 'role', 'channel', 'server', 'invite', 'emoji', 'gif']),
   target_id: z.string().optional(),
   target_user_id: z.string().optional(),
   channel_id: z.string().optional(),

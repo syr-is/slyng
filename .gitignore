@@ -15,5 +15,6 @@ coverage
 vite.config.js.timestamp-*
 vite.config.ts.timestamp-*
 
-# SeaweedFS data
+# Object-store data (MinIO / SeaweedFS)
 s3/data/
+s3/minio/

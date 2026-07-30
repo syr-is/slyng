@@ -93,7 +93,15 @@ class EmojiSuggestionController {
 
 export const emojiSuggestion = new EmojiSuggestionController();
 
-export function EmojiSuggestion() {
+/**
+ * `search` selects the catalog: the post editor omits it (defaults to the
+ * caller's OWN hosted emoji), while the chat composer passes
+ * `searchComposerEmojis` (own ∪ their servers'). The controller + popup are
+ * shared — only one editor is ever mounted at a time.
+ */
+export function EmojiSuggestion(
+	search: (query: string, limit: number) => EmojiEntry[] = searchEmojis
+) {
 	return Extension.create({
 		name: 'emojiSuggestion',
 		addProseMirrorPlugins() {
@@ -111,7 +119,7 @@ export function EmojiSuggestion() {
 					// searching. Syntax (`:` vs `::`) drives size, mirroring syr/slyng.
 					items: ({ query }) => {
 						const q = query.startsWith(':') ? query.slice(1) : query;
-						return searchEmojis(q, 10);
+						return search(q, 10);
 					},
 					command: ({ editor, props }) => {
 						// Recompute the replace span from the LIVE doc rather than trust the

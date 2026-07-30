@@ -332,7 +332,15 @@ export class ProxyController {
 	private isPublicHost(host: string): boolean {
 		const h = host.toLowerCase();
 		// slyng's own docker-internal service names — always blocked
-		if (h === 'slyng-surrealdb' || h === 'slyng-seaweedfs') return false;
+		// (minio = current object store; seaweedfs kept for the fallback provider)
+		if (
+			h === 'slyng-surrealdb' ||
+			h === 'slyng-minio' ||
+			h === 'minio' ||
+			h === 'slyng-seaweedfs' ||
+			h === 'seaweedfs'
+		)
+			return false;
 
 		// `localhost` resolves to 127.0.0.1 / ::1 — same rules as loopback
 		if (h === 'localhost' || h.endsWith('.localhost')) return this.allowPrivate;

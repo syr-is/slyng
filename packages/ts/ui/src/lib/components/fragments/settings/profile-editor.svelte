@@ -72,8 +72,13 @@
 		else uploadingBanner = true;
 		try {
 			const url = await uploadProfileAsset(kind, file);
-			if (kind === 'avatar') avatarUrl = url;
-			else bannerUrl = url;
+			// The S3 key is stable, so a re-upload yields the same URL; the media
+			// proxy caches it (max-age=60), so bust the cache for the local preview
+			// or a re-upload would keep showing the previous image. Only the preview
+			// carries ?v= — the canonical URL is what we persist below.
+			const preview = `${url}?v=${Date.now()}`;
+			if (kind === 'avatar') avatarUrl = preview;
+			else bannerUrl = preview;
 			// Persist immediately so the asset survives a page reload even if the
 			// user doesn't hit Save afterwards.
 			await updateProfile({ [`${kind}_url`]: url });

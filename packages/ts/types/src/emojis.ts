@@ -44,6 +44,19 @@ export const EmojiCompleteSchema = z.object({
 });
 export type EmojiComplete = z.infer<typeof EmojiCompleteSchema>;
 
+/** Copy an emoji seen in chat into the caller's own set (click-to-add). The
+ *  server fetches `source_url` (a resolved public emoji URL), re-uploads under
+ *  the caller's DID, and registers it under `shortcode` as emoji or sticker. */
+export const EmojiCopySchema = z.object({
+	shortcode: z
+		.string()
+		.trim()
+		.regex(EMOJI_SHORTCODE_RE, 'Shortcode must be 2–32 letters, digits, or underscores'),
+	source_url: z.string().url(),
+	is_sticker: z.boolean().optional()
+});
+export type EmojiCopy = z.infer<typeof EmojiCopySchema>;
+
 /** Owner-facing emoji row (any status). */
 export const OwnedEmojiSchema = z.object({
 	did: z.string(),

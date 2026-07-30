@@ -19,39 +19,54 @@ services:
       start_period: 10s
     restart: unless-stopped
 
-  # SeaweedFS - S3-compatible distributed storage (message attachments)
-  seaweedfs:
-    container_name: slyng-seaweedfs
-    image: chrislusf/seaweedfs:latest
-    command: >
-      server -s3 -s3.config=/etc/seaweedfs/s3_config.json
-      -s3.allowedOrigins=${S3_ALLOWED_ORIGINS:-*}
-      -filer=true
+  # MinIO - S3-compatible object storage (mirrors syr's setup). The app owns
+  # bucket creation + the anonymous public-read policy at boot (ObjectStoreService),
+  # so no s3_config.json is mounted. CORS is handled by MINIO_API_CORS_ALLOW_ORIGIN.
+  minio:
+    container_name: slyng-minio
+    image: minio/minio:latest
+    command: server /data --console-address ":9001"
     ports:
-      - "8343:8333" # S3 API (8343 so we don't clash with syr's 8333)
-      - "9343:9333" # Master
-      - "8088:8080" # Volume server
-      - "8898:8888" # Filer
+      - "8343:9000" # S3 API (8343 so we don't clash with syr's 8333)
+      - "9343:9001" # MinIO Console
     volumes:
-      - ./s3/data:/data
-      - ./s3/s3_config.json:/etc/seaweedfs/s3_config.json
+      - ./s3/minio:/data
     environment:
-      - WEED_MASTER_VOLUME_GROWTH_COPY_1=1
-      - WEED_MASTER_VOLUME_GROWTH_COPY_2=0
-      - WEED_MASTER_VOLUME_GROWTH_COPY_OTHER=0
-      # Config reflected from .env for any ops tooling that runs inside this container
-      - PUBLIC_URL=${PUBLIC_URL:-http://localhost:5174}
-      - S3_ENDPOINT=${S3_ENDPOINT:-http://localhost:8343}
-      - S3_BUCKET=${S3_BUCKET:-slyng}
-      - S3_ACCESS_KEY_ID=${S3_ACCESS_KEY_ID:-slyng-access-key}
-      - S3_SECRET_ACCESS_KEY=${S3_SECRET_ACCESS_KEY:-slyng-secret-key}
+      # MinIO root credentials ARE the app's S3 credentials.
+      - MINIO_ROOT_USER=${S3_ACCESS_KEY_ID:-slyng-access-key}
+      - MINIO_ROOT_PASSWORD=${S3_SECRET_ACCESS_KEY:-slyng-secret-key}
+      - MINIO_API_CORS_ALLOW_ORIGIN=${S3_CORS_ORIGINS:-*}
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "wget", "--spider", "-q", "http://localhost:9333/cluster/status"]
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
       interval: 10s
       timeout: 5s
       retries: 5
-      start_period: 10s
+      start_period: 5s
+
+  # SeaweedFS - S3-compatible distributed storage (uncomment + set S3_PROVIDER=seaweedfs to use instead of MinIO)
+  # seaweedfs:
+  #   container_name: slyng-seaweedfs
+  #   image: chrislusf/seaweedfs:latest
+  #   command: >
+  #     server -s3 -s3.config=/etc/seaweedfs/s3_config.json
+  #     -s3.allowedOrigins=${S3_ALLOWED_ORIGINS:-*}
+  #     -filer=true
+  #   ports:
+  #     - "8343:8333" # S3 API
+  #     - "9343:9333" # Master
+  #     - "8088:8080" # Volume server
+  #     - "8898:8888" # Filer
+  #   volumes:
+  #     - ./s3/data:/data
+  #     - ./s3/s3_config.json:/etc/seaweedfs/s3_config.json
+  #   restart: unless-stopped
+  #   healthcheck:
+  #     test: ["CMD", "wget", "--spider", "-q", "http://localhost:9333/cluster/status"]
+  #     interval: 10s
+  #     timeout: 5s
+  #     retries: 5
+  #     start_period: 10s
 
   # LiveKit - WebRTC SFU for voice/video
   # --node-ip must be the host's LAN IP so ICE candidates are routable
@@ -103,9 +118,10 @@ services:
       - SURREALDB_DATABASE=${SURREALDB_DATABASE:-slyng}
       - SURREALDB_USER=${SURREALDB_USER:-root}
       - SURREALDB_PASS=${SURREALDB_PASS:-slyng-dev-password}
-      - S3_ENDPOINT=http://seaweedfs:8333
+      - S3_PROVIDER=${S3_PROVIDER:-minio}
+      - S3_ENDPOINT=http://minio:9000
       # S3_PUBLIC_URL must be browser-reachable (presigned URLs are used by the
-      # browser), so it points at the host-mapped SeaweedFS port, not the
+      # browser), so it points at the host-mapped MinIO S3 port, not the
       # internal service name.
       - S3_PUBLIC_URL=${S3_PUBLIC_URL:-http://localhost:8343/slyng}
       - S3_BUCKET=${S3_BUCKET:-slyng}
@@ -133,12 +149,12 @@ services:
       - PROXY_MAX_BYTES=${PROXY_MAX_BYTES:-104857600}
       - PROXY_TIMEOUT_MS=${PROXY_TIMEOUT_MS:-10000}
     depends_on:
-      # service_started, not service_healthy: the surrealdb/seaweedfs images
-      # ship without wget, so their healthchecks report unhealthy even when
-      # fully functional. The API retries its own DB connection on boot.
+      # service_started, not service_healthy: the surrealdb image ships without
+      # curl/wget, so its healthcheck reports unhealthy even when fully
+      # functional. The API retries its own DB connection on boot.
       surrealdb:
         condition: service_started
-      seaweedfs:
+      minio:
         condition: service_started
     profiles:
       - app

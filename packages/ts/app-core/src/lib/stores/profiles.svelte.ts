@@ -79,7 +79,14 @@ async function fetchAndCache(did: string, instanceUrl: string) {
 	try {
 		const manifest = await fetchManifest(did, instanceUrl);
 
-		const profileRes = await fetch(proxied(manifest.endpoints.profile));
+		// `no-store`: this fetch only ever runs on a cache miss or after
+		// invalidateProfile() (i.e. a PROFILE_UPDATE told us the profile
+		// changed). The SvelteMap above is the real cache; the media proxy
+		// stamps `Cache-Control: max-age=60` on every response, so without
+		// this a post-invalidation re-fetch would serve the stale profile
+		// JSON (old avatar_url/?v=) for up to a minute and the UI wouldn't
+		// reflect the edit until the HTTP cache expired.
+		const profileRes = await fetch(proxied(manifest.endpoints.profile), { cache: 'no-store' });
 		if (!profileRes.ok) throw new Error('profile fetch failed');
 		const body = (await profileRes.json()) as {
 			data: {

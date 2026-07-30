@@ -2,7 +2,7 @@
 # Dev API container. Builds @slyng/types + @slyng/idp-crypto (wasm-pack) and
 # the NestJS API, then runs it straight from the workspace dist (no prod
 # prune). Connects to the other compose services by name (surrealdb,
-# seaweedfs, livekit); env is supplied by docker-compose.
+# minio, livekit); env is supplied by docker-compose.
 FROM node:20-alpine
 
 WORKDIR /app

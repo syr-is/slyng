@@ -38,6 +38,7 @@
 		{ key: 'MANAGE_SERVER', label: 'Manage Server', group: 'General' },
 		{ key: 'MANAGE_ROLES', label: 'Manage Roles', group: 'General' },
 		{ key: 'MANAGE_CHANNELS', label: 'Manage Channels', group: 'General' },
+		{ key: 'MANAGE_EMOJIS', label: 'Manage Emoji (add/remove server emoji, stickers & GIFs)', group: 'General' },
 		{ key: 'KICK_MEMBERS', label: 'Kick Members', group: 'Membership' },
 		{ key: 'BAN_MEMBERS', label: 'Ban Members', group: 'Membership' },
 		{ key: 'CREATE_INVITES', label: 'Create Invites', group: 'Invites' },

@@ -47,7 +47,10 @@ async function fetchAndCache(did: string, instanceUrl: string, limit = 30, offse
 	try {
 		const manifest = await resolveManifest(did, instanceUrl);
 		const url = `${manifest.endpoints.posts}?limit=${limit}&offset=${offset}`;
-		const res = await fetch(proxied(url));
+		// no-store: this SvelteMap is the cache of record and this fetch only
+		// runs on a miss or after a PROFILE_UPDATE invalidation, so bypass the
+		// media proxy's max-age=60 or a fresh post lags up to a minute.
+		const res = await fetch(proxied(url), { cache: 'no-store' });
 		if (!res.ok) throw new Error('posts fetch failed');
 		const body = (await res.json()) as PostsResponse;
 		cache.set(did, {
@@ -83,7 +86,8 @@ export async function loadMorePosts(
 	try {
 		const manifest = await resolveManifest(did, instanceUrl);
 		const url = `${manifest.endpoints.posts}?limit=30&offset=${offset}`;
-		const res = await fetch(proxied(url));
+		// no-store: keep pagination pages consistent with the fresh first page.
+		const res = await fetch(proxied(url), { cache: 'no-store' });
 		if (!res.ok) throw new Error('posts fetch failed');
 		const body = (await res.json()) as PostsResponse;
 		const existing = cache.get(did);

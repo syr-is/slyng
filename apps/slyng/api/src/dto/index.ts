@@ -48,6 +48,7 @@ import {
 	PostAssetPresignSchema,
 	EmojiPresignSchema,
 	EmojiCompleteSchema,
+	EmojiCopySchema,
 	GifPresignSchema,
 	GifCompleteSchema,
 	FolderCreateSchema,
@@ -122,6 +123,7 @@ export class PostUpdateDto extends dto(PostUpdateSchema) {}
 export class PostAssetPresignDto extends dto(PostAssetPresignSchema) {}
 export class EmojiPresignDto extends dto(EmojiPresignSchema) {}
 export class EmojiCompleteDto extends dto(EmojiCompleteSchema) {}
+export class EmojiCopyDto extends dto(EmojiCopySchema) {}
 export class GifPresignDto extends dto(GifPresignSchema) {}
 export class GifCompleteDto extends dto(GifCompleteSchema) {}
 

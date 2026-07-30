@@ -34,7 +34,10 @@ const instanceUrls = new Map<string, string>(); // did → instanceUrl for re-fe
 async function fetchAndCache(did: string, instanceUrl: string) {
 	try {
 		const manifest = await resolveManifest(did, instanceUrl);
-		const res = await fetch(proxied(manifest.endpoints.stories));
+		// no-store: this SvelteMap is the cache of record and this fetch only
+		// runs on a miss or after a PROFILE_UPDATE invalidation, so bypass the
+		// media proxy's max-age=60 or a fresh story lags up to a minute.
+		const res = await fetch(proxied(manifest.endpoints.stories), { cache: 'no-store' });
 		if (!res.ok) throw new Error('stories fetch failed');
 		const body = (await res.json()) as { data: { slides: StorySlide[] } };
 		cache.set(did, {

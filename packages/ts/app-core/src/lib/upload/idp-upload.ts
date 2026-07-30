@@ -113,6 +113,23 @@ export async function getLocalProfile(did: string): Promise<LocalProfile> {
 	return data;
 }
 
+/**
+ * Click-to-add: copy an emoji seen in chat into the caller's own hosted set.
+ * The server fetches `sourceUrl` (a resolved public emoji URL), re-uploads it
+ * under the caller's DID, and registers it under `shortcode` as emoji or
+ * sticker. Only meaningful for local accounts.
+ */
+export async function addEmojiToLibrary(
+	shortcode: string,
+	sourceUrl: string,
+	isSticker: boolean
+): Promise<void> {
+	await idpJson('/emojis/copy', {
+		method: 'POST',
+		body: JSON.stringify({ shortcode, source_url: sourceUrl, is_sticker: isSticker })
+	});
+}
+
 /** Read intrinsic dimensions of an image/video file (best-effort, browser only). */
 async function readDimensions(
 	file: File

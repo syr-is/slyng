@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { ArrowLeft, User, Shield, Users, Ticket, Ban, Trash2, AlertTriangle, Hash } from '@lucide/svelte';
+	import { ArrowLeft, User, Shield, Users, Ticket, Ban, Trash2, AlertTriangle, Hash, Smile } from '@lucide/svelte';
 	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
 	import { Button } from '@slyng/ui/button';
@@ -14,8 +14,18 @@
 	import TrashPanel from '@slyng/ui/fragments/server-settings/trash-panel.svelte';
 	import DangerPanel from '@slyng/ui/fragments/server-settings/danger-panel.svelte';
 	import ChannelsPanel from '@slyng/ui/fragments/server-settings/channels-panel.svelte';
+	import EmojiPanel from '@slyng/ui/fragments/server-settings/emoji-panel.svelte';
 
-	type Tab = 'profile' | 'channels' | 'roles' | 'members' | 'invites' | 'bans' | 'trash' | 'danger';
+	type Tab =
+		| 'profile'
+		| 'channels'
+		| 'roles'
+		| 'members'
+		| 'invites'
+		| 'bans'
+		| 'emoji'
+		| 'trash'
+		| 'danger';
 
 	const auth = getAuth();
 	const serverState = getServerState();
@@ -33,6 +43,7 @@
 		{ id: 'members', label: 'Members', icon: Users, show: true },
 		{ id: 'invites', label: 'Invites', icon: Ticket, show: perms.canCreateInvites || perms.canManageInvites },
 		{ id: 'bans', label: 'Bans', icon: Ban, show: perms.canBan },
+		{ id: 'emoji', label: 'Emoji', icon: Smile, show: perms.canManageEmojis },
 		{ id: 'trash', label: 'Trash', icon: Trash2, show: perms.canViewTrash },
 		{ id: 'danger', label: 'Danger zone', icon: AlertTriangle, show: isOwner }
 	]);
@@ -97,6 +108,9 @@
 			{:else if activeTab === 'bans'}
 				<h1 class="mb-4 text-xl font-semibold">Bans</h1>
 				<BansPanel {serverId} />
+			{:else if activeTab === 'emoji'}
+				<h1 class="mb-4 text-xl font-semibold">Emoji &amp; media</h1>
+				<EmojiPanel {serverId} />
 			{:else if activeTab === 'trash'}
 				<h1 class="mb-4 text-xl font-semibold">Trash</h1>
 				<TrashPanel {serverId} />

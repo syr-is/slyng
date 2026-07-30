@@ -15,7 +15,9 @@
 		Hash,
 		Server,
 		RotateCcw,
-		Crown
+		Crown,
+		Smile,
+		Image
 	} from '@lucide/svelte';
 	import { toast } from 'svelte-sonner';
 	import { api } from '@slyng/app-core/api';
@@ -107,7 +109,11 @@
 		server_transfer_ownership: { label: 'Transferred ownership', icon: Crown, tone: 'text-amber-500' },
 		invite_create: { label: 'Created invite', icon: Ticket, tone: 'text-primary' },
 		invite_update: { label: 'Updated invite', icon: Pencil, tone: 'text-muted-foreground' },
-		invite_delete: { label: 'Revoked invite', icon: X, tone: 'text-muted-foreground' }
+		invite_delete: { label: 'Revoked invite', icon: X, tone: 'text-muted-foreground' },
+		emoji_create: { label: 'Added server emoji', icon: Smile, tone: 'text-primary' },
+		emoji_delete: { label: 'Removed server emoji', icon: Smile, tone: 'text-muted-foreground' },
+		gif_create: { label: 'Added server GIF', icon: Image, tone: 'text-primary' },
+		gif_delete: { label: 'Removed server GIF', icon: Image, tone: 'text-muted-foreground' }
 	};
 
 	const meta = $derived(row.metadata ?? {});

@@ -1,11 +1,12 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { S3Client, PutObjectCommand, HeadObjectCommand, HeadBucketCommand, CreateBucketCommand, PutBucketCorsCommand } from '@aws-sdk/client-s3';
+import { PutObjectCommand, HeadObjectCommand } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { RecordId } from 'surrealdb';
 import { stringToRecordId } from '@slyng/types';
 import { UploadRepository } from './upload.repository';
 import { InstanceConfigService } from '../idp/instance-config.service';
+import { ObjectStoreService } from '../storage/object-store.service';
 
 type UploadStatus = 'pending' | 'finalizing' | 'completed' | 'failed';
 
@@ -29,73 +30,18 @@ interface UploadRecord {
 @Injectable()
 export class UploadService implements OnModuleInit {
 	private readonly logger = new Logger(UploadService.name);
-	private s3!: S3Client;
-	private bucket!: string;
-	private publicBase!: string;
 	private maxBytes!: number;
 
 	constructor(
 		private readonly config: ConfigService,
 		private readonly uploads: UploadRepository,
-		private readonly instanceConfig: InstanceConfigService
+		private readonly instanceConfig: InstanceConfigService,
+		private readonly store: ObjectStoreService
 	) {}
 
-	private s3Public!: S3Client;
-
 	onModuleInit() {
-		const endpoint = this.config.get<string>('S3_ENDPOINT', 'http://localhost:8343');
-		const region = this.config.get<string>('S3_REGION', 'us-east-1');
-		const accessKeyId = this.config.get<string>('S3_ACCESS_KEY_ID', 'slyng-access-key');
-		const secretAccessKey = this.config.get<string>('S3_SECRET_ACCESS_KEY', 'slyng-secret-key');
-		this.bucket = this.config.get<string>('S3_BUCKET', 'slyng');
-		const publicUrl = this.config.get<string>('S3_PUBLIC_URL', `${endpoint}/${this.bucket}`);
-		this.publicBase = publicUrl.replace(/\/+$/, '');
+		// Bucket, CORS, and the public-read policy are owned by ObjectStoreService.
 		this.maxBytes = Number(this.config.get<string>('UPLOAD_MAX_BYTES', '524288000'));
-
-		const creds = { accessKeyId, secretAccessKey };
-		this.s3 = new S3Client({
-			endpoint,
-			region,
-			credentials: creds,
-			forcePathStyle: true,
-			requestHandler: { requestTimeout: 10_000, connectionTimeout: 5_000 } as any
-		});
-		// Public client for presigned URLs — browser needs the external endpoint
-		// S3_PUBLIC_URL is like https://s3.slyng.gg/slyng — strip the bucket suffix
-		const publicEndpoint = new URL(publicUrl).origin;
-		this.s3Public = new S3Client({
-			endpoint: publicEndpoint,
-			region,
-			credentials: creds,
-			forcePathStyle: true
-		});
-		this.logger.log(`Storage ready — bucket=${this.bucket} endpoint=${endpoint} publicUrl=${publicUrl}`);
-		this.ensureBucket().catch((err) => this.logger.error('Failed to ensure S3 bucket', err));
-	}
-
-	private async ensureBucket() {
-		try {
-			await this.s3.send(new HeadBucketCommand({ Bucket: this.bucket }));
-		} catch (err: any) {
-			const status = err?.$metadata?.httpStatusCode;
-			if (status !== 404 && err?.name !== 'NotFound' && err?.name !== 'NoSuchBucket') throw err;
-			await this.s3.send(new CreateBucketCommand({ Bucket: this.bucket }));
-			this.logger.log(`S3 bucket "${this.bucket}" created`);
-		}
-		const corsOrigins = this.config.get<string>('S3_CORS_ORIGINS', '*').split(',').map(s => s.trim()).filter(Boolean);
-		await this.s3.send(new PutBucketCorsCommand({
-			Bucket: this.bucket,
-			CORSConfiguration: {
-				CORSRules: [{
-					AllowedOrigins: corsOrigins,
-					AllowedMethods: ['GET', 'POST', 'PUT', 'DELETE', 'HEAD'],
-					AllowedHeaders: ['*'],
-					ExposeHeaders: ['ETag', 'Content-Length', 'Content-Type', 'Last-Modified', 'x-amz-request-id', 'x-amz-version-id'],
-					MaxAgeSeconds: 3600
-				}]
-			}
-		}));
-		this.logger.log(`S3 bucket "${this.bucket}" CORS set for: ${corsOrigins.join(', ')}`);
 	}
 
 	async requestPresign(
@@ -130,9 +76,10 @@ export class UploadService implements OnModuleInit {
 		const channelSegment = data.channel_id
 			? `channels/${this.sanitizeSegment(data.channel_id)}`
 			: 'loose';
-		// `public/` subpath is matched by the seaweedfs anonymous read ACL
+		// `public/` subpath is matched by the object store's public-read policy
+		// (MinIO bucket policy / SeaweedFS anonymous ACL).
 		const key = `uploads/${this.sanitizeSegment(userId)}/${channelSegment}/${localId}/public/${filename}`;
-		const finalUrl = `${this.publicBase}/${key}`;
+		const finalUrl = this.store.buildUrl(key);
 
 		await this.uploads.merge((record.id as RecordId), {
 			key,
@@ -141,9 +88,9 @@ export class UploadService implements OnModuleInit {
 		});
 
 		const signedUrl = await getSignedUrl(
-			this.s3Public,
+			this.store.publicClient,
 			new PutObjectCommand({
-				Bucket: this.bucket,
+				Bucket: this.store.bucket,
 				Key: key,
 				ContentType: data.mime_type,
 				...(data.sha256 && {
@@ -164,8 +111,8 @@ export class UploadService implements OnModuleInit {
 	private async quickHeadObject(key: string, maxAttempts = 3, delayMs = 2000) {
 		for (let attempt = 0; attempt < maxAttempts; attempt++) {
 			try {
-				return await this.s3.send(
-					new HeadObjectCommand({ Bucket: this.bucket, Key: key })
+				return await this.store.client.send(
+					new HeadObjectCommand({ Bucket: this.store.bucket, Key: key })
 				);
 			} catch (err) {
 				const status = (err as any)?.$metadata?.httpStatusCode;
@@ -199,8 +146,8 @@ export class UploadService implements OnModuleInit {
 				if (current.status !== 'finalizing') return;
 
 				try {
-					const head = await this.s3.send(
-						new HeadObjectCommand({ Bucket: this.bucket, Key: record.key })
+					const head = await this.store.client.send(
+						new HeadObjectCommand({ Bucket: this.store.bucket, Key: record.key })
 					);
 					if (head.ContentLength !== record.size) {
 						this.logger.error(`[bg-finalize] Size mismatch: expected ${record.size}, got ${head.ContentLength}`);
