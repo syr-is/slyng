@@ -414,7 +414,12 @@
 </script>
 
 <Dialog.Root {open} onOpenChange={(v) => { if (!v) onClose(); }}>
-	<Dialog.Content class="flex max-h-[85vh] flex-col gap-0 overflow-hidden p-0 sm:max-w-2xl">
+	<!-- `overflow-visible`, not hidden: the filter autocomplete below is
+	     absolutely positioned, so a clipping ancestor cut it off at the dialog
+	     edge — and when its content was shorter than `max-h-72` it had no inner
+	     scrollbar either, leaving the last option unreachable. The results list
+	     keeps its own `overflow-y-auto`, so nothing else escapes the box. -->
+	<Dialog.Content class="flex max-h-[85vh] flex-col gap-0 overflow-visible p-0 sm:max-w-2xl">
 		<Dialog.Header class="border-b border-border p-3 text-left">
 			<Dialog.Title class="sr-only">Search messages</Dialog.Title>
 			<!-- Token input + autocomplete -->
