@@ -1,7 +1,6 @@
 import { Controller, Get, Query, Req, HttpException, HttpStatus, Logger } from '@nestjs/common';
 import { ApiTags, ApiOperation } from '@nestjs/swagger';
 import { SkipServerAccess } from '../auth/server-access.decorator';
-import type { Request } from 'express';
 import type { AuthedRequest } from '../auth/authed-request';
 
 /**

@@ -1,4 +1,4 @@
-import { Injectable, Inject, Optional, Logger, ForbiddenException, NotFoundException } from '@nestjs/common';
+import { Injectable, Optional, Logger, ForbiddenException, NotFoundException } from '@nestjs/common';
 import { RecordId } from 'surrealdb';
 import { Permissions, WsOp, stringToRecordId } from '@slyng/types';
 import { EmbedService } from '../embed/embed.service';
@@ -188,7 +188,7 @@ export class MessageService {
 
 		const enriched = await this.enrich(pageRows);
 		const withChannel = enriched.map((m) => ({
-			...(m as any),
+			...m,
 			channel_name:
 				nameByChannel.get(stringToRecordId.encode(m.channel_id as RecordId)) ?? null
 		}));
@@ -269,7 +269,7 @@ export class MessageService {
 
 		const enriched = await this.enrich(pageRows);
 		const withChannel = enriched.map((m) => ({
-			...(m as any),
+			...m,
 			channel_name:
 				nameById.get(stringToRecordId.encode(m.channel_id as RecordId)) ?? null
 		}));
@@ -325,7 +325,7 @@ export class MessageService {
 		const withChannel = enriched.map((m) => {
 			const cid = stringToRecordId.encode(m.channel_id as RecordId);
 			return {
-				...(m as any),
+				...m,
 				channel_name: nameByChannel.get(cid) ?? null,
 				server_id: serverByChannel.get(cid) ?? null
 			};
@@ -570,7 +570,7 @@ export class MessageService {
 		const channel = await this.channels.findById(channelRef as any);
 		if (channel && channel.type === 'direct') {
 			const parts = await this.participants.findMany({ channel_id: channelRef });
-			const other = parts.find((p) => p.user_id !== senderId) as any;
+			const other = parts.find((p) => p.user_id !== senderId);
 			if (other?.user_id) {
 				const check = await this.relations.canDM(senderId, other.user_id);
 				if (!check.allowed) {

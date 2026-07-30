@@ -16,6 +16,8 @@ export interface VoiceStateRow extends Record<string, unknown> {
 	server_id?: RecordId | null;
 	self_mute?: boolean;
 	self_deaf?: boolean;
+	has_camera?: boolean;
+	has_screen?: boolean;
 	joined_at?: Date;
 	updated_at: Date;
 }

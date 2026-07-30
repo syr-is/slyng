@@ -171,7 +171,7 @@ export class MemberAccessService {
 					return assignedSet.has(o.target_id as string) ||
 						allRoles.some((r) => r.is_default && stringToRecordId.encode(r.id as RecordId) === o.target_id);
 				})
-				.sort((a: any, b: any) => {
+				.sort((a, b) => {
 					const pa = allRoles.find((r) => stringToRecordId.encode(r.id as RecordId) === a.target_id);
 					const pb = allRoles.find((r) => stringToRecordId.encode(r.id as RecordId) === b.target_id);
 					return (((pa as any)?.position as number) ?? 0) - (((pb as any)?.position as number) ?? 0);

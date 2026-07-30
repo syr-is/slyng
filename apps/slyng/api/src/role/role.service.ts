@@ -14,8 +14,7 @@ import { PermissionOverrideRepository } from '../permission-override/override.re
 import {
 	ChannelRepository,
 	ChannelCategoryRepository,
-	type ChannelRow,
-	type ChannelCategoryRow
+	type ChannelRow
 } from '../channel/channel.repository';
 import { ChatGateway } from '../gateway/chat.gateway';
 import { AuditLogService } from '../audit-log/audit-log.service';
@@ -226,7 +225,7 @@ export class RoleService {
 		const serverId = stringToRecordId.encode(role.server_id);
 
 		// Hierarchy: actor must outrank the role they're editing.
-		if (!(await this.canActorManageRole(userId, serverId, role as any))) {
+		if (!(await this.canActorManageRole(userId, serverId, role))) {
 			throw new ForbiddenException('You cannot manage roles at or above your highest role');
 		}
 		if (role.is_default && data.name !== undefined) {
@@ -413,7 +412,7 @@ export class RoleService {
 		if (role.deleted) throw new ForbiddenException('Role already in trash');
 
 		const serverId = stringToRecordId.encode(role.server_id);
-		if (!(await this.canActorManageRole(userId, serverId, role as any))) {
+		if (!(await this.canActorManageRole(userId, serverId, role))) {
 			throw new ForbiddenException('You cannot manage roles at or above your highest role');
 		}
 		const now = new Date();
@@ -446,7 +445,7 @@ export class RoleService {
 		if (!role) throw new NotFoundException('Role not found');
 		if (!role.deleted) throw new ForbiddenException('Role is not in trash');
 		const serverId = stringToRecordId.encode(role.server_id);
-		if (!(await this.canActorManageRole(userId, serverId, role as any))) {
+		if (!(await this.canActorManageRole(userId, serverId, role))) {
 			throw new ForbiddenException('You cannot restore roles at or above your highest role');
 		}
 		await this.roles.merge(roleId, {
@@ -481,7 +480,7 @@ export class RoleService {
 			throw new ForbiddenException('Role must be in trash before hard delete');
 
 		const serverId = stringToRecordId.encode(role.server_id);
-		if (!(await this.canActorManageRole(userId, serverId, role as any))) {
+		if (!(await this.canActorManageRole(userId, serverId, role))) {
 			throw new ForbiddenException('You cannot hard-delete roles at or above your highest role');
 		}
 		const ref = role.id as RecordId;
@@ -523,7 +522,7 @@ export class RoleService {
 		if (role.deleted) throw new ForbiddenException('Cannot assign a trashed role');
 
 		// Hierarchy: actor must outrank the role being granted.
-		if (!(await this.canActorAssignRole(actorUserId, serverId, role as any))) {
+		if (!(await this.canActorAssignRole(actorUserId, serverId, role))) {
 			throw new ForbiddenException('You cannot assign roles at or above your highest role');
 		}
 
@@ -560,7 +559,7 @@ export class RoleService {
 
 		const role = await this.roles.findById(roleId);
 		// Hierarchy: actor must outrank the role being revoked.
-		if (role && !(await this.canActorAssignRole(actorUserId, serverId, role as any))) {
+		if (role && !(await this.canActorAssignRole(actorUserId, serverId, role))) {
 			throw new ForbiddenException('You cannot unassign roles at or above your highest role');
 		}
 		const updated = await this.members.merge(member.id, {
@@ -665,7 +664,7 @@ export class RoleService {
 					return assignedSet.has(o.target_id as string) ||
 						allRoles.some((r) => r.is_default && stringToRecordId.encode(r.id as RecordId) === o.target_id);
 				})
-				.sort((a: any, b: any) => {
+				.sort((a, b) => {
 					const posA = allRoles.find((r) => stringToRecordId.encode(r.id as RecordId) === a.target_id);
 					const posB = allRoles.find((r) => stringToRecordId.encode(r.id as RecordId) === b.target_id);
 					return (((posA as any)?.position as number) ?? 0) - (((posB as any)?.position as number) ?? 0);

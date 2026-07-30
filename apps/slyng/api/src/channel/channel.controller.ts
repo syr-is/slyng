@@ -38,7 +38,11 @@ export class ChannelController {
 		// `CreateChannelInputSchema.type` is only `z.string().optional()`, so an
 		// arbitrary string used to reach the row unchecked and persist as the
 		// channel kind. Validate against the canonical enum at the boundary.
-		const parsedType = ChannelTypeSchema.safeParse(body.type ?? 'text');
+		// `??` would treat an explicit `null` as absent and silently create a text
+		// channel; only an omitted property should default.
+		const parsedType = ChannelTypeSchema.safeParse(
+			body.type === undefined ? 'text' : body.type
+		);
 		if (!parsedType.success) {
 			throw new HttpException(`Invalid channel type: ${String(body.type)}`, 400);
 		}

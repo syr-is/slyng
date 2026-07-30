@@ -491,7 +491,7 @@ export class MemberService {
 		);
 
 		const server = await this.servers.findById(serverRef);
-		const ownerId = (server as any)?.owner_id as string | undefined;
+		const ownerId = server?.owner_id;
 
 		const roles = await this.roles.findMany({ server_id: serverRef });
 		const rolePermMap = new Map<string, bigint>(
