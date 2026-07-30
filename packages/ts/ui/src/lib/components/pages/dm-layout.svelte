@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { toggleMode } from 'mode-watcher';
 	import { onDestroy, onMount } from 'svelte';
-	import { MessagesSquare, UserPlus, Users, EyeOff, CircleUser, HardDrive } from '@lucide/svelte';
+	import { MessagesSquare, UserPlus, Users, EyeOff, CircleUser, HardDrive, Inbox } from '@lucide/svelte';
 	import { Separator } from '@slyng/ui/separator';
 	import * as Avatar from '@slyng/ui/avatar';
 	import { toast } from 'svelte-sonner';
@@ -16,6 +16,7 @@
 	import { clearMessages } from '@slyng/app-core/stores/messages.svelte';
 	import { getAuth } from '@slyng/app-core/stores/auth.svelte';
 	import { getRelations } from '@slyng/app-core/stores/relations.svelte';
+	import { getMentionInbox } from '@slyng/app-core/stores/mention-inbox.svelte';
 	import { resolveProfile, displayName } from '@slyng/app-core/stores/profiles.svelte';
 	import { proxied } from '@slyng/app-core/utils/proxy';
 	import { page } from '$app/state';
@@ -37,6 +38,7 @@
 	let dmChannels = $state<DMChannel[]>([]);
 	const auth = getAuth();
 	const relations = getRelations();
+	const mentionInbox = getMentionInbox();
 
 	async function refreshDms() {
 		try {
@@ -119,6 +121,7 @@
 	}
 
 	const incomingCount = $derived(relations.incoming.size);
+	const mentionCount = $derived(mentionInbox.count);
 
 	const onFriends = $derived(page.url.pathname.startsWith('/channels/@me/friends'));
 	const onRequests = $derived(page.url.pathname.startsWith('/channels/@me/requests'));
@@ -135,7 +138,10 @@
 					{ href: '/channels/@me/library', label: 'Files', icon: HardDrive, match: (p: string) => p.startsWith('/channels/@me/library') }
 				]
 			: []),
-		{ href: '/channels/@me', label: 'Direct Messages', icon: MessagesSquare, match: (p: string) => p === '/channels/@me' || /^\/channels\/@me\/(?!friends|requests|ignored|posts|library)/.test(p) },
+		{ href: '/channels/@me', label: 'Direct Messages', icon: MessagesSquare, match: (p: string) => p === '/channels/@me' || /^\/channels\/@me\/(?!friends|requests|ignored|posts|library|inbox)/.test(p) },
+		// `/mentions` is global across every server the caller belongs to, so the
+		// inbox is an @me-scoped destination, not a per-channel header affordance.
+		{ href: '/channels/@me/inbox', label: 'Inbox', icon: Inbox, badge: mentionCount, match: (p: string) => p.startsWith('/channels/@me/inbox') },
 		{ href: '/channels/@me/friends', label: 'Friends', icon: Users, match: (p: string) => p.startsWith('/channels/@me/friends') },
 		{ href: '/channels/@me/requests', label: 'Requests', icon: UserPlus, badge: incomingCount, match: (p: string) => p.startsWith('/channels/@me/requests') },
 		{ href: '/channels/@me/ignored', label: 'Ignored', icon: EyeOff, match: (p: string) => p.startsWith('/channels/@me/ignored') }

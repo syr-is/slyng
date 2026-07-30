@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { onDestroy } from 'svelte';
-	import { Hash, Users, Pin, ScrollText, Eye, EyeOff, Search, Inbox } from '@lucide/svelte';
+	import { Hash, Users, Pin, ScrollText, Eye, EyeOff, Search } from '@lucide/svelte';
 	import { goto } from '$app/navigation';
 	import { toast } from 'svelte-sonner';
 	import * as Tooltip from '@slyng/ui/tooltip';
@@ -9,8 +9,6 @@
 	import MemberList from '@slyng/ui/fragments/member-list.svelte';
 	import PinsPanel from '@slyng/ui/fragments/pins-panel.svelte';
 	import SearchDialog from '../fragments/message-search/search-dialog.svelte';
-	import InboxPanel from '../fragments/mention-inbox/inbox-panel.svelte';
-	import { getMentionInbox } from '@slyng/app-core/stores/mention-inbox.svelte';
 	import VoiceRoomView from '@slyng/ui/fragments/voice-room-view.svelte';
 	import { Permissions } from '@slyng/types';
 	import { setPageMembers, setPane } from '@slyng/ui/fragments/swipe-layout';
@@ -43,8 +41,6 @@
 	let showMembers = $state(true);
 	let showPins = $state(false);
 	let showSearch = $state(false);
-	let showInbox = $state(false);
-	const mentionInbox = getMentionInbox();
 	/**
 	 * Channel-scoped "show removed messages" toggle. Ephemeral — resets on
 	 * channel switch. Only meaningful for users with VIEW_REMOVED_MESSAGES;
@@ -482,28 +478,6 @@
 						{#snippet child({ props })}
 							<button
 								{...props}
-								onclick={() => (showInbox = true)}
-								aria-label="Inbox"
-								class="relative flex size-11 shrink-0 items-center justify-center rounded text-muted-foreground transition-colors hover:text-foreground motion-safe:active:scale-95"
-							>
-								<Inbox class="h-5 w-5" />
-								{#if mentionInbox.count > 0}
-									<span
-										class="absolute right-1.5 top-1.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-destructive px-1 text-[9px] font-bold leading-none text-destructive-foreground"
-									>
-										{mentionInbox.count > 99 ? '99+' : mentionInbox.count}
-									</span>
-								{/if}
-							</button>
-						{/snippet}
-					</Tooltip.Trigger>
-					<Tooltip.Content side="bottom">Inbox</Tooltip.Content>
-				</Tooltip.Root>
-				<Tooltip.Root>
-					<Tooltip.Trigger>
-						{#snippet child({ props })}
-							<button
-								{...props}
 								onclick={() => (showSearch = true)}
 								aria-label="Search messages"
 								class="flex size-11 shrink-0 items-center justify-center rounded text-muted-foreground transition-colors hover:text-foreground motion-safe:active:scale-95"
@@ -680,13 +654,5 @@
 	{serverId}
 	currentChannelId={channelId}
 	onClose={() => (showSearch = false)}
-	onJump={ensureAndJump}
-/>
-
-<InboxPanel
-	open={showInbox}
-	currentServerId={serverId}
-	currentChannelId={channelId}
-	onClose={() => (showInbox = false)}
 	onJump={ensureAndJump}
 />
