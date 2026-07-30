@@ -301,7 +301,6 @@ export class MemberService {
 		const channels = await this.channels.findMany({ server_id: serverRef });
 		if (!channels.length) return;
 
-		const db = (this.messages as any).db;
 		const actor = actorUserId ?? userId; // fallback if caller didn't pass one
 		const batchId = randomUUID();
 		const now = new Date();
@@ -310,16 +309,18 @@ export class MemberService {
 		for (const channel of channels) {
 			const channelRef = channel.id as RecordId;
 			const channelIdStr = stringToRecordId.encode(channelRef);
-			// Soft-delete via UPDATE ... RETURN AFTER. Rows stay in the table;
-			// `deleted=true` marks them, `deleted_by` + `deleted_at` record the
-			// context. Privileged clients receive MESSAGE_UPDATE with full
+			// Soft-delete, never DELETE FROM — the repository does the UPDATE ...
+			// RETURN AFTER and hands back the updated rows so we can broadcast
+			// per message. Privileged clients receive MESSAGE_UPDATE with full
 			// content (their toggle decides visibility); non-priv get
 			// MESSAGE_DELETE and drop the row.
-			const result = (await db.query(
-				`UPDATE message SET deleted = true, deleted_at = $now, deleted_by = $actor, updated_at = $now WHERE channel_id = $ch AND sender_id = $uid AND created_at > $cutoff AND (deleted = NONE OR deleted = false) RETURN AFTER`,
-				{ ch: channelRef, uid: userId, cutoff, actor, now }
-			)) as any[];
-			const rows = (result[0] ?? []) as any[];
+			const rows = await this.messages.softDeleteBySenderSince(
+				channelRef,
+				userId,
+				cutoff,
+				actor,
+				now
+			);
 			totalPurged += rows.length;
 			if (!rows.length) continue;
 

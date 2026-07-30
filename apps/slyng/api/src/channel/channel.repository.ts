@@ -75,6 +75,35 @@ export interface ChannelReadStateRow extends Record<string, unknown> {
 export class ChannelRepository extends BaseRepository<ChannelRow> {
 	protected tableName = 'channel';
 	constructor(db: DbService) { super(db); }
+
+	/**
+	 * Live (non-soft-deleted) channels for a server in sidebar order.
+	 *
+	 * `deleted = NONE OR deleted = false` rather than `deleted = false`: the
+	 * column is absent on rows created before soft-delete existed, and a bare
+	 * equality check would silently drop them.
+	 */
+	async findLiveByServer(serverRef: RecordId): Promise<ChannelRow[]> {
+		const result = await this.db.query<[ChannelRow[]]>(
+			`SELECT * FROM ${this.tableName}
+			  WHERE server_id = $ref AND (deleted = NONE OR deleted = false)
+			  ORDER BY position ASC`,
+			{ ref: serverRef }
+		);
+		return result[0] ?? [];
+	}
+
+	/**
+	 * The category a channel belongs to, or null when uncategorised. Narrow
+	 * projection because permission resolution needs only this one column.
+	 */
+	async findCategoryId(channelRef: RecordId): Promise<RecordId | null> {
+		const result = await this.db.query<[{ category_id?: RecordId | null }[]]>(
+			`SELECT category_id FROM ${this.tableName} WHERE id = $id LIMIT 1`,
+			{ id: channelRef }
+		);
+		return result[0]?.[0]?.category_id ?? null;
+	}
 }
 
 @Injectable()
@@ -87,6 +116,15 @@ export class ChannelParticipantRepository extends BaseRepository<ChannelParticip
 export class ChannelCategoryRepository extends BaseRepository<ChannelCategoryRow> {
 	protected tableName = 'channel_category';
 	constructor(db: DbService) { super(db); }
+
+	/** A server's categories in sidebar order. */
+	async findByServerOrdered(serverRef: RecordId): Promise<ChannelCategoryRow[]> {
+		const result = await this.db.query<[ChannelCategoryRow[]]>(
+			`SELECT * FROM ${this.tableName} WHERE server_id = $ref ORDER BY position ASC`,
+			{ ref: serverRef }
+		);
+		return result[0] ?? [];
+	}
 }
 
 @Injectable()

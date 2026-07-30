@@ -69,6 +69,24 @@ export interface MessageSearchFilters {
 	until?: Date;
 }
 
+/** Trash-view predicates. Matched against soft-delete columns, not `created_at`. */
+export interface TrashedMessageFilters {
+	q?: string;
+	before?: Date;
+	sender_id?: string;
+	deleted_by?: string;
+	since?: Date;
+	until?: Date;
+}
+
+/** Aggregate totals for the moderation-view header. */
+export interface SenderMessageStats {
+	total: number;
+	first_at: Date | null;
+	last_at: Date | null;
+	per_channel: { channel_id: RecordId; count: number }[];
+}
+
 @Injectable()
 export class MessageRepository extends BaseRepository<MessageRow> {
 	protected tableName = 'message';
@@ -139,6 +157,141 @@ export class MessageRepository extends BaseRepository<MessageRow> {
 		const result = await this.db.query<[MessageRow[]]>(
 			`SELECT * FROM ${this.tableName} WHERE ${where.join(' AND ')} ORDER BY created_at DESC`,
 			bindings
+		);
+		return result[0] ?? [];
+	}
+
+	/**
+	 * All messages by one sender across `channelRefs`, newest first —
+	 * soft-deleted rows included, because the moderation view masks them at
+	 * render time rather than hiding them.
+	 *
+	 * Returns the whole matching set; the caller slices its own page. A
+	 * separate `count() GROUP ALL` returned wrong totals on some SurrealDB
+	 * versions, and the moderation-view scale doesn't justify a second query.
+	 */
+	async findBySenderInChannels(
+		channelRefs: RecordId[],
+		senderId: string,
+		filters: { before?: Date; q?: string } = {}
+	): Promise<MessageRow[]> {
+		if (!channelRefs.length) return [];
+		const bindings: Record<string, unknown> = { sender: senderId, channels: channelRefs };
+		const where = ['sender_id = $sender', 'channel_id IN $channels'];
+		if (filters.before) {
+			bindings.before = filters.before;
+			where.push('created_at < $before');
+		}
+		if (filters.q?.trim()) {
+			bindings.q = filters.q.trim().toLowerCase();
+			where.push('string::lowercase(content) CONTAINS $q');
+		}
+		const result = await this.db.query<[MessageRow[]]>(
+			`SELECT * FROM ${this.tableName} WHERE ${where.join(' AND ')} ORDER BY created_at DESC`,
+			bindings
+		);
+		return result[0] ?? [];
+	}
+
+	/**
+	 * Soft-deleted messages across `channelRefs`, most recently deleted first.
+	 * Ordered and filtered on `deleted_at`, not `created_at` — the trash view is
+	 * chronological by removal.
+	 *
+	 * `sender_id` / `deleted_by` are substring matches (the trash table offers
+	 * free-text filters), unlike the exact match in `findBySenderInChannels`.
+	 */
+	async findTrashedInChannels(
+		channelRefs: RecordId[],
+		filters: TrashedMessageFilters = {}
+	): Promise<MessageRow[]> {
+		if (!channelRefs.length) return [];
+		const bindings: Record<string, unknown> = { channels: channelRefs };
+		const where = ['channel_id IN $channels', 'deleted = true'];
+		if (filters.before) {
+			bindings.before = filters.before;
+			where.push('deleted_at < $before');
+		}
+		if (filters.q?.trim()) {
+			bindings.q = filters.q.trim().toLowerCase();
+			where.push('string::lowercase(content) CONTAINS $q');
+		}
+		if (filters.sender_id?.trim()) {
+			bindings.sender = filters.sender_id.trim().toLowerCase();
+			where.push('string::lowercase(sender_id) CONTAINS $sender');
+		}
+		if (filters.deleted_by?.trim()) {
+			bindings.deleter = filters.deleted_by.trim().toLowerCase();
+			where.push('string::lowercase(deleted_by) CONTAINS $deleter');
+		}
+		if (filters.since) {
+			bindings.since = filters.since;
+			where.push('deleted_at >= $since');
+		}
+		if (filters.until) {
+			bindings.until = filters.until;
+			where.push('deleted_at <= $until');
+		}
+		const result = await this.db.query<[MessageRow[]]>(
+			`SELECT * FROM ${this.tableName} WHERE ${where.join(' AND ')} ORDER BY deleted_at DESC`,
+			bindings
+		);
+		return result[0] ?? [];
+	}
+
+	/** Count + first/last timestamps for one sender, overall and per channel. */
+	async statsForSenderInChannels(
+		channelRefs: RecordId[],
+		senderId: string
+	): Promise<SenderMessageStats> {
+		if (!channelRefs.length) return { total: 0, first_at: null, last_at: null, per_channel: [] };
+		const bindings = { sender: senderId, channels: channelRefs };
+		type AggRow = { total?: number; first_at?: Date; last_at?: Date };
+		type PerChannelRow = { channel_id: RecordId; count: number };
+		const [aggResult, perChannelResult] = await Promise.all([
+			this.db.query<[AggRow[]]>(
+				`SELECT count() AS total, math::min(created_at) AS first_at, math::max(created_at) AS last_at
+				   FROM ${this.tableName}
+				  WHERE sender_id = $sender AND channel_id IN $channels GROUP ALL`,
+				bindings
+			),
+			this.db.query<[PerChannelRow[]]>(
+				`SELECT channel_id, count() AS count
+				   FROM ${this.tableName}
+				  WHERE sender_id = $sender AND channel_id IN $channels GROUP BY channel_id`,
+				bindings
+			)
+		]);
+		const agg = aggResult[0]?.[0] ?? {};
+		return {
+			total: agg.total ?? 0,
+			first_at: agg.first_at ?? null,
+			last_at: agg.last_at ?? null,
+			per_channel: perChannelResult[0] ?? []
+		};
+	}
+
+	/**
+	 * Soft-delete one sender's messages in a channel newer than `cutoff` and
+	 * return the updated rows, so the caller can broadcast per-message events.
+	 *
+	 * `UPDATE ... RETURN AFTER`, never `DELETE FROM` (AI.md rule 4): the rows
+	 * stay and carry who removed them and when.
+	 */
+	async softDeleteBySenderSince(
+		channelRef: RecordId,
+		senderId: string,
+		cutoff: Date,
+		actorId: string,
+		now: Date
+	): Promise<MessageRow[]> {
+		const result = await this.db.query<[MessageRow[]]>(
+			`UPDATE ${this.tableName}
+			    SET deleted = true, deleted_at = $now, deleted_by = $actor, updated_at = $now
+			  WHERE channel_id = $ch AND sender_id = $uid AND created_at > $cutoff
+			    AND (deleted = NONE OR deleted = false)
+			 RETURN AFTER`,
+			{ ch: channelRef, uid: senderId, cutoff, actor: actorId, now }
 		);
 		return result[0] ?? [];
 	}

@@ -118,32 +118,10 @@ export class MessageService {
 			channels.map((c) => [stringToRecordId.encode(c.id as RecordId), c.name as string])
 		);
 
-		const db = (this.messages as any).db;
-		const bindings: Record<string, unknown> = {
-			sender: senderId,
-			channels: channelIds
-		};
-		const where = ['sender_id = $sender', 'channel_id IN $channels'];
-		if (options.before) {
-			bindings.before = new Date(options.before);
-			where.push('created_at < $before');
-		}
-		if (options.q?.trim()) {
-			bindings.q = options.q.trim().toLowerCase();
-			where.push('string::lowercase(content) CONTAINS $q');
-		}
-		const whereSql = `WHERE ${where.join(' AND ')}`;
-
-		// One query: fetch the full matching set (sorted), compute total from its
-		// length, slice the requested page. A separate `count() GROUP ALL` query
-		// was returning the wrong total on some SurrealDB versions, and the
-		// moderation-view scale (typically < a few thousand messages per user
-		// per server) doesn't justify the extra query anyway.
-		const allResult = (await db.query(
-			`SELECT * FROM message ${whereSql} ORDER BY created_at DESC`,
-			bindings
-		)) as any[];
-		const allRows = (allResult[0] ?? []) as any[];
+		const allRows = await this.messages.findBySenderInChannels(channelIds, senderId, {
+			before: options.before ? new Date(options.before) : undefined,
+			q: options.q
+		});
 		const total = allRows.length;
 		const pageRows = allRows.slice(offset, offset + limit);
 
@@ -197,43 +175,14 @@ export class MessageService {
 			])
 		);
 
-		const db = (this.messages as any).db;
-		const bindings: Record<string, unknown> = {
-			channels: channelIds
-		};
-		const where = ['channel_id IN $channels', 'deleted = true'];
-		if (options.before) {
-			bindings.before = new Date(options.before);
-			where.push('deleted_at < $before');
-		}
-		if (options.q?.trim()) {
-			bindings.q = options.q.trim().toLowerCase();
-			where.push('string::lowercase(content) CONTAINS $q');
-		}
-		if (options.sender_id?.trim()) {
-			bindings.sender = options.sender_id.trim().toLowerCase();
-			where.push('string::lowercase(sender_id) CONTAINS $sender');
-		}
-		if (options.deleted_by?.trim()) {
-			bindings.deleter = options.deleted_by.trim().toLowerCase();
-			where.push('string::lowercase(deleted_by) CONTAINS $deleter');
-		}
-		if (options.since) {
-			bindings.since = options.since;
-			where.push('deleted_at >= $since');
-		}
-		if (options.until) {
-			bindings.until = options.until;
-			where.push('deleted_at <= $until');
-		}
-		const whereSql = `WHERE ${where.join(' AND ')}`;
-
-		// Match findBySender: single fetch + slice. Avoids SurrealDB GROUP ALL quirk.
-		const allResult = (await db.query(
-			`SELECT * FROM message ${whereSql} ORDER BY deleted_at DESC`,
-			bindings
-		)) as any[];
-		const allRows = (allResult[0] ?? []) as any[];
+		const allRows = await this.messages.findTrashedInChannels(channelIds, {
+			before: options.before ? new Date(options.before) : undefined,
+			q: options.q,
+			sender_id: options.sender_id,
+			deleted_by: options.deleted_by,
+			since: options.since,
+			until: options.until
+		});
 		const total = allRows.length;
 		const pageRows = allRows.slice(offset, offset + limit);
 
@@ -542,33 +491,20 @@ export class MessageService {
 			return { total: 0, first_at: null, last_at: null, per_channel: [] };
 		}
 		const channelIds = channels.map((c) => c.id as RecordId);
-		const db = (this.messages as any).db;
 
-		const [aggResult, perChannelResult] = await Promise.all([
-			db.query(
-				`SELECT count() AS total, math::min(created_at) AS first_at, math::max(created_at) AS last_at FROM message WHERE sender_id = $sender AND channel_id IN $channels GROUP ALL`,
-				{ sender: senderId, channels: channelIds }
-			),
-			db.query(
-				`SELECT channel_id, count() AS count FROM message WHERE sender_id = $sender AND channel_id IN $channels GROUP BY channel_id`,
-				{ sender: senderId, channels: channelIds }
-			)
-		]);
-
-		const agg = ((aggResult as any)[0]?.[0] as any) ?? {};
-		const perChannelRows = ((perChannelResult as any)[0] ?? []) as any[];
+		const stats = await this.messages.statsForSenderInChannels(channelIds, senderId);
 		const nameByChannel = new Map<string, string>(
 			channels.map((c) => [stringToRecordId.encode(c.id as RecordId), c.name as string])
 		);
 
 		return {
-			total: (agg.total as number) ?? 0,
-			first_at: agg.first_at ?? null,
-			last_at: agg.last_at ?? null,
-			per_channel: perChannelRows
-				.map((r: any) => {
-					const cid = stringToRecordId.encode(r.channel_id as RecordId);
-					return { channel_id: cid, channel_name: nameByChannel.get(cid) ?? null, count: r.count as number };
+			total: stats.total,
+			first_at: stats.first_at,
+			last_at: stats.last_at,
+			per_channel: stats.per_channel
+				.map((r) => {
+					const cid = stringToRecordId.encode(r.channel_id);
+					return { channel_id: cid, channel_name: nameByChannel.get(cid) ?? null, count: r.count };
 				})
 				.sort((a, b) => b.count - a.count)
 		};

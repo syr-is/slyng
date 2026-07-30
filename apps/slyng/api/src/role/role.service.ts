@@ -11,7 +11,12 @@ import { RecordId } from 'surrealdb';
 import { Permissions, WsOp, hasPermission, stringToRecordId } from '@slyng/types';
 import { ServerRepository, ServerMemberRepository, ServerRoleRepository } from '../server/server.repository';
 import { PermissionOverrideRepository } from '../permission-override/override.repository';
-import type { ChannelRow, ChannelCategoryRow } from '../channel/channel.repository';
+import {
+	ChannelRepository,
+	ChannelCategoryRepository,
+	type ChannelRow,
+	type ChannelCategoryRow
+} from '../channel/channel.repository';
 import { ChatGateway } from '../gateway/chat.gateway';
 import { AuditLogService } from '../audit-log/audit-log.service';
 
@@ -55,6 +60,11 @@ export class RoleService {
 		private readonly members: ServerMemberRepository,
 		private readonly roles: ServerRoleRepository,
 		private readonly permOverrides: PermissionOverrideRepository,
+		// Permission resolution walks the channel/category tree, so it reads
+		// those tables through their own repositories rather than borrowing the
+		// role repository's connection.
+		private readonly channels: ChannelRepository,
+		private readonly categories: ChannelCategoryRepository,
 		@Inject(forwardRef(() => AuditLogService))
 		private readonly audit: AuditLogService,
 		@Optional() private readonly gateway?: ChatGateway
@@ -678,13 +688,8 @@ export class RoleService {
 		if (!channelId) return perms;
 
 		// Resolve the channel's category
-		const db = (this.roles as any).db;
-		const chResult = await db.query(
-			`SELECT category_id FROM channel WHERE id = $id LIMIT 1`,
-			{ id: stringToRecordId.decode(channelId) }
-		);
-		const chRow = ((chResult as any)[0] ?? [])[0] as { category_id?: RecordId | null } | undefined;
-		const categoryId = chRow?.category_id ? stringToRecordId.encode(chRow.category_id) : null;
+		const categoryRef = await this.channels.findCategoryId(stringToRecordId.decode(channelId));
+		const categoryId = categoryRef ? stringToRecordId.encode(categoryRef) : null;
 
 		// Layer 3: role category overrides
 		if (categoryId) {
@@ -770,37 +775,23 @@ export class RoleService {
 		const canRead = hasPermission(perms, Permissions.READ_MESSAGES);
 		if (!canRead) return [];
 		const ref = stringToRecordId.decode(serverId);
-		const db = (this.roles as any).db;
-		const result = await db.query(
-			`SELECT * FROM channel WHERE server_id = $ref AND (deleted = NONE OR deleted = false) ORDER BY position ASC`,
-			{ ref }
-		);
-		return ((result as any)[0] ?? []).map((c: any) => ({
-			id: stringToRecordId.encode(c.id as RecordId),
-			name: (c.name as string) ?? '',
-			type: (c.type as string) ?? 'text'
+		const channels = await this.channels.findLiveByServer(ref);
+		return channels.map((c) => ({
+			id: stringToRecordId.encode(c.id),
+			name: c.name ?? '',
+			type: c.type ?? 'text'
 		}));
 	}
 
 	async buildPermissionTree(userId: string, serverId: string): Promise<PermissionTree> {
 		const ref = stringToRecordId.decode(serverId);
-		const db = (this.roles as any).db;
 
 		const serverPerms = await this.computePermissions(userId, serverId);
 
-		const [catResult, chResult] = await Promise.all([
-			db.query(
-				`SELECT * FROM channel_category WHERE server_id = $ref ORDER BY position ASC`,
-				{ ref }
-			),
-			db.query(
-				`SELECT * FROM channel WHERE server_id = $ref AND (deleted = NONE OR deleted = false) ORDER BY position ASC`,
-				{ ref }
-			)
+		const [allCategories, allChannels] = await Promise.all([
+			this.categories.findByServerOrdered(ref),
+			this.channels.findLiveByServer(ref)
 		]);
-
-		const allCategories = (catResult[0] ?? []) as ChannelCategoryRow[];
-		const allChannels = (chResult[0] ?? []) as ChannelRow[];
 
 		const channelsByCategory = new Map<string, ChannelRow[]>();
 		const uncategorized: ChannelRow[] = [];
