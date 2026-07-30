@@ -162,29 +162,75 @@ export function canonicalize(obj: Record<string, unknown>): string {
   return getWasm().canonicalize_wasm(JSON.stringify(obj));
 }
 
-// ---- Rotation ----
+// ---- Rotation (v2 + chain) ----
 
+/**
+ * Create a rotation statement (v2). Signed by the RETIRING key
+ * (`currentPrivateKey`, whose multibase is `prevRoot`).
+ *
+ * @param did The identity (never changes).
+ * @param seq 1-based position in the chain.
+ * @param prevRoot Multibase of the retiring key (genesis for seq === 1).
+ * @param newPublicKey Raw 32-byte incoming root public key.
+ * @param currentPrivateKey The retiring key's 32-byte seed.
+ */
 export async function createRotationStatement(
   did: string,
+  seq: number,
+  prevRoot: string,
   newPublicKey: Uint8Array,
   currentPrivateKey: Uint8Array,
 ): Promise<RotationStatement> {
   const json = getWasm().create_rotation_statement_wasm(
     did,
+    seq,
+    prevRoot,
     newPublicKey,
     currentPrivateKey,
   );
   return JSON.parse(json);
 }
 
-export async function verifyRotationStatement(
-  statement: RotationStatement,
-  currentPublicKey: Uint8Array,
-): Promise<boolean> {
-  return getWasm().verify_rotation_statement_wasm(
-    JSON.stringify(statement),
-    currentPublicKey,
-  );
+/**
+ * Verify a full rotation chain for `did` and return the CURRENT root public
+ * key (32 raw bytes). An empty chain returns the genesis key.
+ * @throws {Error} If the chain is invalid (seq gap, fork, bad signature,
+ *   non-genesis start, cross-DID replay, or decreasing rotatedAt).
+ */
+export function verifyRotationChain(
+  did: string,
+  statements: RotationStatement[],
+): Uint8Array {
+  try {
+    return getWasm().verify_rotation_chain_wasm(did, JSON.stringify(statements));
+  } catch (err) {
+    throw new Error(String(err), { cause: err });
+  }
+}
+
+/**
+ * The genesis root public key (32 raw bytes) embedded in a did:syr identifier.
+ * @throws {Error} If the DID is malformed.
+ */
+export function genesisKeyFromDid(did: string): Uint8Array {
+  try {
+    return getWasm().genesis_key_from_did_wasm(did);
+  } catch (err) {
+    throw new Error(String(err), { cause: err });
+  }
+}
+
+/**
+ * The genesis root multibase (the DID's canonical method-specific id) — the
+ * expected `prevRoot` for the first rotation statement.
+ * @throws {Error} If the DID is malformed.
+ */
+export function genesisRootMultibase(did: string): string {
+  try {
+    return getWasm().genesis_root_multibase_wasm(did);
+  } catch (err) {
+    throw new Error(String(err), { cause: err });
+  }
 }
 
 // ---- Sigil ----

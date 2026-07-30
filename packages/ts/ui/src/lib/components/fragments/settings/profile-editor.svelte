@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
+	import { onDestroy, onMount } from 'svelte';
 	import { toast } from 'svelte-sonner';
 	import { Button } from '@slyng/ui/button';
 	import { Input } from '@slyng/ui/input';
@@ -7,6 +7,7 @@
 	import * as Avatar from '@slyng/ui/avatar';
 	import { Loader2, Save, Upload, ImageIcon } from '@lucide/svelte';
 	import { proxied } from '@slyng/app-core/utils/proxy';
+	import { createDirtyGuard } from '@slyng/app-core/stores/dirty-guard.svelte';
 	import {
 		isLocalIdentity,
 		getLocalProfile,
@@ -20,12 +21,23 @@
 	 * Self-gates: renders only when the identity is local (`isLocalIdentity`).
 	 * For federated identities it renders nothing — the parent keeps showing
 	 * the read-only card + "Edit on syr".
+	 *
+	 * `onDirtyChange` reports unsaved display-name / bio edits so the host
+	 * page can interpose a discard confirm on tab-switch / navigation.
+	 * Avatar and banner changes persist immediately, so they never count
+	 * as dirty.
 	 */
 	const {
 		did,
 		instanceUrl,
-		onUpdated
-	}: { did: string; instanceUrl: string | undefined; onUpdated?: () => void } = $props();
+		onUpdated,
+		onDirtyChange
+	}: {
+		did: string;
+		instanceUrl: string | undefined;
+		onUpdated?: () => void;
+		onDirtyChange?: (dirty: boolean) => void;
+	} = $props();
 
 	let isLocal = $state(false);
 	let ready = $state(false);
@@ -43,6 +55,17 @@
 
 	const initials = $derived((displayName || '?').slice(0, 2).toUpperCase());
 
+	// Unsaved-changes tracking for the text fields (vs the loaded values).
+	const dirtyGuard = createDirtyGuard(() => ({ displayName, bio }));
+	$effect(() => {
+		onDirtyChange?.(dirtyGuard.dirty);
+	});
+	onDestroy(() => {
+		// The editor unmounts either after an acknowledged discard or when
+		// nothing was dirty — either way the parent's flag must reset.
+		onDirtyChange?.(false);
+	});
+
 	onMount(async () => {
 		isLocal = await isLocalIdentity(instanceUrl);
 		if (isLocal) {
@@ -55,6 +78,7 @@
 			} catch (err) {
 				toast.error(err instanceof Error ? err.message : 'Failed to load profile');
 			}
+			dirtyGuard.capture();
 		}
 		ready = true;
 	});
@@ -100,6 +124,7 @@
 		try {
 			await updateProfile({ display_name: displayName.trim(), bio: bio.trim() });
 			toast.success('Profile saved');
+			dirtyGuard.capture();
 			onUpdated?.();
 		} catch (err) {
 			toast.error(err instanceof Error ? err.message : 'Failed to save profile');

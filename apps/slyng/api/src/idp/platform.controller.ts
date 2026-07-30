@@ -19,8 +19,7 @@ import {
 	decodeMultibase,
 	ED25519_MULTICODEC_PREFIX,
 	canonicalize,
-	verify,
-	parseDid
+	verify
 } from '@slyng/idp-crypto';
 import { Public } from '../auth/public.decorator';
 import { SkipServerAccess } from '../auth/server-access.decorator';
@@ -35,6 +34,7 @@ import {
 	IdpProfileRepository,
 	LocalAccountRepository
 } from './idp.repository';
+import { RootKeyService } from './root-key.service';
 import {
 	DelegationVerifyDto,
 	PlatformChallengeDto,
@@ -67,7 +67,8 @@ export class PlatformController {
 		private readonly accountService: AccountService,
 		private readonly accounts: LocalAccountRepository,
 		private readonly identities: IdentityRepository,
-		private readonly profiles: IdpProfileRepository
+		private readonly profiles: IdpProfileRepository,
+		private readonly rootKey: RootKeyService
 	) {}
 
 	private oauthError(status: number, error: string, description: string): never {
@@ -492,7 +493,10 @@ export class PlatformController {
 
 		let publicKey: Uint8Array;
 		try {
-			publicKey = parseDid(body.did).publicKey;
+			// Verify against the CURRENT root, resolved from the DID's verified
+			// rotation chain (genesis when un-rotated) — never the raw DID key,
+			// so a rotated identity's device signature still verifies.
+			publicKey = await this.rootKey.getCurrentRootKey(body.did);
 		} catch {
 			this.oauthError(400, 'invalid_did', 'Malformed DID');
 		}
@@ -503,7 +507,7 @@ export class PlatformController {
 			this.oauthError(400, 'invalid_signature', 'Signature is not valid multibase');
 		}
 		const valid = await verify(challenge.message, sigBytes, publicKey);
-		if (!valid) this.oauthError(403, 'invalid_signature', 'Signature does not verify against the DID');
+		if (!valid) this.oauthError(403, 'invalid_signature', 'Signature does not verify against the current root');
 
 		// Fail-closed: the DID embedded in the signed statement must be the DID
 		// whose key we just verified against (don't rely only on the transitive

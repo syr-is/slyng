@@ -146,17 +146,23 @@
 			{@const profile = resolveProfile(member.user_id, member.syr_instance_url)}
 			{@const name = displayName(profile, member.user_id)}
 			<ProfileHoverCard did={member.user_id} instanceUrl={member.syr_instance_url} triggerClass="block cursor-pointer">
-				<div class="group flex items-center gap-2 px-4 py-1.5 opacity-50 w-full">
-					<Avatar.Root class="h-8 w-8">
-						{#if profile.avatar_url}
-							<Avatar.Image src={proxied(profile.avatar_url)} alt={name} />
-						{/if}
-						<Avatar.Fallback class="text-xs">
-							{name.slice(0, 2).toUpperCase()}
-						</Avatar.Fallback>
-					</Avatar.Root>
+				<!-- Offline is conveyed by the gray status dot, not a row-wide
+				     fade: a blanket opacity-50 stacked on the /70 name alpha
+				     pushed labels below the 3:1 contrast floor. -->
+				<div class="group flex items-center gap-2 px-4 py-1.5 w-full">
+					<div class="relative">
+						<Avatar.Root class="h-8 w-8">
+							{#if profile.avatar_url}
+								<Avatar.Image src={proxied(profile.avatar_url)} alt={name} />
+							{/if}
+							<Avatar.Fallback class="text-xs">
+								{name.slice(0, 2).toUpperCase()}
+							</Avatar.Fallback>
+						</Avatar.Root>
+						<div class="absolute -bottom-0.5 -right-0.5 h-3 w-3 rounded-full border-2 border-sidebar {STATUS_COLORS.offline}"></div>
+					</div>
 					<span
-						class="flex flex-1 items-center gap-1 truncate text-sm text-sidebar-foreground text-left"
+						class="flex flex-1 items-center gap-1 truncate text-sm text-sidebar-foreground/70 text-left"
 						style={nameColor(member) ? `color: ${nameColor(member)}` : ''}
 					>
 						<span class="truncate">{(member as any).nickname || name}</span>

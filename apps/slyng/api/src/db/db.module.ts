@@ -53,6 +53,7 @@ import {
 	IdentityRegistryRepository,
 	OutboxRepository
 } from '../idp/idp-registry.repository';
+import { IdentityRotationRepository } from '../idp/idp-rotation.repository';
 import { IdpAuditRepository } from '../idp/idp-audit.repository';
 
 const repositories = [
@@ -93,6 +94,7 @@ const repositories = [
 	FollowRepository,
 	IdentityRegistryRepository,
 	OutboxRepository,
+	IdentityRotationRepository,
 	IdpAuditRepository
 ];
 

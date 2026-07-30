@@ -69,6 +69,7 @@ import {
 	IndependentLoginVerifyRequestSchema,
 	IdentityExportRequestSchema,
 	RegisterWithImportSchema,
+	RotationRequestSchema,
 	UploadCreateSchema,
 	UploadCompleteSchema,
 	PlatformChallengeRequestSchema,
@@ -165,6 +166,9 @@ export class IndependentLoginVerifyDto extends dto(IndependentLoginVerifyRequest
 // ── Identity import / export (P11) ──────────────────────────────────
 export class IdentityExportDto extends dto(IdentityExportRequestSchema) {}
 export class RegisterWithImportDto extends dto(RegisterWithImportSchema) {}
+
+// ── Root-key rotation (P12) ─────────────────────────────────────────
+export class RotationRequestDto extends dto(RotationRequestSchema) {}
 
 // ── Server ──────────────────────────────────────────────────────────
 

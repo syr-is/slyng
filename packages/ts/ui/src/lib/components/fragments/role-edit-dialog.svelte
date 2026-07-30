@@ -7,6 +7,8 @@
 	import { Permissions } from '@slyng/types';
 	import { api } from '@slyng/app-core/api';
 	import { getPerms } from '@slyng/app-core/stores/perms.svelte';
+	import { createDirtyGuard } from '@slyng/app-core/stores/dirty-guard.svelte';
+	import DiscardChangesDialog from './discard-changes-dialog.svelte';
 
 	type Role = {
 		id?: string;
@@ -74,6 +76,17 @@
 	let deny = $state<bigint>(BigInt(role?.permissions_deny ?? '0'));
 	let saving = $state(false);
 
+	// Unsaved-changes guard: a configured permission grid is expensive to
+	// rebuild — never let a stray Escape / outside click vaporize it.
+	const dirtyGuard = createDirtyGuard(() => ({ name, color, allow, deny }));
+	// bits-ui closes internally before we can veto, so mirror `open` into
+	// bindable local state and flip it back when the close is intercepted.
+	// Capturing the initial value is intentional — the $effect below keeps
+	// it in sync whenever the parent re-opens.
+	// svelte-ignore state_referenced_locally
+	let dialogOpen = $state(open);
+	let showDiscardConfirm = $state(false);
+
 	$effect(() => {
 		if (open) {
 			name = role?.name ?? '';
@@ -81,8 +94,29 @@
 			allow = BigInt(role?.permissions_allow ?? role?.permissions ?? '0');
 			deny = BigInt(role?.permissions_deny ?? '0');
 			saving = false;
+			dialogOpen = true;
+			showDiscardConfirm = false;
+			dirtyGuard.capture();
 		}
 	});
+
+	function requestClose() {
+		if (!readOnly && dirtyGuard.dirty) {
+			dialogOpen = true; // veto the close — keep the editor visible underneath
+			showDiscardConfirm = true;
+			return;
+		}
+		onClose();
+	}
+
+	const discardTitle = $derived(
+		role?.id ? `Discard changes to "${role.name}"?` : 'Discard this new role?'
+	);
+	const discardDescription = $derived(
+		role?.id
+			? 'Your unsaved permission and appearance changes will be lost.'
+			: 'The role you started creating will be lost.'
+	);
 
 	function stateOf(flag: bigint): 'allow' | 'deny' | 'unset' {
 		if ((allow & flag) === flag) return 'allow';
@@ -144,7 +178,7 @@
 	}
 </script>
 
-<Dialog.Root {open} onOpenChange={(v) => { if (!v) onClose(); }}>
+<Dialog.Root bind:open={dialogOpen} onOpenChange={(v) => { if (!v) requestClose(); }}>
 	<Dialog.Content class="sm:max-w-2xl">
 		<Dialog.Header>
 			<Dialog.Title class="flex items-center gap-2">
@@ -256,7 +290,18 @@
 					{saving ? 'Saving...' : role?.id ? 'Save' : 'Create'}
 				</Button>
 			{/if}
-			<Button variant="outline" onclick={onClose}>{readOnly ? 'Close' : 'Cancel'}</Button>
+			<Button variant="outline" onclick={requestClose}>{readOnly ? 'Close' : 'Cancel'}</Button>
 		</Dialog.Footer>
 	</Dialog.Content>
 </Dialog.Root>
+
+<DiscardChangesDialog
+	open={showDiscardConfirm}
+	title={discardTitle}
+	description={discardDescription}
+	onKeepEditing={() => (showDiscardConfirm = false)}
+	onDiscard={() => {
+		showDiscardConfirm = false;
+		onClose();
+	}}
+/>

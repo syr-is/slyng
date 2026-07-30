@@ -8,9 +8,10 @@
  */
 
 import { SvelteMap } from 'svelte/reactivity';
-import { WsOp } from '@slyng/types';
+import { WsOp, type RemoteRootResponse } from '@slyng/types';
 import { onWsEvent, send } from './ws.svelte';
 import { proxied } from '../utils/proxy';
+import { apiUrl } from '../host.js';
 
 export interface Profile {
 	did: string;
@@ -33,7 +34,9 @@ interface Manifest {
 		public_following: string;
 		public_emojis: string;
 		public_gifs: string;
-		[key: string]: string;
+		/** Root-key rotation chain (P12). Absent on un-rotated / older peers. */
+		rotations?: string;
+		[key: string]: string | undefined;
 	};
 	web_profile?: string;
 }
@@ -73,6 +76,50 @@ async function fetchManifest(did: string, instanceUrl: string): Promise<Manifest
  */
 export async function resolveManifest(did: string, instanceUrl: string): Promise<Manifest> {
 	return fetchManifest(did, instanceUrl);
+}
+
+const rotationCache = new SvelteMap<string, RemoteRootResponse | null>();
+
+/**
+ * Resolve a REMOTE identity's slyng-VERIFIED current root key (P12), as a syr
+ * client. The browser must never fetch the remote host's rotation chain and
+ * trust its advertised `current_root` — a malicious host could dictate the
+ * root. Instead we ask slyng's OWN backend (`/api/identity/remote-root`), which
+ * fetches the remote `rotations` endpoint server-side and re-verifies the chain
+ * (`verifyRotationChain`) before answering. The returned `current_root` is thus
+ * always slyng-verified; `rotation_seq` is 0 for an un-rotated / unreachable
+ * peer (backend fell back to the genesis key). A PUBLISHED chain that fails
+ * verification is a HARD failure server-side: the backend returns a non-OK
+ * response (never a genesis downgrade), which we map to `null` here — so a
+ * tampered/forked chain leaves the caller with no verified root, never a false
+ * "verified" badge.
+ *
+ * Verifying remote signed content or a remote root signature MUST resolve the
+ * key through here, never the genesis key parsed from the DID.
+ */
+export async function resolveRemoteRoot(
+	did: string,
+	instanceUrl: string
+): Promise<RemoteRootResponse | null> {
+	const key = `${instanceUrl}::${did}`;
+	if (rotationCache.has(key)) return rotationCache.get(key) ?? null;
+
+	let result: RemoteRootResponse | null = null;
+	try {
+		const url = `${apiUrl('/identity/remote-root')}?did=${encodeURIComponent(did)}&instance=${encodeURIComponent(instanceUrl)}`;
+		const res = await fetch(url, {
+			headers: { Accept: 'application/json' },
+			credentials: 'include'
+		});
+		if (res.ok) {
+			const body = (await res.json()) as { data?: RemoteRootResponse };
+			result = body.data ?? null;
+		}
+	} catch {
+		result = null;
+	}
+	rotationCache.set(key, result);
+	return result;
 }
 
 async function fetchAndCache(did: string, instanceUrl: string) {
@@ -155,9 +202,12 @@ export function federatedHandle(profile: Profile | undefined, fallbackDid: strin
 export function invalidateProfile(did: string) {
 	cache.delete(did);
 	inflight.delete(did);
-	// Also blow the manifest cache entry for this DID
+	// Also blow the manifest + rotation-chain cache entries for this DID
 	for (const key of manifestCache.keys()) {
 		if (key.endsWith(`::${did}`)) manifestCache.delete(key);
+	}
+	for (const key of rotationCache.keys()) {
+		if (key.endsWith(`::${did}`)) rotationCache.delete(key);
 	}
 }
 

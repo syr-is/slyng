@@ -11,7 +11,7 @@
 	import { getRelations } from '@slyng/app-core/stores/relations.svelte';
 	import { renderEmojis, isStickerOnly, isEmojiOnly } from '@slyng/app-core/utils/emoji-render';
 	import { renderInlineMarkdown } from '../../markdown.js';
-	import { proxied } from '@slyng/app-core/utils/proxy';
+	import { proxied, formatBytes } from '@slyng/app-core/utils/proxy';
 	import ProfileHoverCard from './profile-hover-card.svelte';
 	import EmojiChip from './emoji-chip.svelte';
 	import MentionChip from './mention-chip.svelte';
@@ -502,7 +502,7 @@
 							<FileIcon class="h-4 w-4 text-muted-foreground" />
 							<span class="truncate text-foreground">{attachment.filename}</span>
 							<span class="shrink-0 text-xs text-muted-foreground">
-								{(attachment.size / 1024).toFixed(0)} KB
+								{formatBytes(attachment.size)}
 							</span>
 						</a>
 					{/if}

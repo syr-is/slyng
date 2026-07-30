@@ -1,6 +1,7 @@
 import {
 	Body,
 	Controller,
+	Get,
 	HttpException,
 	Post,
 	Req,
@@ -53,8 +54,17 @@ export class IdentityMigrationController {
 	}
 
 	@SkipServerAccess()
+	@Get('identity/export-info')
+	@ApiOperation({ summary: 'Whether your export will be custodial-signed (needs password) or unsigned' })
+	async exportInfo(@Req() req: AuthedRequest) {
+		const did = req.user?.did;
+		if (!did) throw new HttpException('Not authenticated', 401);
+		return this.exportService.getExportInfo(did);
+	}
+
+	@SkipServerAccess()
 	@Post('identity/export')
-	@ApiOperation({ summary: 'Download a signed export bundle of your identity (password-gated)' })
+	@ApiOperation({ summary: 'Download an export bundle of your identity (custodial: password-gated + signed)' })
 	async export(
 		@Req() req: AuthedRequest,
 		@Body() body: IdentityExportDto,
