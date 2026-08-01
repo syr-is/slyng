@@ -1,4 +1,4 @@
-import { Injectable, Inject, forwardRef } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import { RecordId } from 'surrealdb';
 import { Permissions, hasPermission, stringToRecordId } from '@slyng/types';
 import { PermissionOverrideRepository } from '../permission-override/override.repository';
@@ -9,6 +9,7 @@ import {
 	ServerRoleRepository
 } from '../server/server.repository';
 import { ChannelRepository, ChannelCategoryRepository } from '../channel/channel.repository';
+import { resolvePermissionFold } from '../role/permission-fold';
 import type { AuthedRequest } from './authed-request';
 
 /**
@@ -127,81 +128,25 @@ export class MemberAccessService {
 		const server = await this.servers.findById(serverId);
 		if (server && server.owner_id === userId) return true;
 
-		// Compute permissions with channel context inline (lightweight version
-		// to avoid circular dep on RoleService). Mirrors the 6-layer cascade.
+		// Runs the same cascade `RoleService.computePermissions` runs, through
+		// the shared fold in `role/permission-fold`. It is imported rather than
+		// `RoleService` itself because `RoleService` depends on `ChatGateway`
+		// and `ChatGateway` depends on this service — the fold is a leaf module
+		// (no NestJS, no DI, no repositories), so there is no cycle to close.
 		const ref = stringToRecordId.decode(serverId);
 		const member = await this.members.findOne({ server_id: ref, user_id: userId });
 		if (!member) return false;
 
-		const roleIds = (member.role_ids ?? []) as RecordId[];
-		const assignedSet = new Set(roleIds.map((rid) => stringToRecordId.encode(rid)));
+		const roleIds = member.role_ids ?? [];
+		const fold = await resolvePermissionFold({
+			userId,
+			roles: await this.roles.findMany({ server_id: ref }),
+			assignedRoleIds: new Set(roleIds.map((rid) => stringToRecordId.encode(rid))),
+			loadOverrides: () => this.permOverrides.findMany({ server_id: ref })
+		});
 
-		const allRoles = (await this.roles.findMany({ server_id: ref }))
-			.filter((r) => !r.deleted)
-			.sort((a, b) => ((a.position as number) ?? 0) - ((b.position as number) ?? 0));
-
-		const applicable = allRoles.filter(
-			(r) => r.is_default || assignedSet.has(stringToRecordId.encode(r.id as RecordId))
-		);
-
-		// Layer 1: server role perms
-		let perms = 0n;
-		for (const r of applicable) {
-			const allow = BigInt((r.permissions_allow as string) ?? (r.permissions as string) ?? '0');
-			const deny = BigInt((r.permissions_deny as string) ?? '0');
-			perms = (perms & ~deny) | allow;
-		}
-		if (hasPermission(perms, Permissions.ADMINISTRATOR)) return true;
-
-		// Fetch overrides
-		const allOverrides = await this.permOverrides.findMany({ server_id: ref });
-
-		const applyOverride = (o: any) => {
-			const allow = BigInt((o.allow as string) ?? '0');
-			const deny = BigInt((o.deny as string) ?? '0');
-			perms = (perms & ~deny) | allow;
-		};
-
-		const roleOverridesForScope = (scopeType: string, scopeId: string | null) =>
-			allOverrides
-				.filter((o: any) => {
-					if (o.target_type !== 'role' || o.scope_type !== scopeType) return false;
-					const oSid = o.scope_id ? stringToRecordId.encode(o.scope_id as RecordId) : null;
-					if (oSid !== scopeId) return false;
-					return assignedSet.has(o.target_id as string) ||
-						allRoles.some((r) => r.is_default && stringToRecordId.encode(r.id as RecordId) === o.target_id);
-				})
-				.sort((a, b) => {
-					const pa = allRoles.find((r) => stringToRecordId.encode(r.id as RecordId) === a.target_id);
-					const pb = allRoles.find((r) => stringToRecordId.encode(r.id as RecordId) === b.target_id);
-					return (((pa as any)?.position as number) ?? 0) - (((pb as any)?.position as number) ?? 0);
-				});
-
-		const userOverride = (scopeType: string, scopeId: string | null) =>
-			allOverrides.find((o: any) => {
-				if (o.target_type !== 'user' || o.target_id !== userId || o.scope_type !== scopeType) return false;
-				const oSid = o.scope_id ? stringToRecordId.encode(o.scope_id as RecordId) : null;
-				return oSid === scopeId;
-			});
-
-		// Layer 2: server user override
-		const srvUser = userOverride('server', null);
-		if (srvUser) applyOverride(srvUser);
-
-		// Resolve category
-		const catId = channel.category_id
-			? stringToRecordId.encode(channel.category_id as RecordId)
-			: null;
-
-		// Layer 3-4: category role + channel role
-		if (catId) for (const o of roleOverridesForScope('category', catId)) applyOverride(o);
-		for (const o of roleOverridesForScope('channel', channelId)) applyOverride(o);
-
-		// Layer 5-6: category user + channel user
-		if (catId) { const cu = userOverride('category', catId); if (cu) applyOverride(cu); }
-		const chu = userOverride('channel', channelId);
-		if (chu) applyOverride(chu);
-
-		return hasPermission(perms, Permissions.READ_MESSAGES);
+		// The row is already in hand, so its category comes for free.
+		const catId = channel.category_id ? stringToRecordId.encode(channel.category_id) : null;
+		return hasPermission(fold.forChannel(channelId, catId), Permissions.READ_MESSAGES);
 	}
 }
