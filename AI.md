@@ -184,6 +184,84 @@ Clients subscribe to the current server's topic + every channel topic on `loadSe
 
 ---
 
+## Parallel workstreams — compound prompts
+
+When one prompt asks for changes to **several independent systems**, don't work
+through them serially. Fan out, review adversarially, then merge.
+
+### 1. Foundation wave first — before anyone forks
+
+Some files every track touches: `packages/ts/types/src/index.ts`, the schema
+string in `db.service.ts`, the purge lists, `AI.md`. If tracks fork before those
+settle, every branch edits the same lines and the merge is exactly the conflict
+the split was meant to avoid. So land shared vocabulary — types, enums,
+`DEFINE TABLE`/`DEFINE INDEX` + purge rows, request DTOs, docs — as **one agent,
+no parallelism**, merged into the integration branch before any worktree exists.
+Additive by default: existing rows must parse unchanged, and a new field on an
+existing entity is `.optional()`, never `.default()` (a default makes it required
+on the inferred output type and breaks every construction site).
+
+### 2. One track per system, one worktree each
+
+Branch from **the branch under work**, not `main`:
+
+```
+git worktree add -b track/<name> ../.slyng-worktrees/<name> <integration-branch>
+cd ../.slyng-worktrees/<name> && pnpm install --prefer-offline
+cp -R <main-checkout>/packages/ts/*/dist packages/ts/*/   # dist/ is gitignored
+```
+
+That last line is not optional. A fresh worktree has no `packages/ts/*/dist`, so
+the API typecheck fails on unresolvable `@slyng/*` types before the agent writes
+a line — and rebuilding `idp-crypto` means wasm-pack and a Rust toolchain. Seed
+the built dists from the main checkout and verify a clean baseline `tsc` BEFORE
+launching the agent, or you will spend the round debugging the harness.
+
+Give each track an **explicit file territory** and say what happens at the
+boundary: out-of-territory problems get **reported in the hand-off, never
+fixed**. Where two tracks must touch one file, split it by function and name the
+exact lines each owns.
+
+### 3. Two adversaries per track, distinct lenses
+
+- **Technical** — correctness, regressions, edge cases, compiles-but-wrong.
+- **Vision** — is this the right change, at the right level, for this codebase?
+  Rule compliance, layering, over-engineering, comment truth, scope discipline.
+
+Both must be told to REFUTE, and both must be told **a clean verdict is an
+acceptable outcome** — an adversary that believes it is judged on findings
+invents them.
+
+An adversary must **rebuild the implementer's proof itself**. A differential
+harness written by the author of the change proves nothing about the author's
+blind spot; the review only counts when the oracle was copied independently out
+of the original source.
+
+### 4. Loop until both come back empty
+
+Findings go back to the implementing agent, which fixes or rejects each **with a
+reason**, then both adversaries re-review. Cap at two or three rounds and
+surface anything still contested rather than looping forever.
+
+**If an adversary refutes a track's premise, drop the track — do not patch it.**
+A change whose justification turned out to be false is not salvageable by
+rewriting its comment; shipping it leaves churn plus a docstring that installs a
+false belief in the next reader. Killing a track is a successful round.
+
+### 5. Merge tournament
+
+When two branches come back clean they pair up: a merge agent takes both
+diffs **plus each branch's stated intent** — what it changed about the product,
+what it changed about the code, what it deliberately did not change — and
+produces one branch. Winners keep pairing until one remains, which merges into
+the integration branch. Run the repo checks on the **merged** result, not just
+per-worktree: two individually-clean diffs can typecheck apart and not together.
+
+Then rebuild and restart the dev containers so the work can be reviewed running
+live, and report what changed per system.
+
+---
+
 ## When stuck
 
 Read `.claude/plans/shimmering-prancing-walrus.md` — the running design doc. It's block-by-block history of what was built and why. Most patterns here come from lessons there.
