@@ -45,6 +45,22 @@ const CH_B = { id: new RecordId('channel', 'b'), server_id: S_B, category_id: nu
 const CH_DM = { id: new RecordId('channel', 'dm'), category_id: null };
 const ALL_CHANNELS = [CH_A1, CH_A2, CH_B, CH_DM];
 
+/**
+ * Soft-deleted rows, kept out of `ALL_CHANNELS` so the cases above are
+ * unaffected — but present in what `findByIds` can return, because that is the
+ * point: `SELECT * FROM channel WHERE id IN $ids` carries no soft-delete
+ * predicate, so these reach the service looking exactly like live ones.
+ */
+const CH_GONE = {
+	id: new RecordId('channel', 'gone'),
+	server_id: S_A,
+	category_id: null,
+	deleted: true
+};
+/** A deleted DM — the deleted check must win over the no-server-scope bucket. */
+const CH_DM_GONE = { id: new RecordId('channel', 'dmgone'), category_id: null, deleted: true };
+const CHANNEL_POOL = [...ALL_CHANNELS, CH_GONE, CH_DM_GONE];
+
 const ALICE = 'did:syr:alice';
 
 const everyoneRole = (server_id: RecordId) => ({
@@ -133,7 +149,7 @@ function makeService(opts: StubOptions = {}) {
 
 	const findByIds = vi.fn(async (ids: (RecordId | string)[]) => {
 		const keys = new Set(ids.map((i) => (i instanceof RecordId ? enc(i) : i)));
-		return ALL_CHANNELS.filter((c) => keys.has(enc(c.id)));
+		return CHANNEL_POOL.filter((c) => keys.has(enc(c.id)));
 	});
 	const channels = { findByIds } as unknown as ChannelRepository;
 
@@ -219,6 +235,30 @@ describe('MemberAccessService.canReadChannels', () => {
 	});
 
 	// ── membership, bans, ownership, faults ──────────────────────────────────
+
+	// `findByIds` is a bare `WHERE id IN $ids`, so a soft-deleted row arrives
+	// here indistinguishable from a live one. Ungated, its server's fold would
+	// happily grant READ_MESSAGES on a channel that no longer exists.
+	it('denies a soft-deleted channel even where the fold would grant it', async () => {
+		const { svc } = makeService();
+		const allowed = await svc.canReadChannels(ALICE, [
+			enc(CH_GONE.id),
+			enc(CH_DM_GONE.id),
+			enc(CH_A1.id)
+		]);
+		// CH_A1 is on the same server as CH_GONE and readable, so the deny is the
+		// deletion and not a server-wide failure.
+		expect(sorted(allowed)).toEqual([enc(CH_A1.id)]);
+	});
+
+	// `deleted` postdates the rows written before soft-delete existed, which is
+	// why `findLiveByServer` matches `deleted = NONE OR deleted = false`.
+	it('still allows channels whose deleted column is absent or false', async () => {
+		const { svc } = makeService();
+		// CH_A1/CH_A2 carry no `deleted` at all; CH_B is explicitly false here.
+		const allowed = await svc.canReadChannels(ALICE, [enc(CH_A1.id), enc(CH_A2.id)]);
+		expect(sorted(allowed)).toEqual([enc(CH_A1.id), enc(CH_A2.id)]);
+	});
 
 	it('denies a channel id with no row, and logs the drift', async () => {
 		const { svc, debug } = makeService();
