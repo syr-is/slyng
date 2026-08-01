@@ -67,9 +67,7 @@ function originalCascade(
 				if (oScopeId !== scopeId) return false;
 				return (
 					assignedSet.has(o.target_id) ||
-					allRoles.some(
-						(r) => r.is_default && stringToRecordId.encode(r.id) === o.target_id
-					)
+					allRoles.some((r) => r.is_default && stringToRecordId.encode(r.id) === o.target_id)
 				);
 			})
 			.sort((a, b) => {
@@ -277,7 +275,10 @@ describe('resolvePermissionFold — cascade rules', () => {
 	const base = {
 		userId: 'did:syr:alice',
 		roles: [
-			role('everyone', 0, { is_default: true, permissions_allow: Permissions.READ_MESSAGES.toString() }),
+			role('everyone', 0, {
+				is_default: true,
+				permissions_allow: Permissions.READ_MESSAGES.toString()
+			}),
 			role('mod', 5)
 		],
 		assignedRoleIds: new Set([stringToRecordId.encode(new RecordId('server_role', 'mod'))])
@@ -397,8 +398,22 @@ describe('resolvePermissionFold — cascade rules', () => {
 
 		// listed high-position-first so only a correct sort can let `low` lose
 		const overrides: PermissionFoldOverride[] = [
-			{ scope_type: 'channel', scope_id: CHANNEL, target_type: 'role', target_id: highId, allow: R.toString(), deny: '0' },
-			{ scope_type: 'channel', scope_id: CHANNEL, target_type: 'role', target_id: lowId, allow: '0', deny: R.toString() }
+			{
+				scope_type: 'channel',
+				scope_id: CHANNEL,
+				target_type: 'role',
+				target_id: highId,
+				allow: R.toString(),
+				deny: '0'
+			},
+			{
+				scope_type: 'channel',
+				scope_id: CHANNEL,
+				target_type: 'role',
+				target_id: lowId,
+				allow: '0',
+				deny: R.toString()
+			}
 		];
 
 		const fold = await resolvePermissionFold({

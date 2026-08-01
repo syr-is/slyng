@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { RecordId } from 'surrealdb';
 import { Permissions, hasPermission, stringToRecordId } from '@slyng/types';
 import { PermissionOverrideRepository } from '../permission-override/override.repository';
@@ -8,11 +8,8 @@ import {
 	ServerBanRepository,
 	ServerRoleRepository
 } from '../server/server.repository';
-import {
-	ChannelRepository,
-	ChannelCategoryRepository,
-	type ChannelRow
-} from '../channel/channel.repository';
+import { ChannelRepository, ChannelCategoryRepository } from '../channel/channel.repository';
+import { groupChannelTopicsByServer } from '../common/channel-topics';
 import {
 	constantPermissionFold,
 	resolvePermissionFold,
@@ -30,6 +27,8 @@ import type { AuthedRequest } from './authed-request';
  */
 @Injectable()
 export class MemberAccessService {
+	private readonly logger = new Logger(MemberAccessService.name);
+
 	constructor(
 		private readonly servers: ServerRepository,
 		private readonly members: ServerMemberRepository,
@@ -159,33 +158,22 @@ export class MemberAccessService {
 		});
 	}
 
-	/** Check if a user can read a specific channel (server membership + READ_MESSAGES override cascade). */
-	async canReadChannel(userId: string, channelId: string): Promise<boolean> {
-		const channel = await this.channels.findById(channelId);
-		if (!channel) return false;
-		if (!channel.server_id) return true; // DM channels — no server scope
-
-		const fold = await this.foldForServer(userId, stringToRecordId.encode(channel.server_id));
-		if (!fold) return false;
-
-		// The row is already in hand, so its category comes for free.
-		const catId = channel.category_id ? stringToRecordId.encode(channel.category_id) : null;
-		return hasPermission(fold.forChannel(channelId, catId), Permissions.READ_MESSAGES);
-	}
-
 	/**
-	 * Batched `canReadChannel` — the subset of `channelIds` the user may read.
+	 * The subset of `channelIds` the user may read: server membership, not
+	 * banned, and READ_MESSAGES surviving the override cascade.
 	 *
-	 * `ChatGateway.handleSubscribe` receives a client's entire topic list in a
-	 * single frame (the server plus every channel, re-sent on every reconnect),
-	 * so answering one channel at a time re-ran the ban, membership, owner,
-	 * role and override reads once per channel — about ten sequential queries
-	 * each. This reads every channel row in one query, groups them by server,
-	 * and folds each server's permissions once.
+	 * Batched, and only batched — there is deliberately no single-channel
+	 * sibling. `ChatGateway` receives a client's entire topic list in one frame
+	 * (the server plus every channel, re-sent on every reconnect), so answering
+	 * one channel at a time re-ran the ban, membership, owner, role and
+	 * override reads once per channel, about ten sequential queries each. This
+	 * reads every channel row in one query, groups them by server, and folds
+	 * each server's permissions once. A second single-channel entry point would
+	 * be a second answer to the same question, which is exactly what this branch
+	 * exists to remove; call this with a one-element array instead.
 	 *
-	 * Answers are identical to calling `canReadChannel` per id, including for a
-	 * channel with no row (excluded) and a DM channel with no server scope
-	 * (included). Ids come back in the exact string the caller passed, which is
+	 * A channel with no row is excluded; a DM channel with no server scope is
+	 * included. Ids come back in the exact string the caller passed, which is
 	 * also the channel-scope key the cascade matches overrides on.
 	 */
 	async canReadChannels(userId: string, channelIds: string[]): Promise<Set<string>> {
@@ -193,30 +181,28 @@ export class MemberAccessService {
 		if (!channelIds.length) return allowed;
 
 		const rows = await this.channels.findByIds([...new Set(channelIds)]);
-		const rowById = new Map(rows.map((r) => [stringToRecordId.encode(r.id), r]));
+		const { unscoped, byServer } = groupChannelTopicsByServer(channelIds, rows);
 
-		const byServer = new Map<string, Array<{ id: string; row: ChannelRow }>>();
-		for (const id of channelIds) {
-			// Normalise before the lookup so a caller's id form can never miss a
-			// row it did fetch and turn into a silent denial.
-			const row = rowById.get(stringToRecordId.encode(stringToRecordId.decode(id)));
-			if (!row) continue; // no such channel — `canReadChannel` denies these
-			if (!row.server_id) {
-				allowed.add(id); // DM channels — no server scope
-				continue;
-			}
-			const serverId = stringToRecordId.encode(row.server_id);
-			const list = byServer.get(serverId);
-			if (list) list.push({ id, row });
-			else byServer.set(serverId, [{ id, row }]);
-		}
+		for (const id of unscoped) allowed.add(id);
 
 		for (const [serverId, channels] of byServer) {
-			const fold = await this.foldForServer(userId, serverId);
+			// Per-server guard: one server's read failing must deny that server's
+			// channels, not the whole frame. Without it a single fault would
+			// reject out of here and cost the caller every other server's topics
+			// — including the DM ids already added above.
+			let fold: PermissionFold | null;
+			try {
+				fold = await this.foldForServer(userId, serverId);
+			} catch (err) {
+				this.logger.warn(
+					`Permission fold failed for ${serverId}; denying its channels: ${(err as Error).message}`
+				);
+				continue;
+			}
 			if (!fold) continue;
-			for (const { id, row } of channels) {
-				const catId = row.category_id ? stringToRecordId.encode(row.category_id) : null;
-				if (hasPermission(fold.forChannel(id, catId), Permissions.READ_MESSAGES)) {
+
+			for (const { id, categoryId } of channels) {
+				if (hasPermission(fold.forChannel(id, categoryId), Permissions.READ_MESSAGES)) {
 					allowed.add(id);
 				}
 			}
