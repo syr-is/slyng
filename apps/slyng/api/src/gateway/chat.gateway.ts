@@ -10,8 +10,14 @@ import {
 import type { AuthedRequest } from '../auth/authed-request';
 import { Inject, Optional, Logger, forwardRef } from '@nestjs/common';
 import { Server, WebSocket } from 'ws';
-import { z } from 'zod';
-import { WsOp, WsPresenceUpdatePayloadSchema, type WsPresenceUpdatePayload } from '@slyng/types';
+import type { ZodType } from 'zod';
+import {
+	WsOp,
+	WsPresenceUpdatePayloadSchema,
+	WsVoiceStateUpdatePayloadSchema,
+	type WsPresenceUpdatePayload,
+	type WsVoiceStateUpdatePayload
+} from '@slyng/types';
 import { VoiceService } from '../voice/voice.service';
 import { AuthService } from '../auth/auth.service';
 import { UserRepository } from '../auth/user.repository';
@@ -146,15 +152,11 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
 					if (d) this.settle(msg.op, this.handlePresenceUpdate(client, d));
 					break;
 				}
-				case WsOp.VOICE_STATE_UPDATE:
-					this.settle(
-						msg.op,
-						this.handleVoiceStateUpdate(
-							client,
-							msg.d as { channel_id?: string; self_mute?: boolean; self_deaf?: boolean }
-						)
-					);
+				case WsOp.VOICE_STATE_UPDATE: {
+					const d = this.parseFrame(msg.op, WsVoiceStateUpdatePayloadSchema, msg.d);
+					if (d) this.settle(msg.op, this.handleVoiceStateUpdate(client, d));
 					break;
+				}
 				case WsOp.WATCH_PROFILES:
 					this.handleWatchProfiles(client, msg.d as { profiles: { did: string; instance_url: string }[] });
 					break;
@@ -191,31 +193,41 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
 	}
 
 	/**
-	 * Validates a frame's payload against the schema for its op before any
-	 * handler sees it.
+	 * Validate a frame's `d` against its op's generated schema before any
+	 * handler touches it. Returns the parsed payload, or `null` when the frame
+	 * doesn't match the wire contract — the caller then skips the handler.
 	 *
-	 * `settle()` above keeps a bad frame from taking the process down; this keeps
-	 * it from reaching a handler that was written assuming a shape it never
-	 * checked. Returns the parsed payload, or `null` when the frame doesn't
-	 * match — the caller then skips the handler. The socket is left open on
-	 * purpose: one malformed frame is not grounds to drop a session, and a client
-	 * mid-reconnect would only retry into the same close.
+	 * The socket is left open on purpose: one malformed frame is not grounds to
+	 * drop a session, and a client mid-reconnect would only retry into the same
+	 * close.
 	 *
-	 * Schemas are generated from `packages/rust/slyng-types/src/ws.rs`, so the
-	 * accepted shape is whatever that file says — keep the struct honest about
-	 * what clients actually send rather than loosening the check here.
+	 * This composes with `settle()` rather than replacing it: validation stops
+	 * the garbage that is recognisably garbage before a handler written against
+	 * a shape it never checked ever sees it, and `settle()` still owns whatever
+	 * a handler throws on a structurally valid frame.
+	 *
+	 * Schemas come from `@slyng/types`, generated from
+	 * `packages/rust/slyng-types/src/ws.rs`, so the accepted shape is whatever
+	 * that file says and it is the same contract the Rust client encodes
+	 * against — keep the struct honest about what clients actually send rather
+	 * than loosening the check here.
+	 *
+	 * `T extends object` because every client → server payload is an object; it
+	 * keeps the `if (d)` at each call site honest.
 	 *
 	 * Only issue paths and codes are logged, never `d` itself: these payloads
-	 * carry user-authored text (custom status) and, on IDENTIFY, a session token.
+	 * carry user-authored text (custom status) and, on IDENTIFY, a session
+	 * token. Bounded twice — first four issues, 300 chars — so a frame with a
+	 * pathological number of violations can't flood the log.
 	 */
-	private parseFrame<T>(op: number, schema: z.ZodType<T>, d: unknown): T | null {
+	private parseFrame<T extends object>(op: number, schema: ZodType<T>, d: unknown): T | null {
 		const parsed = schema.safeParse(d);
 		if (parsed.success) return parsed.data;
 		const detail = parsed.error.issues
 			.slice(0, 4)
 			.map((issue) => `${issue.path.join('.') || '<root>'}: ${issue.code}`)
 			.join('; ');
-		this.logger.warn(`WS op=${op} payload rejected — ${detail}`);
+		this.logger.warn(`WS op=${op} payload rejected — ${detail.slice(0, 300)}`);
 		return null;
 	}
 
@@ -437,11 +449,33 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
 	// ── Voice handlers ──
 
-	private async handleVoiceStateUpdate(client: WebSocket, data: { channel_id?: string; self_mute?: boolean; self_deaf?: boolean; has_camera?: boolean; has_screen?: boolean }) {
+	/**
+	 * Op 7. The audio/video flags are a patch, not a snapshot — see
+	 * `WsVoiceStateUpdatePayload` in `packages/rust/slyng-types/src/ws.rs`
+	 * for the four shapes the voice engines send. `channel_id` carries the
+	 * join-vs-leave decision: a channel id joins or updates, an explicit
+	 * `null` (which is what both engines send on leave) leaves.
+	 *
+	 * The key itself is never absent by the time we get here — the schema
+	 * requires it, so a frame that forgot it is rejected upstream rather
+	 * than falling through to the leave branch and yanking someone out of
+	 * a call they never asked to leave.
+	 *
+	 * The leave test is `=== null`, not `!data.channel_id`, and the
+	 * difference is the whole point of typing the field `string | null`.
+	 * Truthiness reads `''` as a leave, so a frame carrying a blank id —
+	 * which no send site produces, but which the schema cannot rule out —
+	 * would silently disconnect the sender from voice. Against an exact
+	 * null it falls through to the join path instead, where
+	 * `VoiceService.join` throws `NotFoundException` before it mutates any
+	 * state. Broken input fails loudly and changes nothing, rather than
+	 * quietly doing the one thing the user didn't ask for.
+	 */
+	private async handleVoiceStateUpdate(client: WebSocket, data: WsVoiceStateUpdatePayload) {
 		const state = this.clients.get(client);
 		if (!state?.userId || !this.voiceService) return;
 
-		if (!data.channel_id) {
+		if (data.channel_id === null) {
 			// Disconnect from voice
 			const prev = await this.voiceService.leave(state.userId);
 			if (prev) {
