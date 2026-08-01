@@ -153,6 +153,17 @@ pub struct WsEnvelope {
 
 // ── Client → Server payloads ──
 
+/// `IDENTIFY` (op 1). The session token, always present: the client skips
+/// the frame entirely when it holds no bearer rather than sending an empty
+/// one (`slyng-client/src/ws/native.rs:183`, `wasm.rs:134`). The gateway
+/// also raises this payload internally from the `slyng_session` cookie on
+/// connect — the `handleIdentify(client, { token: match[1] })` call inside
+/// `ChatGateway.handleConnection` (`chat.gateway.ts:97`).
+///
+/// `HEARTBEAT` (op 2) has no struct here on purpose. The client sends it as
+/// `{"op":2,"d":null}` (`native.rs:270`, `wasm.rs:195`) and the handler
+/// reads nothing off `d`, so there is no contract to state; an empty struct
+/// would only add a way for a payload-free frame to be rejected.
 #[derive(Clone, Debug, Serialize, Deserialize, ZodSchema)]
 #[cfg_attr(target_arch = "wasm32", derive(Tsify))]
 #[cfg_attr(target_arch = "wasm32", tsify(into_wasm_abi, from_wasm_abi))]
@@ -160,6 +171,14 @@ pub struct WsIdentifyPayload {
 	pub token: String,
 }
 
+/// `SUBSCRIBE` (op 3) and `UNSUBSCRIBE` (op 4) — the two frames carry the
+/// same shape and there is deliberately no separate `WsUnsubscribePayload`;
+/// this is the seam that has to split first if they ever diverge.
+///
+/// Always sent as a whole topic list (server topic plus every channel
+/// topic), re-sent on reconnect — `slyng-client/src/ws/native.rs:64,74`,
+/// `wasm.rs:57,67`, both `json!({ "channel_ids": ids })` over a
+/// `Vec<String>`. The field is required: the handler iterates it directly.
 #[derive(Clone, Debug, Serialize, Deserialize, ZodSchema)]
 #[cfg_attr(target_arch = "wasm32", derive(Tsify))]
 #[cfg_attr(target_arch = "wasm32", tsify(into_wasm_abi, from_wasm_abi))]
@@ -167,6 +186,8 @@ pub struct WsSubscribePayload {
 	pub channel_ids: Vec<String>,
 }
 
+/// `TYPING_START` (op 5). One channel per frame, always present —
+/// `slyng-client/src/ws/native.rs:78`, `wasm.rs:71`.
 #[derive(Clone, Debug, Serialize, Deserialize, ZodSchema)]
 #[cfg_attr(target_arch = "wasm32", derive(Tsify))]
 #[cfg_attr(target_arch = "wasm32", tsify(into_wasm_abi, from_wasm_abi))]
@@ -353,6 +374,12 @@ pub struct WsCategoryDeletePayload {
 	pub server_id: Option<String>,
 }
 
+/// `WATCH_PROFILES` (op 50). The client registers a whole roster in one
+/// frame — every server member with a known instance
+/// (`ui/src/lib/components/pages/server-layout.svelte:202`) or every friend
+/// with one (`pages/dm-friends.svelte:19`) — and both build the entries as
+/// bare `{ did, instance_url }` literals, so the frame carries these two
+/// fields and nothing else. Required: `profiles` is the whole payload.
 #[derive(Clone, Debug, Serialize, Deserialize, ZodSchema)]
 #[cfg_attr(target_arch = "wasm32", derive(Tsify))]
 #[cfg_attr(target_arch = "wasm32", tsify(into_wasm_abi, from_wasm_abi))]
@@ -368,11 +395,25 @@ pub struct WsWatchProfileEntry {
 	pub instance_url: String,
 }
 
+/// `UNWATCH_PROFILES` (op 51).
+///
+/// `dids` is **optional**, and the two cases mean different things:
+/// a list drops those watches, an absent list drops every watch the socket
+/// holds — `ProfileWatcherService.unregister` resolves it as
+/// `dids ?? [...sub]` (`profile-watcher.service.ts:90`), which is the same
+/// path `forgetClient` takes on disconnect. `ChatGateway.handleUnwatchProfiles`
+/// (`chat.gateway.ts:468`) has always accepted the absent case — it took
+/// `{ dids?: string[] }` before this change and takes
+/// `dids: string[] | undefined` after it, the dispatch site passing
+/// `undefined` when the field is absent. Declaring `dids` required here was
+/// drift, and enforcing it would have turned "drop everything" into a
+/// rejected frame.
 #[derive(Clone, Debug, Serialize, Deserialize, ZodSchema)]
 #[cfg_attr(target_arch = "wasm32", derive(Tsify))]
 #[cfg_attr(target_arch = "wasm32", tsify(into_wasm_abi, from_wasm_abi))]
 pub struct WsUnwatchProfilesPayload {
-	pub dids: Vec<String>,
+	#[serde(skip_serializing_if = "Option::is_none", default)]
+	pub dids: Option<Vec<String>>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, ZodSchema)]

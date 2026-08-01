@@ -1266,7 +1266,7 @@ export const WsTypingStartPayloadSchema = z.object({
 export type WsTypingStartPayload = z.infer<typeof WsTypingStartPayloadSchema>;
 
 export const WsUnwatchProfilesPayloadSchema = z.object({
-  dids: z.array(z.string())
+  dids: z.array(z.string()).optional()
 });
 export type WsUnwatchProfilesPayload = z.infer<typeof WsUnwatchProfilesPayloadSchema>;
 
