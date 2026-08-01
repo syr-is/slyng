@@ -96,12 +96,12 @@ export class EmbedService {
 			if (embed.title || embed.description) {
 				// Cache it
 				await surreal.query(
-					`UPSERT url_embed_cache SET
-						url = $url,
-						data = $data,
-						created_at = time::now(),
-						updated_at = time::now()
-					WHERE url = $url`,
+					`LET $existing = (SELECT id FROM url_embed_cache WHERE url = $url LIMIT 1);
+					IF $existing[0] {
+						UPDATE $existing[0].id SET data = $data, updated_at = time::now();
+					} ELSE {
+						CREATE url_embed_cache SET url = $url, data = $data, created_at = time::now(), updated_at = time::now();
+					}`,
 					{ url, data: embed }
 				);
 				return embed;

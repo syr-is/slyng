@@ -231,22 +231,21 @@ export class AuthService {
 		tokens: { did: string; delegate_public_key: string },
 		syrInstanceUrl: string
 	) {
-		const surreal = this.db.getDb();
-		await surreal.query(
-			`UPSERT user SET
-				did = $did,
-				syr_instance_url = $syr_instance_url,
-				delegate_public_key = $delegate_public_key,
-				is_online = true,
-				last_seen_at = time::now(),
-				updated_at = time::now()
-			WHERE did = $did`,
-			{
-				did: tokens.did,
-				syr_instance_url: syrInstanceUrl,
-				delegate_public_key: tokens.delegate_public_key
-			}
-		);
+		const existing = await this.users.findOne({ did: tokens.did });
+		const data = {
+			did: tokens.did,
+			syr_instance_url: syrInstanceUrl,
+			delegate_public_key: tokens.delegate_public_key,
+			is_online: true,
+			last_seen_at: new Date(),
+			updated_at: new Date()
+		};
+
+		if (existing) {
+			await this.users.merge(existing.id, data);
+		} else {
+			await this.users.create({ ...data, created_at: new Date() });
+		}
 		this.logger.log(`Identity recorded: ${tokens.did.slice(0, 20)}...`);
 	}
 
