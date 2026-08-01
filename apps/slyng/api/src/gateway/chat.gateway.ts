@@ -442,12 +442,22 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
 	 * requires it, so a frame that forgot it is rejected upstream rather
 	 * than falling through to the leave branch and yanking someone out of
 	 * a call they never asked to leave.
+	 *
+	 * The leave test is `=== null`, not `!data.channel_id`, and the
+	 * difference is the whole point of typing the field `string | null`.
+	 * Truthiness reads `''` as a leave, so a frame carrying a blank id —
+	 * which no send site produces, but which the schema cannot rule out —
+	 * would silently disconnect the sender from voice. Against an exact
+	 * null it falls through to the join path instead, where
+	 * `VoiceService.join` throws `NotFoundException` before it mutates any
+	 * state. Broken input fails loudly and changes nothing, rather than
+	 * quietly doing the one thing the user didn't ask for.
 	 */
 	private async handleVoiceStateUpdate(client: WebSocket, data: WsVoiceStateUpdatePayload) {
 		const state = this.clients.get(client);
 		if (!state?.userId || !this.voiceService) return;
 
-		if (!data.channel_id) {
+		if (data.channel_id === null) {
 			// Disconnect from voice
 			const prev = await this.voiceService.leave(state.userId);
 			if (prev) {
