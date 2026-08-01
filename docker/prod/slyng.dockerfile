@@ -61,7 +61,23 @@ RUN apk del wasm-pack \
     && sed -i '/alpine\/edge\/community/d' /etc/apk/repositories \
     && rm -rf /var/cache/apk/*
 
-RUN NODE_OPTIONS="--max-old-space-size=4096" pnpm --filter @slyng/web build
+# 3072, not 4096. The cap is an allowance, not a reservation: V8 grows the
+# heap toward it and only collects hard as it approaches, so 4096 let this
+# build peak at ~3.97 GB resident. The builder has ~3.5 GB free and no swap,
+# so the kernel killed it first — and a SIGKILL writes nothing, which is why
+# the deployment log ended mid-file with no error and Dokploy recorded
+# "Cancelled" rather than "error".
+#
+# Measured on this tree: 4096 peaks at 3.97 GB, 3072 at 3.50 GB, and 2048
+# fails outright with "JavaScript heap out of memory". So ~3 GB is the floor
+# for this bundle; 3072 is the lowest cap that still builds, and it degrades
+# honestly — if it ever does exceed, V8 reports a heap error instead of
+# vanishing.
+#
+# This narrows the margin; it does not create one. 3.50 GB against ~3.5 GB
+# free is still thin, and the builder wants swap so a transient spike costs
+# throughput instead of the whole deployment. See DEPLOYMENT.md.
+RUN NODE_OPTIONS="--max-old-space-size=3072" pnpm --filter @slyng/web build
 
 # ---- Production Stage ----
 FROM node:20-alpine AS production
