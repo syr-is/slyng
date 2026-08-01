@@ -175,10 +175,24 @@ pub struct WsIdentifyPayload {
 /// same shape and there is deliberately no separate `WsUnsubscribePayload`;
 /// this is the seam that has to split first if they ever diverge.
 ///
-/// Always sent as a whole topic list (server topic plus every channel
-/// topic), re-sent on reconnect — `slyng-client/src/ws/native.rs:64,74`,
-/// `wasm.rs:57,67`, both `json!({ "channel_ids": ids })` over a
-/// `Vec<String>`. The field is required: the handler iterates it directly.
+/// `SUBSCRIBE` is additive and idempotent per topic; `UNSUBSCRIBE` is
+/// subtractive. Neither replaces the socket's subscription set, so a frame
+/// carrying one topic leaves every other subscription intact. Both shapes
+/// occur in practice: the whole topic list (server topic plus every channel)
+/// on server load (`ui/src/lib/components/pages/server-layout.svelte:140`)
+/// and on reconnect resubscribe (`slyng-client/src/ws/native.rs:203-212`,
+/// which replays the accumulated set), and a single topic or a delta on
+/// channel open (`pages/channel-page.svelte:121`, `pages/dm-channel.svelte:85`),
+/// voice join (`app-core/src/lib/voice/voice-engine.ts:267`) and
+/// newly-visible channels (`server-layout.svelte:188,267`, both a
+/// `.filter(id => !known.has(id))` delta).
+///
+/// The transport is a pass-through — `native.rs:64` / `wasm.rs:57` send
+/// `json!({ "channel_ids": ids })` over whatever `Vec<String>` the caller
+/// supplied — so the wire shape is identical in every case and carries no
+/// hint of which one it is. The field is required: the handler iterates it
+/// directly. Per-entry policy (salvaging valid ids, dropping bad ones) is
+/// the handler's business, not this schema's.
 #[derive(Clone, Debug, Serialize, Deserialize, ZodSchema)]
 #[cfg_attr(target_arch = "wasm32", derive(Tsify))]
 #[cfg_attr(target_arch = "wasm32", tsify(into_wasm_abi, from_wasm_abi))]
@@ -374,12 +388,25 @@ pub struct WsCategoryDeletePayload {
 	pub server_id: Option<String>,
 }
 
-/// `WATCH_PROFILES` (op 50). The client registers a whole roster in one
-/// frame — every server member with a known instance
-/// (`ui/src/lib/components/pages/server-layout.svelte:202`) or every friend
-/// with one (`pages/dm-friends.svelte:19`) — and both build the entries as
-/// bare `{ did, instance_url }` literals, so the frame carries these two
-/// fields and nothing else. Required: `profiles` is the whole payload.
+/// `WATCH_PROFILES` (op 50). The client registers interest in a set of DIDs.
+/// The frame carries the full roster only on first registration; thereafter
+/// it carries an incremental set of newly-watchable members. Both call sites
+/// filter against what they already watch before sending — server members
+/// with a known instance minus the already-watched
+/// (`ui/src/lib/components/pages/server-layout.svelte:201-204`,
+/// `.filter(m => !!m.syr_instance_url && !currentDids.has(m.user_id))`) and
+/// friends minus the already-watched (`pages/dm-friends.svelte:33,37`,
+/// `next.filter(p => !currentDids.has(p.did))`) — so after the first frame
+/// the payload is a delta, and members that go away leave via
+/// `UNWATCH_PROFILES` rather than by omission here.
+///
+/// Registration is idempotent per DID per socket and ref-counted across
+/// sockets — `ProfileWatcherService.register` skips a DID the socket already
+/// holds (`profile-watcher.service.ts:75`) and otherwise bumps `refcount`
+/// (`:80`) — so a repeated or overlapping frame is harmless and a re-sent
+/// full roster is equally safe. Both sites build entries as bare
+/// `{ did, instance_url }` literals, so the frame carries these two fields
+/// and nothing else. Required: `profiles` is the whole payload.
 #[derive(Clone, Debug, Serialize, Deserialize, ZodSchema)]
 #[cfg_attr(target_arch = "wasm32", derive(Tsify))]
 #[cfg_attr(target_arch = "wasm32", tsify(into_wasm_abi, from_wasm_abi))]
