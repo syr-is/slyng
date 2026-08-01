@@ -770,16 +770,21 @@ export class RoleService {
 		userId: string,
 		serverId: string
 	): Promise<Array<{ id: string; name: string; type: string }>> {
-		const perms = await this.computePermissions(userId, serverId);
-		const canRead = hasPermission(perms, Permissions.READ_MESSAGES);
-		if (!canRead) return [];
 		const ref = stringToRecordId.decode(serverId);
 		const channels = await this.channels.findLiveByServer(ref);
-		return channels.map((c) => ({
-			id: stringToRecordId.encode(c.id),
-			name: c.name ?? '',
-			type: c.type ?? 'text'
-		}));
+		// Scoped per channel, not server-wide: a category/channel override can
+		// deny READ_MESSAGES to someone who holds it at the server level — and
+		// grant it to someone who doesn't — so the server-level answer is not
+		// the visible set. Same evaluation buildPermissionTree's can_view uses.
+		const scoped = await Promise.all(
+			channels.map(async (c) => {
+				const id = stringToRecordId.encode(c.id);
+				const perms = await this.computePermissions(userId, serverId, id);
+				if (!hasPermission(perms, Permissions.READ_MESSAGES)) return null;
+				return { id, name: c.name ?? '', type: c.type ?? 'text' };
+			})
+		);
+		return scoped.filter((c) => c !== null);
 	}
 
 	async buildPermissionTree(userId: string, serverId: string): Promise<PermissionTree> {
