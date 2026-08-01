@@ -193,6 +193,36 @@ For MinIO the S3 credentials double as `MINIO_ROOT_USER` / `MINIO_ROOT_PASSWORD`
 - Platform delegation tokens use `sessionId: "platform:xxx"` which doesn't exist in the session table. The auth hooks must skip session lookup for these and just verify the user exists.
 - Syr must accept `Authorization: Bearer` header (not just session cookie) for platform delegation tokens from ecosystem apps.
 
+### Builder memory — the SPA build needs ~3.5 GB, and swap
+
+The `@slyng/web` Vite build is the single heaviest thing in a deploy. Measured
+peaks by heap cap: **4096 → 3.97 GB**, **3072 → 3.50 GB**, **2048 → fails**
+with `JavaScript heap out of memory`. So ~3 GB is the floor for this bundle.
+
+`--max-old-space-size` is an *allowance*, not a reservation — V8 grows toward
+it and only collects hard near the limit, so a generous cap on a small builder
+is actively harmful. `slyng.dockerfile` pins 3072 for that reason.
+
+**The builder needs swap.** With none, a build that transiently exceeds free
+memory is SIGKILLed by the kernel. SIGKILL writes nothing, so the symptom is
+not an error — the deployment log stops mid-line and Dokploy records the
+deployment as **Cancelled**, not failed. It looks like a queue or webhook
+problem and is not one. This bit us on a 7.6 GB host with ~3.5 GB free and no
+swap: every deploy after the memory ceiling was crossed came back "Cancelled",
+including manual ones, with no error text anywhere.
+
+```bash
+free -h                              # Swap: 0B is the tell
+sudo dmesg -T | grep -i 'killed process'   # confirms it
+
+sudo fallocate -l 4G /swapfile && sudo chmod 600 /swapfile
+sudo mkswap /swapfile && sudo swapon /swapfile
+echo '/swapfile none swap sw 0 0' | sudo tee -a /etc/fstab
+```
+
+3072 narrows the margin; swap is what creates one. A host that also runs other
+stacks should have both.
+
 ### Docker on Hetzner
 
 - If an object-store container gets stuck where `docker kill` / `docker rm` hang, fix with `systemctl restart docker`, then `docker rm -f <id>`.
