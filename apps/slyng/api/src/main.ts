@@ -64,6 +64,18 @@ async function bootstrap() {
 		})
 	);
 
+	// Last line of defence, not a substitute for handling. The WS gateway
+	// dispatches its handlers fire-and-forget so a frame never blocks the
+	// socket's read loop, and Nest's ws adapter wraps only the synchronous
+	// call — so any rejection that escapes a handler has nowhere to go, and
+	// Node's default is to exit. Losing the whole API, every connected socket
+	// included, is never the right answer to one bad frame.
+	process.on('unhandledRejection', (reason) => {
+		logger.error(
+			`Unhandled rejection: ${reason instanceof Error ? (reason.stack ?? reason.message) : String(reason)}`
+		);
+	});
+
 	const port = config.get('SLYNG_API_PORT', 5175);
 	await app.listen(port);
 	logger.log(`Slyng Chat API listening on port ${port}`);
