@@ -181,9 +181,16 @@ export class MemberAccessService {
 		if (!channelIds.length) return allowed;
 
 		const rows = await this.channels.findByIds([...new Set(channelIds)]);
-		const { unscoped, byServer } = groupChannelTopicsByServer(channelIds, rows);
+		const { unscoped, byServer, unresolved } = groupChannelTopicsByServer(channelIds, rows);
 
 		for (const id of unscoped) allowed.add(id);
+		if (unresolved.length) {
+			// Denied by omission, but worth a trace: a client asking about
+			// channels that no longer exist means its channel list has drifted.
+			this.logger.debug(
+				`Ignoring ${unresolved.length} unknown channel(s): ${unresolved.join(', ')}`
+			);
+		}
 
 		for (const [serverId, channels] of byServer) {
 			// Per-server guard: one server's read failing must deny that server's
@@ -194,8 +201,12 @@ export class MemberAccessService {
 			try {
 				fold = await this.foldForServer(userId, serverId);
 			} catch (err) {
+				// Never `(err as Error).message` — a thrown `null` would raise
+				// inside the catch and take out the whole batch it exists to save.
 				this.logger.warn(
-					`Permission fold failed for ${serverId}; denying its channels: ${(err as Error).message}`
+					`Permission fold failed for ${serverId}; denying its channels: ${
+						err instanceof Error ? err.message : String(err)
+					}`
 				);
 				continue;
 			}

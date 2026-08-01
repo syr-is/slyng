@@ -20,33 +20,48 @@ const chan = (
 const id = (name: string) => stringToRecordId.encode(new RecordId('channel', name));
 
 describe('parseTopicIds', () => {
-	it('passes a well-formed frame through unchanged', () => {
-		expect(parseTopicIds({ channel_ids: ['channel:a', 'server:s1'] })).toEqual([
-			'channel:a',
-			'server:s1'
-		]);
-		expect(parseTopicIds({ channel_ids: [] })).toEqual([]);
+	it('passes a well-formed frame through and reports it on-contract', () => {
+		expect(parseTopicIds({ channel_ids: ['channel:a', 'server:s1'] })).toEqual({
+			ids: ['channel:a', 'server:s1'],
+			offered: 2,
+			offContract: false
+		});
+		expect(parseTopicIds({ channel_ids: [] })).toEqual({
+			ids: [],
+			offered: 0,
+			offContract: false
+		});
 	});
 
 	// Each of these reached `.filter` / `for…of` before the parse existed and
 	// rejected out of a fire-and-forget dispatch, taking the process with it.
-	it('salvages the valid entries of a frame with a bad one', () => {
-		expect(parseTopicIds({ channel_ids: [123, 'channel:ok'] })).toEqual(['channel:ok']);
-		expect(parseTopicIds({ channel_ids: [null, 'channel:ok', {}, true, undefined] })).toEqual([
-			'channel:ok'
-		]);
+	it('salvages the valid entries of a frame with a bad one, and flags it', () => {
+		expect(parseTopicIds({ channel_ids: [123, 'channel:ok'] })).toEqual({
+			ids: ['channel:ok'],
+			offered: 2,
+			offContract: true
+		});
+		expect(parseTopicIds({ channel_ids: [null, 'channel:ok', {}, true, undefined] })).toEqual({
+			ids: ['channel:ok'],
+			offered: 5,
+			offContract: true
+		});
 	});
 
 	it('yields nothing when there is no array of topics to salvage', () => {
-		expect(parseTopicIds({ channel_ids: 'channel:abc' })).toEqual([]);
-		expect(parseTopicIds({})).toEqual([]);
-		expect(parseTopicIds({ channel_ids: null })).toEqual([]);
-		expect(parseTopicIds({ channel_ids: 42 })).toEqual([]);
+		for (const payload of [
+			{ channel_ids: 'channel:abc' },
+			{},
+			{ channel_ids: null },
+			{ channel_ids: 42 }
+		]) {
+			expect(parseTopicIds(payload)).toEqual({ ids: [], offered: 0, offContract: true });
+		}
 	});
 
 	it('survives a payload that is not an object at all', () => {
 		for (const payload of [undefined, null, 0, '', 'nope', true, [], [1, 2]]) {
-			expect(parseTopicIds(payload)).toEqual([]);
+			expect(parseTopicIds(payload)).toEqual({ ids: [], offered: 0, offContract: true });
 		}
 	});
 });
@@ -71,10 +86,26 @@ describe('groupChannelTopicsByServer', () => {
 			[id('a'), id('b')],
 			[chan('a', S1, CAT), chan('b', S1, null)]
 		);
-		expect(byServer.get('server:s1')).toEqual([
-			{ id: id('a'), categoryId: 'channel_category:text' },
-			{ id: id('b'), categoryId: null }
+		expect(byServer.get('server:s1')?.map((c) => c.categoryId)).toEqual([
+			'channel_category:text',
+			null
 		]);
+	});
+
+	it('only ever returns an id that equals its row’s encoded id', () => {
+		// This is what lets the same string key the cascade's channel scope: a
+		// lookup hit proves the two agree, so a channel's overrides cannot be
+		// sidestepped by asking under some other spelling of its id.
+		const rows = [chan('a', S1), chan('b', S2), chan('dm')];
+		const requested = [id('a'), id('b'), id('dm'), 'channel:ghost', 'nocolon'];
+		const g = groupChannelTopicsByServer(requested, rows);
+		const rowIds = new Set(rows.map((r) => stringToRecordId.encode(r.id)));
+		for (const entries of g.byServer.values()) {
+			for (const e of entries) expect(rowIds.has(e.id)).toBe(true);
+		}
+		for (const u of g.unscoped) expect(rowIds.has(u)).toBe(true);
+		// and anything that did not match a row is denied, never bucketed
+		expect(g.unresolved).toEqual(['channel:ghost', 'nocolon']);
 	});
 
 	it('separates rows with no server scope — DM channels gate on nothing', () => {
@@ -99,8 +130,7 @@ describe('groupChannelTopicsByServer', () => {
 		expect(byServer.get('server:s1')?.map((c) => c.id)).toEqual([id('a')]);
 	});
 
-	it('keeps the caller’s exact id string, which is the override scope key', () => {
-		// `channel:a:b` has a colon in the id half; it must round-trip untouched.
+	it('handles an id whose record half contains colons', () => {
 		const weird = 'channel:a:b';
 		const rows = [{ id: new RecordId('channel', 'a:b'), server_id: S1 }];
 		const { byServer } = groupChannelTopicsByServer([weird], rows);

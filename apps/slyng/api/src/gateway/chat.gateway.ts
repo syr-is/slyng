@@ -247,7 +247,7 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
 		// `payload` is whatever arrived on the wire — parsed, never cast. A
 		// malformed `channel_ids` used to reach `.filter` / `for…of` and reject
 		// out of this fire-and-forget dispatch, which Node turns into an exit.
-		const channelIds = parseTopicIds(payload);
+		const channelIds = this.topicIds(payload, 'SUBSCRIBE', userId);
 
 		// Clients send their whole topic list — the server plus every one of its
 		// channels — in a single frame, and re-send it on every reconnect. The
@@ -260,25 +260,43 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
 		for (const id of channelIds) {
 			// Only subscribe to topics the user is actually allowed to read.
-			// The check short-circuits unrelated topics (e.g. DM channels if we
-			// add them later) by returning true when no server context applies.
+			// Channel topics were answered as a batch above; everything else —
+			// the server topic, and any future topic type — resolves its own
+			// server, and passes when none applies.
 			const allowed = id.startsWith('channel:')
 				? readable.has(id)
-				: await this.canSubscribe(userId, id);
+				: await this.canSubscribeToNonChannelTopic(userId, id);
 			if (allowed) state.subscribedChannels.add(id);
 		}
 	}
 
 	/**
-	 * Batched authorisation for the `channel:` topics of a SUBSCRIBE frame.
+	 * Topic ids out of a frame, with the off-contract case recorded rather than
+	 * absorbed. Salvaging keeps a client with one bad entry from losing every
+	 * subscription, but silently would make a client-side regression invisible
+	 * from the server, so a deviation always leaves a line saying how much of
+	 * the frame survived.
+	 */
+	private topicIds(payload: unknown, op: 'SUBSCRIBE' | 'UNSUBSCRIBE', userId?: string): string[] {
+		const { ids, offered, offContract } = parseTopicIds(payload);
+		if (offContract) {
+			this.logger.warn(
+				`Off-contract ${op} payload from ${userId?.slice(0, 24) ?? 'unidentified'}: ` +
+					`kept ${ids.length} of ${offered} topic id(s)`
+			);
+		}
+		return ids;
+	}
+
+	/**
+	 * Batched authorisation for the `channel:` topics of a SUBSCRIBE frame, and
+	 * the only thing that answers them.
 	 *
-	 * Same answer per topic as `canSubscribe`, which delegates channel topics to
-	 * this same call — there is one answer for a channel topic, not two. The
-	 * failure *granularity* does differ from the per-id loop this replaced,
-	 * though: that caught per id, so a fault denied one topic. Here a fault
-	 * inside `canReadChannels` denies only its own server's channels, but one
-	 * escaping it — in practice the initial row read — denies every channel
-	 * topic in the frame. Fail-closed in all three cases.
+	 * The failure *granularity* differs from the per-id loop this replaced: that
+	 * caught per id, so a fault denied one topic. Here a fault inside
+	 * `canReadChannels` denies only its own server's channels, but one escaping
+	 * it — in practice the initial row read — denies every channel topic in the
+	 * frame. Fail-closed in all three cases.
 	 */
 	private async readableChannelTopics(userId: string, topicIds: string[]): Promise<Set<string>> {
 		if (!this.memberAccess) return new Set(topicIds);
@@ -286,7 +304,12 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
 		try {
 			return await this.memberAccess.canReadChannels(userId, topicIds);
 		} catch (err) {
-			this.logger.warn(`Channel topic authorisation failed: ${(err as Error).message}`);
+			// `err instanceof Error ? … : String(err)`, not `(err as Error).message`:
+			// a thrown `null` makes the latter raise inside the catch, which
+			// escapes the one function whose whole contract is that nothing does.
+			this.logger.warn(
+				`Channel topic authorisation failed: ${err instanceof Error ? err.message : String(err)}`
+			);
 			return new Set();
 		}
 	}
@@ -294,28 +317,26 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
 	private handleUnsubscribe(client: WebSocket, payload: unknown) {
 		const state = this.clients.get(client);
 		if (!state) return;
-		for (const id of parseTopicIds(payload)) {
+		for (const id of this.topicIds(payload, 'UNSUBSCRIBE', state.userId ?? undefined)) {
 			state.subscribedChannels.delete(id);
 		}
 	}
 
 	/**
-	 * Authorisation check for a single SUBSCRIBE topic. The topic may be a
-	 * server id (the layout subscribes to it for server-wide events) or a
-	 * channel id. Either way, the subscribing user must be a member of the
-	 * resolved server and not banned. Returns true on topics outside the server
-	 * model (no server resolved) so new topic types don't require guard updates.
+	 * Authorisation for a SUBSCRIBE topic that is NOT a channel — today the
+	 * server id the layout subscribes to for server-wide events, tomorrow
+	 * whatever else gets a topic. The subscribing user must be a member of the
+	 * resolved server and not banned. Returns true when no server resolves, so
+	 * a new topic type outside the server model doesn't require a guard update.
 	 *
-	 * Channel topics delegate to `canReadChannels` rather than re-deriving the
-	 * answer, so this and the batch `handleSubscribe` uses can never disagree.
+	 * Channel topics never reach here: `handleSubscribe` partitions them out and
+	 * answers the whole batch through `readableChannelTopics`. Adding a
+	 * `channel:` case back would be a second answer to a question that already
+	 * has one.
 	 */
-	private async canSubscribe(userId: string, topicId: string): Promise<boolean> {
+	private async canSubscribeToNonChannelTopic(userId: string, topicId: string): Promise<boolean> {
 		if (!this.memberAccess) return true;
 		try {
-			if (topicId.startsWith('channel:')) {
-				const readable = await this.memberAccess.canReadChannels(userId, [topicId]);
-				return readable.has(topicId);
-			}
 			const serverId = await this.memberAccess.resolveServerId(topicId);
 			if (!serverId) return true;
 			return await this.memberAccess.isAllowed(userId, serverId);
