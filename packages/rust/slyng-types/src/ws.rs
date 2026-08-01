@@ -452,12 +452,24 @@ pub struct WsReadyDmChannel {
 	pub participants: Vec<String>,
 }
 
+/// One entry of the presence snapshot `READY` carries.
+///
+/// Same four fields as `WsPresenceUpdateBroadcastPayload`, and for the same
+/// reason: `READY` is the path that populates custom status and emoji for the
+/// whole member list at connect and on every reconnect, so a struct declaring
+/// only `user_id` + `status` describes a frame the gateway does not send.
+/// Both custom fields stay optional — the snapshot omits them for a user who
+/// has never set one.
 #[derive(Clone, Debug, Serialize, Deserialize, ZodSchema)]
 #[cfg_attr(target_arch = "wasm32", derive(Tsify))]
 #[cfg_attr(target_arch = "wasm32", tsify(into_wasm_abi, from_wasm_abi))]
 pub struct WsReadyPresence {
 	pub user_id: String,
 	pub status: crate::presence::PresenceStatus,
+	#[serde(skip_serializing_if = "Option::is_none", default)]
+	pub custom_status: Option<String>,
+	#[serde(skip_serializing_if = "Option::is_none", default)]
+	pub custom_emoji: Option<String>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, ZodSchema)]

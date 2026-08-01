@@ -1204,7 +1204,9 @@ export const WsReadyPayloadSchema = z.object({
 })),
   presences: z.array(z.object({
   user_id: z.string(),
-  status: z.enum(['online', 'idle', 'dnd', 'invisible', 'offline'])
+  status: z.enum(['online', 'idle', 'dnd', 'invisible', 'offline']),
+  custom_status: z.string().optional(),
+  custom_emoji: z.string().optional()
 })),
   unread: z.array(z.object({
   channel_id: z.string(),
@@ -1216,7 +1218,9 @@ export type WsReadyPayload = z.infer<typeof WsReadyPayloadSchema>;
 
 export const WsReadyPresenceSchema = z.object({
   user_id: z.string(),
-  status: z.enum(['online', 'idle', 'dnd', 'invisible', 'offline'])
+  status: z.enum(['online', 'idle', 'dnd', 'invisible', 'offline']),
+  custom_status: z.string().optional(),
+  custom_emoji: z.string().optional()
 });
 export type WsReadyPresence = z.infer<typeof WsReadyPresenceSchema>;
 
