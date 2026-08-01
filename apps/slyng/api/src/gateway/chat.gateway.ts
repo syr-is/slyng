@@ -17,6 +17,7 @@ import { UserRepository } from '../auth/user.repository';
 import { MemberAccessService } from '../auth/member-access.service';
 import { ProfileWatcherService } from '../profile-watcher/profile-watcher.service';
 import { serializeForWire } from '../common/serialize';
+import { parseTopicIds } from '../common/channel-topics';
 
 interface ClientState {
 	userId: string | null;
@@ -130,10 +131,10 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
 				this.handleHeartbeat(client);
 				break;
 			case WsOp.SUBSCRIBE:
-				this.handleSubscribe(client, msg.d as { channel_ids: string[] });
+				this.handleSubscribe(client, msg.d);
 				break;
 			case WsOp.UNSUBSCRIBE:
-				this.handleUnsubscribe(client, msg.d as { channel_ids: string[] });
+				this.handleUnsubscribe(client, msg.d);
 				break;
 			case WsOp.TYPING_START:
 				this.handleTypingStart(client, msg.d as { channel_id: string });
@@ -239,44 +240,106 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
 		this.send(client, { op: WsOp.HEARTBEAT_ACK, d: null });
 	}
 
-	private async handleSubscribe(client: WebSocket, data: { channel_ids: string[] }) {
+	private async handleSubscribe(client: WebSocket, payload: unknown) {
 		const state = this.clients.get(client);
 		if (!state?.userId) return;
-		for (const id of data.channel_ids) {
+		const userId = state.userId;
+		// `payload` is whatever arrived on the wire — parsed, never cast. A
+		// malformed `channel_ids` used to reach `.filter` / `for…of` and reject
+		// out of this fire-and-forget dispatch, which Node turns into an exit.
+		const channelIds = this.topicIds(payload, 'SUBSCRIBE', userId);
+
+		// Clients send their whole topic list — the server plus every one of its
+		// channels — in a single frame, and re-send it on every reconnect. The
+		// channel topics are therefore authorised as a batch: one permission
+		// fold per server instead of one full cascade per channel.
+		const readable = await this.readableChannelTopics(
+			userId,
+			channelIds.filter((id) => id.startsWith('channel:'))
+		);
+
+		for (const id of channelIds) {
 			// Only subscribe to topics the user is actually allowed to read.
-			// The check short-circuits unrelated topics (e.g. DM channels if we
-			// add them later) by returning true when no server context applies.
-			const allowed = await this.canSubscribe(state.userId, id);
+			// Channel topics were answered as a batch above; everything else —
+			// the server topic, and any future topic type — resolves its own
+			// server, and passes when none applies.
+			const allowed = id.startsWith('channel:')
+				? readable.has(id)
+				: await this.canSubscribeToNonChannelTopic(userId, id);
 			if (allowed) state.subscribedChannels.add(id);
 		}
 	}
 
-	private handleUnsubscribe(client: WebSocket, data: { channel_ids: string[] }) {
+	/**
+	 * Topic ids out of a frame, with the off-contract case recorded rather than
+	 * absorbed. Salvaging keeps a client with one bad entry from losing every
+	 * subscription, but silently would make a client-side regression invisible
+	 * from the server, so a deviation always leaves a line saying how much of
+	 * the frame survived.
+	 */
+	private topicIds(payload: unknown, op: 'SUBSCRIBE' | 'UNSUBSCRIBE', userId?: string): string[] {
+		const { ids, offered, offContract } = parseTopicIds(payload);
+		if (offContract) {
+			this.logger.warn(
+				`Off-contract ${op} payload from ${userId?.slice(0, 24) ?? 'unidentified'}: ` +
+					`kept ${ids.length} of ${offered} topic id(s)`
+			);
+		}
+		return ids;
+	}
+
+	/**
+	 * Batched authorisation for the `channel:` topics of a SUBSCRIBE frame, and
+	 * the only thing that answers them.
+	 *
+	 * The failure *granularity* differs from the per-id loop this replaced: that
+	 * caught per id, so a fault denied one topic. Here a fault inside
+	 * `canReadChannels` denies only its own server's channels, but one escaping
+	 * it — in practice the initial row read — denies every channel topic in the
+	 * frame. Fail-closed in all three cases.
+	 */
+	private async readableChannelTopics(userId: string, topicIds: string[]): Promise<Set<string>> {
+		if (!this.memberAccess) return new Set(topicIds);
+		if (!topicIds.length) return new Set();
+		try {
+			return await this.memberAccess.canReadChannels(userId, topicIds);
+		} catch (err) {
+			// `err instanceof Error ? … : String(err)`, not `(err as Error).message`:
+			// a thrown `null` makes the latter raise inside the catch, which
+			// escapes the one function whose whole contract is that nothing does.
+			this.logger.warn(
+				`Channel topic authorisation failed: ${err instanceof Error ? err.message : String(err)}`
+			);
+			return new Set();
+		}
+	}
+
+	private handleUnsubscribe(client: WebSocket, payload: unknown) {
 		const state = this.clients.get(client);
 		if (!state) return;
-		for (const id of data.channel_ids) {
+		for (const id of this.topicIds(payload, 'UNSUBSCRIBE', state.userId ?? undefined)) {
 			state.subscribedChannels.delete(id);
 		}
 	}
 
 	/**
-	 * Authorisation check for a SUBSCRIBE topic. The topic may be a server id
-	 * (the layout subscribes to it for server-wide events) or a channel id.
-	 * Either way, the subscribing user must be a member of the resolved
-	 * server and not banned. Returns true on topics outside the server model
-	 * (no server resolved) so new topic types don't require guard updates.
+	 * Authorisation for a SUBSCRIBE topic that is NOT a channel — today the
+	 * server id the layout subscribes to for server-wide events, tomorrow
+	 * whatever else gets a topic. The subscribing user must be a member of the
+	 * resolved server and not banned. Returns true when no server resolves, so
+	 * a new topic type outside the server model doesn't require a guard update.
+	 *
+	 * Channel topics never reach here: `handleSubscribe` partitions them out and
+	 * answers the whole batch through `readableChannelTopics`. Adding a
+	 * `channel:` case back would be a second answer to a question that already
+	 * has one.
 	 */
-	private async canSubscribe(userId: string, topicId: string): Promise<boolean> {
+	private async canSubscribeToNonChannelTopic(userId: string, topicId: string): Promise<boolean> {
 		if (!this.memberAccess) return true;
 		try {
 			const serverId = await this.memberAccess.resolveServerId(topicId);
 			if (!serverId) return true;
-			if (!(await this.memberAccess.isAllowed(userId, serverId))) return false;
-			// Channel-level READ_MESSAGES check
-			if (topicId.startsWith('channel:')) {
-				return this.memberAccess.canReadChannel(userId, topicId);
-			}
-			return true;
+			return await this.memberAccess.isAllowed(userId, serverId);
 		} catch {
 			return false;
 		}
