@@ -183,16 +183,58 @@ pub struct WsPresenceUpdatePayload {
 	pub custom_status: Option<String>,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize, ZodSchema)]
+/// A string field where an explicit `null` on the wire is part of the
+/// contract rather than a synonym for "key absent".
+///
+/// `Option<String>` cannot express this: `bin/generate-zod.rs` rewrites
+/// every `.nullable()` the generator emits into `.optional()`, and Zod's
+/// `.optional()` rejects an explicit `null`. This emits `.nullish()`,
+/// which accepts the string, an explicit `null`, and a missing key alike
+/// — and, being `Option<String>` on the Rust side, still round-trips
+/// `None` back out as `null`.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct NullishString(pub Option<String>);
+
+impl zod_gen::ZodSchema for NullishString {
+	fn zod_schema() -> String {
+		format!("{}.nullish()", zod_gen::zod_string())
+	}
+}
+
+/// `d` for op 7 (`VOICE_STATE_UPDATE`), client → server.
+///
+/// The frame is a **patch**, not a snapshot: a client sends only the keys
+/// it is changing, so every field is optional. Both voice engines
+/// (`packages/ts/app-core/src/lib/voice/voice-engine.ts` and
+/// `livekit-engine.ts`) emit exactly four shapes:
+///
+/// - join —          `{ channel_id, self_mute, self_deaf }`, LiveKit adds
+///                   `has_camera` + `has_screen`
+/// - leave —         `{ channel_id: null }`, an **explicit null** with no
+///                   other key present
+/// - mute / deafen — `{ channel_id, self_mute, self_deaf }`
+/// - camera/screen — `{ channel_id, has_camera, has_screen }`
+///
+/// `channel_id` is the join-vs-leave discriminator the gateway keys off
+/// (`if (!data.channel_id)` → leave), which is why it is a
+/// [`NullishString`]: the leave frame would be rejected outright by a
+/// plain `.optional()` schema.
+#[derive(Clone, Debug, Default, Serialize, Deserialize, ZodSchema)]
 #[cfg_attr(target_arch = "wasm32", derive(Tsify))]
 #[cfg_attr(target_arch = "wasm32", tsify(into_wasm_abi, from_wasm_abi))]
 pub struct WsVoiceStateUpdatePayload {
+	#[serde(default)]
+	#[cfg_attr(target_arch = "wasm32", tsify(type = "string | null"))]
+	pub channel_id: NullishString,
 	#[serde(skip_serializing_if = "Option::is_none", default)]
-	pub channel_id: Option<String>,
-	#[serde(default)]
-	pub self_mute: bool,
-	#[serde(default)]
-	pub self_deaf: bool,
+	pub self_mute: Option<bool>,
+	#[serde(skip_serializing_if = "Option::is_none", default)]
+	pub self_deaf: Option<bool>,
+	#[serde(skip_serializing_if = "Option::is_none", default)]
+	pub has_camera: Option<bool>,
+	#[serde(skip_serializing_if = "Option::is_none", default)]
+	pub has_screen: Option<bool>,
 }
 
 // ── Server → Client payloads ──

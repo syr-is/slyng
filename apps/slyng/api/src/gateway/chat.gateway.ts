@@ -10,7 +10,8 @@ import {
 import type { AuthedRequest } from '../auth/authed-request';
 import { Inject, Optional, Logger, forwardRef } from '@nestjs/common';
 import { Server, WebSocket } from 'ws';
-import { WsOp } from '@slyng/types';
+import type { ZodType } from 'zod';
+import { WsOp, WsVoiceStateUpdatePayloadSchema, type WsVoiceStateUpdatePayload } from '@slyng/types';
 import { VoiceService } from '../voice/voice.service';
 import { AuthService } from '../auth/auth.service';
 import { UserRepository } from '../auth/user.repository';
@@ -143,15 +144,11 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
 				case WsOp.PRESENCE_UPDATE:
 					this.settle(msg.op, this.handlePresenceUpdate(client, msg.d as { status: string }));
 					break;
-				case WsOp.VOICE_STATE_UPDATE:
-					this.settle(
-						msg.op,
-						this.handleVoiceStateUpdate(
-							client,
-							msg.d as { channel_id?: string; self_mute?: boolean; self_deaf?: boolean }
-						)
-					);
+				case WsOp.VOICE_STATE_UPDATE: {
+					const d = this.parseFrame(msg.op, WsVoiceStateUpdatePayloadSchema, msg.d);
+					if (d) this.settle(msg.op, this.handleVoiceStateUpdate(client, d));
 					break;
+				}
 				case WsOp.WATCH_PROFILES:
 					this.handleWatchProfiles(client, msg.d as { profiles: { did: string; instance_url: string }[] });
 					break;
@@ -185,6 +182,32 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
 		if (result instanceof Promise) {
 			result.catch((err) => this.logger.error(`WS op=${op} handler failed: ${describeError(err)}`));
 		}
+	}
+
+	/**
+	 * Validate a frame's `d` against its op's generated schema before any
+	 * handler touches it. Returns `null` when the frame doesn't match the
+	 * wire contract — the caller drops the frame, the socket stays open, and
+	 * the client is free to send a well-formed one next.
+	 *
+	 * This composes with `settle()` rather than replacing it: validation
+	 * stops the garbage that is recognisably garbage, `settle()` still owns
+	 * whatever a handler throws on a structurally valid frame.
+	 *
+	 * The schemas come from `@slyng/types` (generated from
+	 * `packages/rust/slyng-types/src/ws.rs`), so they are the same contract
+	 * the Rust client encodes against. `T extends object` because every
+	 * client → server payload is an object — it keeps the `if (d)` at each
+	 * call site honest.
+	 */
+	private parseFrame<T extends object>(op: number, schema: ZodType<T>, d: unknown): T | null {
+		const parsed = schema.safeParse(d);
+		if (parsed.success) return parsed.data;
+		const why = parsed.error.issues
+			.map((issue) => `${issue.path.join('.') || '<root>'}: ${issue.message}`)
+			.join('; ');
+		this.logger.warn(`WS op=${op} rejected malformed payload — ${why.slice(0, 300)}`);
+		return null;
 	}
 
 	private async handleIdentify(client: WebSocket, data: { token: string }) {
@@ -408,7 +431,15 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
 	// ── Voice handlers ──
 
-	private async handleVoiceStateUpdate(client: WebSocket, data: { channel_id?: string; self_mute?: boolean; self_deaf?: boolean; has_camera?: boolean; has_screen?: boolean }) {
+	/**
+	 * Op 7. The frame is a patch, not a snapshot — see
+	 * `WsVoiceStateUpdatePayload` in `packages/rust/slyng-types/src/ws.rs`
+	 * for the four shapes the voice engines send. `channel_id` carries the
+	 * join-vs-leave decision: a channel id joins or updates, an explicit
+	 * `null` (which is what both engines send on leave) or a missing key
+	 * leaves.
+	 */
+	private async handleVoiceStateUpdate(client: WebSocket, data: WsVoiceStateUpdatePayload) {
 		const state = this.clients.get(client);
 		if (!state?.userId || !this.voiceService) return;
 
