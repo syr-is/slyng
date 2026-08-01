@@ -245,12 +245,28 @@ impl zod_gen::ZodSchema for CustomStatusEmoji {
 /// "Optional" here means **key absent**, never an explicit `null` — the
 /// repo-wide rule the generator states at
 /// `packages/rust/slyng-types/src/bin/generate-zod.rs` ("omit, don't
-/// null"). JS callers cannot violate it by accident: the WASM realtime
-/// transport strips null-valued keys before the frame goes out
-/// (`Realtime::send` in `packages/rust/slyng-client/src/wasm.rs` →
-/// `body_from_jsv` → `transport::compact_nulls`), which turns a JS
-/// `{ status: undefined }` — `serde_wasm_bindgen` renders that as
-/// `Value::Null` — back into the absent key this schema expects.
+/// null"). That holds for every presence caller on both platforms
+/// today: all four idle-watcher sends pass a concrete `PresenceStatus`
+/// (`userStatus` is initialised to `'online'` and only ever reassigned
+/// from one), and both status-picker paths pass concrete strings
+/// (`''` for clear). Nothing constructs a key with no value.
+///
+/// It is *not* enforced by the transports, and they do not even agree
+/// with each other on what a JS `undefined`-valued key becomes:
+///
+/// - web — `Realtime::send` hands `d` to `serde_wasm_bindgen`, which
+///   renders `{ status: undefined }` as `{"status":null}`.
+/// - native — `invoke('realtime_send', …)` JSON-serialises the args, and
+///   `JSON.stringify` drops undefined-valued keys, so the same literal
+///   arrives as `{}`.
+///
+/// So a future caller that writes `{ custom_status: maybeUndefined }`
+/// would be accepted on native and rejected on web. Pass `''` to clear
+/// and omit the key otherwise, and the two agree. This is deliberately
+/// not "fixed" by compacting nulls in the WS transport: `null` is
+/// load-bearing on `VOICE_STATE_UPDATE`, whose leave frame is exactly
+/// `{ channel_id: null }`. See the note on `Realtime::send` in
+/// `packages/rust/slyng-client/src/wasm.rs`.
 ///
 /// `status` keeps the full `PresenceStatus` enum, `offline` included,
 /// even though the handler only ever *acts* on
@@ -364,6 +380,28 @@ pub struct WsTypingStartBroadcastPayload {
 	pub user_id: String,
 }
 
+/// Server → client presence broadcast — the outbound half of op 6.
+///
+/// `custom_emoji` sits beside `custom_status` on the wire and always has:
+/// the gateway puts both on the public and the self payload
+/// (`broadcastPresenceUpdate` in
+/// `apps/slyng/api/src/gateway/chat.gateway.ts`) and the client reads both
+/// (`packages/ts/app-core/src/lib/stores/presence.svelte.ts`, the
+/// `PRESENCE_UPDATE_BROADCAST` and `READY` handlers). The field was
+/// missing here, which was harmless only because nothing validates
+/// against this schema yet — wiring it in as-was would have stripped the
+/// emoji from every broadcast and blanked it for every viewer.
+///
+/// Both are plain `String` rather than the length-bounded newtypes the
+/// inbound patch uses. The bound's job is to reject oversized *input*;
+/// anything reaching this struct already came through
+/// `WsPresenceUpdatePayload`, so re-asserting it outbound could only ever
+/// fail on data the server itself chose to send.
+///
+/// Keeping both custom fields optional is also what lets the struct
+/// describe the masked variants: for an offline or invisible user the
+/// gateway sends `user_id` + `status` alone, deliberately withholding the
+/// custom status and emoji from other members.
 #[derive(Clone, Debug, Serialize, Deserialize, ZodSchema)]
 #[cfg_attr(target_arch = "wasm32", derive(Tsify))]
 #[cfg_attr(target_arch = "wasm32", tsify(into_wasm_abi, from_wasm_abi))]
@@ -372,6 +410,8 @@ pub struct WsPresenceUpdateBroadcastPayload {
 	pub status: crate::presence::PresenceStatus,
 	#[serde(skip_serializing_if = "Option::is_none", default)]
 	pub custom_status: Option<String>,
+	#[serde(skip_serializing_if = "Option::is_none", default)]
+	pub custom_emoji: Option<String>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, ZodSchema)]

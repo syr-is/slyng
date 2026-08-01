@@ -1045,16 +1045,20 @@ impl Realtime {
 		self.inner.disconnect().await;
 	}
 
-	/// Send a raw frame. `d` goes through the same null-stripping the
-	/// HTTP bodies get (`body_from_jsv`) — the gateway's per-op Zod
-	/// schemas declare their optional fields `.optional()`, i.e. "key
-	/// absent", and `serde_wasm_bindgen` renders a JS `undefined`-valued
-	/// key as `Value::Null`. Without the strip, a caller writing the
-	/// natural `{ status: undefined }` patch would have the whole frame
-	/// rejected. Callers that mean "no value" may write either an absent
-	/// key or `null`; both leave here as an absent key.
+	/// Send a raw frame. `d` is forwarded verbatim — deliberately NOT
+	/// through `body_from_jsv`, which the HTTP methods above use to strip
+	/// null-valued keys.
+	///
+	/// HTTP bodies can be compacted because every REST schema treats a
+	/// null and an absent key identically. WS frames cannot: `null` is
+	/// load-bearing on at least one op. `VOICE_STATE_UPDATE`'s leave frame
+	/// is literally `{ channel_id: null }`
+	/// (`packages/ts/app-core/src/lib/voice/voice-engine.ts` and
+	/// `livekit-engine.ts`) and the gateway distinguishes that from a
+	/// missing key. Compacting here would turn "leave the call" into an
+	/// empty frame and strand the user in voice.
 	pub async fn send(&self, op: u32, d: JsValue) -> std::result::Result<(), JsValue> {
-		let v: serde_json::Value = body_from_jsv(d)?;
+		let v: serde_json::Value = from_jsv(d)?;
 		self.inner.send(op, v).await;
 		Ok(())
 	}
