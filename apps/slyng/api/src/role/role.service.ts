@@ -22,7 +22,7 @@ import {
 	constantPermissionFold,
 	resolvePermissionFold,
 	type PermissionFold
-} from './permission-fold';
+} from '../common/permission-fold';
 
 /**
  * Shape of `buildPermissionTree`. Exported because consumers (channel listing,
@@ -613,7 +613,7 @@ export class RoleService {
 	 * Owner/admin bypass is checked at entry and after full computation.
 	 * When `channelId` is omitted, only layers 1-2 apply (server-wide check).
 	 *
-	 * The cascade itself lives in `./permission-fold`; this is the
+	 * The cascade itself lives in `common/permission-fold`; this is the
 	 * single-channel entry point onto it, so there is one copy of the rules.
 	 */
 	async computePermissions(userId: string, serverId: string, channelId?: string): Promise<bigint> {
@@ -637,6 +637,11 @@ export class RoleService {
 	 * once per channel. Pass the channel's already-known `category_id` to
 	 * `forChannel` — re-reading that column per channel is another query the
 	 * caller already paid for.
+	 *
+	 * `MemberAccessService` cannot use this (it is on the
+	 * `RoleService → ChatGateway → MemberAccessService` cycle) and owns the
+	 * equivalent batch itself as `canReadChannels`. The shared piece is the
+	 * cascade in `common/permission-fold`, not this loader.
 	 */
 	async loadPermissionFold(userId: string, serverId: string): Promise<PermissionFold> {
 		const server = await this.servers.findById(serverId);

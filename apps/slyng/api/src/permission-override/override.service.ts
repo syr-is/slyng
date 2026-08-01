@@ -1,5 +1,4 @@
 import { Injectable, Logger, ForbiddenException, NotFoundException } from '@nestjs/common';
-import { RecordId } from 'surrealdb';
 import {
 	Permissions,
 	WsOp,
@@ -72,7 +71,7 @@ export class OverrideService {
 				allow: data.allow,
 				deny: data.deny,
 				updated_at: now
-			} as any);
+			});
 		} else {
 			result = await this.overrides.create({
 				server_id: serverRef,
@@ -84,7 +83,7 @@ export class OverrideService {
 				deny: data.deny,
 				created_at: now,
 				updated_at: now
-			} as any);
+			});
 		}
 
 		this.gateway?.emitToServer(serverId, {
@@ -106,24 +105,18 @@ export class OverrideService {
 	async remove(serverId: string, actorUserId: string, overrideId: string) {
 		const override = await this.overrides.findById(overrideId);
 		if (!override) throw new NotFoundException('Override not found');
-		const o = override as any;
 
-		await this.enforceHierarchy(
-			serverId,
-			actorUserId,
-			o.target_type as PermissionTargetType,
-			o.target_id as string
-		);
+		await this.enforceHierarchy(serverId, actorUserId, override.target_type, override.target_id);
 
 		await this.overrides.delete(overrideId);
 		this.gateway?.emitToServer(serverId, {
 			op: WsOp.PERMISSION_OVERRIDE_UPDATE,
 			d: {
 				server_id: serverId,
-				scope_type: o.scope_type,
-				scope_id: o.scope_id ? stringToRecordId.encode(o.scope_id as RecordId) : null,
-				target_type: o.target_type,
-				target_id: o.target_id
+				scope_type: override.scope_type,
+				scope_id: override.scope_id ? stringToRecordId.encode(override.scope_id) : null,
+				target_type: override.target_type,
+				target_id: override.target_id
 			}
 		});
 	}
@@ -140,7 +133,7 @@ export class OverrideService {
 		} else {
 			const role = await this.roleService.findRoleById(targetId);
 			if (!role) throw new NotFoundException('Role not found');
-			const ok = await this.roleService.canActorManageRole(actorUserId, serverId, role as any);
+			const ok = await this.roleService.canActorManageRole(actorUserId, serverId, role);
 			if (!ok) throw new ForbiddenException('Cannot manage a role at or above yours');
 		}
 	}

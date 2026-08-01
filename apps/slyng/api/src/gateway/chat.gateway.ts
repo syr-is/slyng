@@ -242,12 +242,40 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
 	private async handleSubscribe(client: WebSocket, data: { channel_ids: string[] }) {
 		const state = this.clients.get(client);
 		if (!state?.userId) return;
+		const userId = state.userId;
+
+		// Clients send their whole topic list — the server plus every one of its
+		// channels — in a single frame, and re-send it on every reconnect. The
+		// channel topics are therefore authorised as a batch: one permission
+		// fold per server instead of one full cascade per channel.
+		const readable = await this.readableChannelTopics(
+			userId,
+			data.channel_ids.filter((id) => id.startsWith('channel:'))
+		);
+
 		for (const id of data.channel_ids) {
 			// Only subscribe to topics the user is actually allowed to read.
 			// The check short-circuits unrelated topics (e.g. DM channels if we
 			// add them later) by returning true when no server context applies.
-			const allowed = await this.canSubscribe(state.userId, id);
+			const allowed = id.startsWith('channel:')
+				? readable.has(id)
+				: await this.canSubscribe(userId, id);
 			if (allowed) state.subscribedChannels.add(id);
+		}
+	}
+
+	/**
+	 * Batched authorisation for the `channel:` topics of a SUBSCRIBE frame.
+	 * Same answer per topic as `canSubscribe`, and the same failure mode: any
+	 * error denies rather than leaking a subscription.
+	 */
+	private async readableChannelTopics(userId: string, topicIds: string[]): Promise<Set<string>> {
+		if (!this.memberAccess) return new Set(topicIds);
+		if (!topicIds.length) return new Set();
+		try {
+			return await this.memberAccess.canReadChannels(userId, topicIds);
+		} catch {
+			return new Set();
 		}
 	}
 
@@ -265,6 +293,10 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
 	 * Either way, the subscribing user must be a member of the resolved
 	 * server and not banned. Returns true on topics outside the server model
 	 * (no server resolved) so new topic types don't require guard updates.
+	 *
+	 * `handleSubscribe` routes `channel:` topics through `readableChannelTopics`
+	 * instead, because a frame carries the whole channel list at once. This
+	 * remains the correct answer for a single topic of any kind.
 	 */
 	private async canSubscribe(userId: string, topicId: string): Promise<boolean> {
 		if (!this.memberAccess) return true;

@@ -8,8 +8,16 @@ import {
 	ServerBanRepository,
 	ServerRoleRepository
 } from '../server/server.repository';
-import { ChannelRepository, ChannelCategoryRepository } from '../channel/channel.repository';
-import { resolvePermissionFold } from '../role/permission-fold';
+import {
+	ChannelRepository,
+	ChannelCategoryRepository,
+	type ChannelRow
+} from '../channel/channel.repository';
+import {
+	constantPermissionFold,
+	resolvePermissionFold,
+	type PermissionFold
+} from '../common/permission-fold';
 import type { AuthedRequest } from './authed-request';
 
 /**
@@ -114,39 +122,105 @@ export class MemberAccessService {
 		return this.isMember(userId, serverId);
 	}
 
-	/** Check if a user can read a specific channel (server membership + READ_MESSAGES override cascade). */
-	async canReadChannel(userId: string, channelId: string): Promise<boolean> {
-		const channel = await this.channels.findById(channelId);
-		if (!channel) return false;
-		const sid = channel.server_id as RecordId | string | undefined;
-		if (!sid) return true; // DM channels — no server scope
-		const serverId = stringToRecordId.encode(sid as RecordId);
+	/**
+	 * Load the permission cascade for one member of one server.
+	 *
+	 * Runs the same cascade `RoleService.computePermissions` runs, through the
+	 * shared fold in `common/permission-fold`. The fold is imported rather than
+	 * `RoleService` itself because this service sits on a dependency cycle —
+	 * `RoleService → ChatGateway → MemberAccessService` — so injecting
+	 * `RoleService` here would close it. The fold is a leaf module (no NestJS,
+	 * no DI, no repositories), so only these four reads are duplicated, never
+	 * the rules.
+	 *
+	 * Returns null when the user may not read the server at all: banned, or not
+	 * a member. The owner gets a constant ADMINISTRATOR fold.
+	 */
+	private async foldForServer(userId: string, serverId: string): Promise<PermissionFold | null> {
+		if (await this.isBanned(userId, serverId)) return null;
 
-		if (!(await this.isAllowed(userId, serverId))) return false;
-
-		// Check if server owner — always allowed
-		const server = await this.servers.findById(serverId);
-		if (server && server.owner_id === userId) return true;
-
-		// Runs the same cascade `RoleService.computePermissions` runs, through
-		// the shared fold in `role/permission-fold`. It is imported rather than
-		// `RoleService` itself because `RoleService` depends on `ChatGateway`
-		// and `ChatGateway` depends on this service — the fold is a leaf module
-		// (no NestJS, no DI, no repositories), so there is no cycle to close.
 		const ref = stringToRecordId.decode(serverId);
+		// Doubles as `isMember` — the fold needs this row anyway, so it is read
+		// once instead of once for the membership gate and once for the roles.
 		const member = await this.members.findOne({ server_id: ref, user_id: userId });
-		if (!member) return false;
+		if (!member) return null;
+
+		const server = await this.servers.findById(serverId);
+		if (server && server.owner_id === userId) {
+			return constantPermissionFold(Permissions.ADMINISTRATOR);
+		}
 
 		const roleIds = member.role_ids ?? [];
-		const fold = await resolvePermissionFold({
+		return resolvePermissionFold({
 			userId,
 			roles: await this.roles.findMany({ server_id: ref }),
 			assignedRoleIds: new Set(roleIds.map((rid) => stringToRecordId.encode(rid))),
 			loadOverrides: () => this.permOverrides.findMany({ server_id: ref })
 		});
+	}
+
+	/** Check if a user can read a specific channel (server membership + READ_MESSAGES override cascade). */
+	async canReadChannel(userId: string, channelId: string): Promise<boolean> {
+		const channel = await this.channels.findById(channelId);
+		if (!channel) return false;
+		if (!channel.server_id) return true; // DM channels — no server scope
+
+		const fold = await this.foldForServer(userId, stringToRecordId.encode(channel.server_id));
+		if (!fold) return false;
 
 		// The row is already in hand, so its category comes for free.
 		const catId = channel.category_id ? stringToRecordId.encode(channel.category_id) : null;
 		return hasPermission(fold.forChannel(channelId, catId), Permissions.READ_MESSAGES);
+	}
+
+	/**
+	 * Batched `canReadChannel` — the subset of `channelIds` the user may read.
+	 *
+	 * `ChatGateway.handleSubscribe` receives a client's entire topic list in a
+	 * single frame (the server plus every channel, re-sent on every reconnect),
+	 * so answering one channel at a time re-ran the ban, membership, owner,
+	 * role and override reads once per channel — about ten sequential queries
+	 * each. This reads every channel row in one query, groups them by server,
+	 * and folds each server's permissions once.
+	 *
+	 * Answers are identical to calling `canReadChannel` per id, including for a
+	 * channel with no row (excluded) and a DM channel with no server scope
+	 * (included). Ids come back in the exact string the caller passed, which is
+	 * also the channel-scope key the cascade matches overrides on.
+	 */
+	async canReadChannels(userId: string, channelIds: string[]): Promise<Set<string>> {
+		const allowed = new Set<string>();
+		if (!channelIds.length) return allowed;
+
+		const rows = await this.channels.findByIds([...new Set(channelIds)]);
+		const rowById = new Map(rows.map((r) => [stringToRecordId.encode(r.id), r]));
+
+		const byServer = new Map<string, Array<{ id: string; row: ChannelRow }>>();
+		for (const id of channelIds) {
+			// Normalise before the lookup so a caller's id form can never miss a
+			// row it did fetch and turn into a silent denial.
+			const row = rowById.get(stringToRecordId.encode(stringToRecordId.decode(id)));
+			if (!row) continue; // no such channel — `canReadChannel` denies these
+			if (!row.server_id) {
+				allowed.add(id); // DM channels — no server scope
+				continue;
+			}
+			const serverId = stringToRecordId.encode(row.server_id);
+			const list = byServer.get(serverId);
+			if (list) list.push({ id, row });
+			else byServer.set(serverId, [{ id, row }]);
+		}
+
+		for (const [serverId, channels] of byServer) {
+			const fold = await this.foldForServer(userId, serverId);
+			if (!fold) continue;
+			for (const { id, row } of channels) {
+				const catId = row.category_id ? stringToRecordId.encode(row.category_id) : null;
+				if (hasPermission(fold.forChannel(id, catId), Permissions.READ_MESSAGES)) {
+					allowed.add(id);
+				}
+			}
+		}
+		return allowed;
 	}
 }

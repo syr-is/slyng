@@ -19,11 +19,19 @@ import { Permissions, hasPermission, stringToRecordId } from '@slyng/types';
  * one read of the server's roles + overrides instead of N.
  *
  * Deliberately free of NestJS, DI and repository imports. `RoleService` (role
- * module) and `MemberAccessService` (auth module) both evaluate this cascade,
- * and the auth module cannot import `RoleService`: `ChatGateway` depends on
- * `MemberAccessService` and `RoleService` depends on `ChatGateway`, so that
- * import would close a cycle. Keeping the cascade in a leaf module gives both
- * services one copy of the rules without adding an edge to the module graph.
+ * module), `MemberAccessService` (auth module) and `ChannelService` all
+ * evaluate this cascade, and one of them cannot reach `RoleService` directly:
+ *
+ *   RoleService → ChatGateway → MemberAccessService → RoleService
+ *
+ * `MemberAccessService` specifically is inside that loop, which is why it used
+ * to carry a hand-rolled copy of the cascade. Note this is narrower than "the
+ * auth module cannot import RoleService" — `auth/permission.guard.ts` imports
+ * it perfectly happily, because the guard is not on the cycle. Only
+ * `MemberAccessService` is. Keeping the cascade in a leaf module gives every
+ * caller one copy of the rules without adding an edge to the module graph; if
+ * you are tempted to collapse this back into `RoleService`, that cycle is what
+ * you will reintroduce.
  */
 
 /** The `server_role` columns the cascade reads. */
@@ -39,14 +47,16 @@ export interface PermissionFoldRole {
 }
 
 /**
- * The `permission_override` columns the cascade reads. `scope_id` is a
- * `RecordId` on the row but the wire schema types it as a string, so both are
- * accepted and encoded the same way the single-channel path always did.
+ * The `permission_override` columns the cascade reads. `scope_id` is the row's
+ * `RecordId` link, never the serialised string the wire schema carries —
+ * `stringToRecordId.encode` validates `z.instanceof(RecordId)` and throws on a
+ * string, so this authorisation path must not advertise a branch it cannot
+ * evaluate.
  */
 export interface PermissionFoldOverride {
 	scope_type: string;
 	/** Absent/null for server-scoped overrides. */
-	scope_id?: RecordId | string | null;
+	scope_id?: RecordId | null;
 	target_type: string;
 	target_id: string;
 	allow?: string;
@@ -138,7 +148,7 @@ export async function resolvePermissionFold(input: PermissionFoldInput): Promise
 	let serverUserOverride: PermissionFoldOverride | undefined;
 
 	const scopeKeyOf = (o: PermissionFoldOverride): string | null =>
-		o.scope_id ? stringToRecordId.encode(o.scope_id as RecordId) : null;
+		o.scope_id ? stringToRecordId.encode(o.scope_id) : null;
 
 	const bucketRole = (
 		bucket: Map<string, PermissionFoldOverride[]>,

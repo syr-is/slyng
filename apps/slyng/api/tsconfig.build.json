@@ -1,4 +1,19 @@
 {
 	"extends": "./tsconfig.json",
-	"exclude": ["node_modules", "dist", "test", "**/*.test.ts", "**/*.spec.ts"]
+	// `vitest.config.ts` must stay excluded, and not only to keep it out of the
+	// artifact: the build's root directory is the common ancestor of whatever it
+	// compiles, so one file at the package root silently relocates the whole
+	// output to `dist/src/…` and breaks `start:prod` (`node dist/main`) and both
+	// dockerfiles. Do not "fix" that by pinning `compilerOptions.rootDir` —
+	// that moves `tsconfig.build.tsbuildinfo` out of `dist`, where nest's
+	// `deleteOutDir` can no longer invalidate it, and every rebuild after the
+	// first wipes `dist` and then emits nothing.
+	"exclude": [
+		"node_modules",
+		"dist",
+		"test",
+		"vitest.config.ts",
+		"**/*.test.ts",
+		"**/*.spec.ts"
+	]
 }
