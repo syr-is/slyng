@@ -1271,7 +1271,7 @@ export const WsUnwatchProfilesPayloadSchema = z.object({
 export type WsUnwatchProfilesPayload = z.infer<typeof WsUnwatchProfilesPayloadSchema>;
 
 export const WsVoiceStateUpdatePayloadSchema = z.object({
-  channel_id: z.string().nullish(),
+  channel_id: z.union([z.string(), z.null()]),
   self_mute: z.boolean().optional(),
   self_deaf: z.boolean().optional(),
   has_camera: z.boolean().optional(),

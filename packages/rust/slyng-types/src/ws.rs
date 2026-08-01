@@ -183,31 +183,44 @@ pub struct WsPresenceUpdatePayload {
 	pub custom_status: Option<String>,
 }
 
-/// A string field where an explicit `null` on the wire is part of the
-/// contract rather than a synonym for "key absent".
+/// A **required** key whose value is either a string or an explicit
+/// `null` — a tri-state field (`"x"` / `null`) rather than a two-state
+/// one (`"x"` / absent).
 ///
-/// `Option<String>` cannot express this: `bin/generate-zod.rs` rewrites
-/// every `.nullable()` the generator emits into `.optional()`, and Zod's
-/// `.optional()` rejects an explicit `null`. This emits `.nullish()`,
-/// which accepts the string, an explicit `null`, and a missing key alike
-/// — and, being `Option<String>` on the Rust side, still round-trips
-/// `None` back out as `null`.
+/// `Option<String>` cannot express this. It emits `.nullable()`, which
+/// `bin/generate-zod.rs` then rewrites wholesale into `.optional()`, and
+/// that is wrong twice over: `.optional()` rejects an explicit `null`
+/// *and* it makes the key omissible. For a field whose null carries
+/// meaning — a discriminator, say — omitting it must be an error, not a
+/// silent synonym for null.
+///
+/// The emission is spelled `z.union([z.string(), z.null()])` rather than
+/// `z.string().nullable()` deliberately: it is the same schema, but it
+/// survives the generator's global `.nullable()` → `.optional()` pass
+/// untouched, so an explicitly-nullable field cannot be flattened back
+/// into an optional one by a rewrite it never opted into. The union is
+/// also left alone by `unit_union_to_enum` (its members aren't string
+/// literals).
+///
+/// On the Rust side it is still `Option<String>`, so `None` round-trips
+/// back out as `null` rather than vanishing from the object.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(transparent)]
-pub struct NullishString(pub Option<String>);
+pub struct NullableString(pub Option<String>);
 
-impl zod_gen::ZodSchema for NullishString {
+impl zod_gen::ZodSchema for NullableString {
 	fn zod_schema() -> String {
-		format!("{}.nullish()", zod_gen::zod_string())
+		format!("z.union([{}, z.null()])", zod_gen::zod_string())
 	}
 }
 
 /// `d` for op 7 (`VOICE_STATE_UPDATE`), client → server.
 ///
-/// The frame is a **patch**, not a snapshot: a client sends only the keys
-/// it is changing, so every field is optional. Both voice engines
+/// The audio/video flags are a **patch**, not a snapshot: a client sends
+/// only the ones it is changing. `channel_id` is not — it is the
+/// discriminator, and every frame carries it. Both voice engines
 /// (`packages/ts/app-core/src/lib/voice/voice-engine.ts` and
-/// `livekit-engine.ts`) emit exactly four shapes:
+/// `livekit-engine.ts`) emit exactly four shapes, all four with the key:
 ///
 /// - join —          `{ channel_id, self_mute, self_deaf }`, LiveKit adds
 ///                   `has_camera` + `has_screen`
@@ -216,17 +229,24 @@ impl zod_gen::ZodSchema for NullishString {
 /// - mute / deafen — `{ channel_id, self_mute, self_deaf }`
 /// - camera/screen — `{ channel_id, has_camera, has_screen }`
 ///
-/// `channel_id` is the join-vs-leave discriminator the gateway keys off
-/// (`if (!data.channel_id)` → leave), which is why it is a
-/// [`NullishString`]: the leave frame would be rejected outright by a
-/// plain `.optional()` schema.
+/// The gateway branches on `if (!data.channel_id)` → leave, so the key's
+/// presence decides whether a user stays in the call. That makes it a
+/// [`NullableString`] and not an `Option<String>`: a plain `.optional()`
+/// schema would reject the leave frame's explicit `null` outright, while
+/// a `.nullish()` one would accept a frame that simply forgot the key and
+/// quietly drop that user out of voice. Required key, nullable value —
+/// omitting it is a malformed frame and gets logged and dropped.
+///
+/// `self_mute` / `self_deaf` / `has_camera` / `has_screen` stay optional;
+/// those genuinely are patch fields, and the handler's
+/// `data.has_camera !== undefined` checks depend on absent staying
+/// distinguishable from `false`.
 #[derive(Clone, Debug, Default, Serialize, Deserialize, ZodSchema)]
 #[cfg_attr(target_arch = "wasm32", derive(Tsify))]
 #[cfg_attr(target_arch = "wasm32", tsify(into_wasm_abi, from_wasm_abi))]
 pub struct WsVoiceStateUpdatePayload {
-	#[serde(default)]
 	#[cfg_attr(target_arch = "wasm32", tsify(type = "string | null"))]
-	pub channel_id: NullishString,
+	pub channel_id: NullableString,
 	#[serde(skip_serializing_if = "Option::is_none", default)]
 	pub self_mute: Option<bool>,
 	#[serde(skip_serializing_if = "Option::is_none", default)]

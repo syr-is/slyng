@@ -432,12 +432,16 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
 	// ── Voice handlers ──
 
 	/**
-	 * Op 7. The frame is a patch, not a snapshot — see
+	 * Op 7. The audio/video flags are a patch, not a snapshot — see
 	 * `WsVoiceStateUpdatePayload` in `packages/rust/slyng-types/src/ws.rs`
 	 * for the four shapes the voice engines send. `channel_id` carries the
 	 * join-vs-leave decision: a channel id joins or updates, an explicit
-	 * `null` (which is what both engines send on leave) or a missing key
-	 * leaves.
+	 * `null` (which is what both engines send on leave) leaves.
+	 *
+	 * The key itself is never absent by the time we get here — the schema
+	 * requires it, so a frame that forgot it is rejected upstream rather
+	 * than falling through to the leave branch and yanking someone out of
+	 * a call they never asked to leave.
 	 */
 	private async handleVoiceStateUpdate(client: WebSocket, data: WsVoiceStateUpdatePayload) {
 		const state = this.clients.get(client);
