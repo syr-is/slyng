@@ -1149,8 +1149,9 @@ export const WsPresenceUpdateBroadcastPayloadSchema = z.object({
 export type WsPresenceUpdateBroadcastPayload = z.infer<typeof WsPresenceUpdateBroadcastPayloadSchema>;
 
 export const WsPresenceUpdatePayloadSchema = z.object({
-  status: z.enum(['online', 'idle', 'dnd', 'invisible', 'offline']),
-  custom_status: z.string().optional()
+  status: z.enum(['online', 'idle', 'dnd', 'invisible', 'offline']).optional(),
+  custom_status: z.string().optional(),
+  custom_emoji: z.string().optional()
 });
 export type WsPresenceUpdatePayload = z.infer<typeof WsPresenceUpdatePayloadSchema>;
 

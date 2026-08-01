@@ -174,13 +174,44 @@ pub struct WsTypingStartPayload {
 	pub channel_id: String,
 }
 
+/// Client → server presence patch (op 6).
+///
+/// Every field is optional because the sender is a *patch*, not a full
+/// state: `updateMyPresence(data: Partial<PresenceData>)`
+/// (`packages/ts/app-core/src/lib/stores/presence.svelte.ts:48`) forwards
+/// whatever subset the caller passed.
+///
+/// - `status` alone — the idle watcher
+///   (`packages/ts/app-core/src/lib/stores/idle.svelte.ts:45,60,68,77`).
+/// - `custom_status` + `custom_emoji` with **no** `status` — the status
+///   picker's save and clear paths
+///   (`packages/ts/ui/src/lib/components/fragments/status-picker.svelte:31,41`).
+///
+/// Absent vs. empty string are *different* instructions to the handler:
+/// absent means "leave this alone", `""` means "clear it"
+/// (`apps/slyng/api/src/gateway/chat.gateway.ts:388`). So no field may
+/// ever gain a default — a default would erase that distinction.
+///
+/// `status` keeps the full `PresenceStatus` enum, `offline` included,
+/// even though the handler only ever *acts* on
+/// `online | idle | dnd | invisible`. `offline` is genuinely reachable
+/// on the wire: `app-layout.svelte:84` feeds
+/// `getPresenceData(did).status` into `syncStatus`, which yields
+/// `offline` for a user not yet in the presence map (pre-READY, or after
+/// their own entry was dropped), and the idle watcher then re-sends that
+/// baseline on resume. The handler already treats it as "keep current
+/// status"; narrowing the enum here would turn a benign no-op frame into
+/// a rejected one.
 #[derive(Clone, Debug, Serialize, Deserialize, ZodSchema)]
 #[cfg_attr(target_arch = "wasm32", derive(Tsify))]
 #[cfg_attr(target_arch = "wasm32", tsify(into_wasm_abi, from_wasm_abi))]
 pub struct WsPresenceUpdatePayload {
-	pub status: crate::presence::PresenceStatus,
+	#[serde(skip_serializing_if = "Option::is_none", default)]
+	pub status: Option<crate::presence::PresenceStatus>,
 	#[serde(skip_serializing_if = "Option::is_none", default)]
 	pub custom_status: Option<String>,
+	#[serde(skip_serializing_if = "Option::is_none", default)]
+	pub custom_emoji: Option<String>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, ZodSchema)]

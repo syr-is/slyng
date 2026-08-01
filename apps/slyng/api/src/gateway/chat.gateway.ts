@@ -10,7 +10,8 @@ import {
 import type { AuthedRequest } from '../auth/authed-request';
 import { Inject, Optional, Logger, forwardRef } from '@nestjs/common';
 import { Server, WebSocket } from 'ws';
-import { WsOp } from '@slyng/types';
+import { z } from 'zod';
+import { WsOp, WsPresenceUpdatePayloadSchema, type WsPresenceUpdatePayload } from '@slyng/types';
 import { VoiceService } from '../voice/voice.service';
 import { AuthService } from '../auth/auth.service';
 import { UserRepository } from '../auth/user.repository';
@@ -140,9 +141,11 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
 				case WsOp.TYPING_START:
 					this.handleTypingStart(client, msg.d as { channel_id: string });
 					break;
-				case WsOp.PRESENCE_UPDATE:
-					this.settle(msg.op, this.handlePresenceUpdate(client, msg.d as { status: string }));
+				case WsOp.PRESENCE_UPDATE: {
+					const d = this.parseFrame(msg.op, WsPresenceUpdatePayloadSchema, msg.d);
+					if (d) this.settle(msg.op, this.handlePresenceUpdate(client, d));
 					break;
+				}
 				case WsOp.VOICE_STATE_UPDATE:
 					this.settle(
 						msg.op,
@@ -185,6 +188,35 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
 		if (result instanceof Promise) {
 			result.catch((err) => this.logger.error(`WS op=${op} handler failed: ${describeError(err)}`));
 		}
+	}
+
+	/**
+	 * Validates a frame's payload against the schema for its op before any
+	 * handler sees it.
+	 *
+	 * `settle()` above keeps a bad frame from taking the process down; this keeps
+	 * it from reaching a handler that was written assuming a shape it never
+	 * checked. Returns the parsed payload, or `null` when the frame doesn't
+	 * match — the caller then skips the handler. The socket is left open on
+	 * purpose: one malformed frame is not grounds to drop a session, and a client
+	 * mid-reconnect would only retry into the same close.
+	 *
+	 * Schemas are generated from `packages/rust/slyng-types/src/ws.rs`, so the
+	 * accepted shape is whatever that file says — keep the struct honest about
+	 * what clients actually send rather than loosening the check here.
+	 *
+	 * Only issue paths and codes are logged, never `d` itself: these payloads
+	 * carry user-authored text (custom status) and, on IDENTIFY, a session token.
+	 */
+	private parseFrame<T>(op: number, schema: z.ZodType<T>, d: unknown): T | null {
+		const parsed = schema.safeParse(d);
+		if (parsed.success) return parsed.data;
+		const detail = parsed.error.issues
+			.slice(0, 4)
+			.map((issue) => `${issue.path.join('.') || '<root>'}: ${issue.code}`)
+			.join('; ');
+		this.logger.warn(`WS op=${op} payload rejected — ${detail}`);
+		return null;
 	}
 
 	private async handleIdentify(client: WebSocket, data: { token: string }) {
@@ -368,10 +400,7 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
 		}, state.userId); // exclude sender
 	}
 
-	private async handlePresenceUpdate(
-		client: WebSocket,
-		data: { status?: string; custom_status?: string; custom_emoji?: string }
-	) {
+	private async handlePresenceUpdate(client: WebSocket, data: WsPresenceUpdatePayload) {
 		const state = this.clients.get(client);
 		if (!state?.userId) {
 			this.logger.warn(`handlePresenceUpdate bail: not authenticated`);
