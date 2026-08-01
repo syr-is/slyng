@@ -10,14 +10,22 @@ import {
 import type { AuthedRequest } from '../auth/authed-request';
 import { Inject, Optional, Logger, forwardRef } from '@nestjs/common';
 import { Server, WebSocket } from 'ws';
-import type { ZodType } from 'zod';
 import {
 	WsOp,
+	WsIdentifyPayloadSchema,
 	WsPresenceUpdatePayloadSchema,
+	WsSubscribePayloadSchema,
+	WsTypingStartPayloadSchema,
+	WsUnwatchProfilesPayloadSchema,
 	WsVoiceStateUpdatePayloadSchema,
+	WsWatchProfilesPayloadSchema,
+	type WsIdentifyPayload,
 	type WsPresenceUpdatePayload,
-	type WsVoiceStateUpdatePayload
+	type WsTypingStartPayload,
+	type WsVoiceStateUpdatePayload,
+	type WsWatchProfileEntry
 } from '@slyng/types';
+import { parseFrame, parseListField, type ListField } from './ws-payloads';
 import { VoiceService } from '../voice/voice.service';
 import { AuthService } from '../auth/auth.service';
 import { UserRepository } from '../auth/user.repository';
@@ -25,6 +33,14 @@ import { MemberAccessService } from '../auth/member-access.service';
 import { ProfileWatcherService } from '../profile-watcher/profile-watcher.service';
 import { serializeForWire } from '../common/serialize';
 import { describeError } from '../common/describe-error';
+
+// Element contracts, read off the generated payload schemas rather than
+// restated next to them. A second hand-written definition of a wire shape is
+// exactly what drifted the first time — `WsUnwatchProfilesPayload.dids` spent
+// its life declared required while the handler read it as optional.
+const CHANNEL_TOPIC_ID = WsSubscribePayloadSchema.shape.channel_ids.element;
+const WATCHED_DID = WsUnwatchProfilesPayloadSchema.shape.dids.unwrap().element;
+const WATCH_PROFILE_ENTRY = WsWatchProfilesPayloadSchema.shape.profiles.element;
 
 interface ClientState {
 	userId: string | null;
@@ -132,37 +148,100 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
 		this.logger.log(`WS recv op=${msg.op} userId=${state?.userId?.slice(0, 24) ?? 'NONE'}`);
 		try {
 			switch (msg.op) {
-				case WsOp.IDENTIFY:
-					this.settle(msg.op, this.handleIdentify(client, msg.d as { token: string }));
+				case WsOp.IDENTIFY: {
+					const frame = parseFrame(WsIdentifyPayloadSchema, msg.d);
+					if (!frame.ok) {
+						this.rejectFrame(client, msg.op, frame.reason);
+						break;
+					}
+					this.settle(msg.op, this.handleIdentify(client, frame.value));
 					break;
+				}
 				case WsOp.HEARTBEAT:
+					// No payload to check. The client sends `{"op":2,"d":null}` and
+					// the handler reads nothing off `d`, so there is no contract
+					// here to state or to violate.
 					this.handleHeartbeat(client);
 					break;
-				case WsOp.SUBSCRIBE:
-					this.settle(msg.op, this.handleSubscribe(client, msg.d as { channel_ids: string[] }));
+				case WsOp.SUBSCRIBE: {
+					const frame = parseListField(msg.d, 'channel_ids', CHANNEL_TOPIC_ID, {
+						optional: false
+					});
+					if (!frame.ok) {
+						this.rejectFrame(client, msg.op, frame.reason);
+						break;
+					}
+					this.noteSalvage(client, msg.op, 'channel_ids', frame.value);
+					this.settle(msg.op, this.handleSubscribe(client, frame.value.items));
 					break;
-				case WsOp.UNSUBSCRIBE:
-					this.handleUnsubscribe(client, msg.d as { channel_ids: string[] });
+				}
+				case WsOp.UNSUBSCRIBE: {
+					// Same payload shape as SUBSCRIBE, deliberately sharing its
+					// schema: there is no `WsUnsubscribePayload`, and if the two
+					// frames ever diverge on the wire this is the seam to split.
+					const frame = parseListField(msg.d, 'channel_ids', CHANNEL_TOPIC_ID, {
+						optional: false
+					});
+					if (!frame.ok) {
+						this.rejectFrame(client, msg.op, frame.reason);
+						break;
+					}
+					this.noteSalvage(client, msg.op, 'channel_ids', frame.value);
+					this.handleUnsubscribe(client, frame.value.items);
 					break;
-				case WsOp.TYPING_START:
-					this.handleTypingStart(client, msg.d as { channel_id: string });
+				}
+				case WsOp.TYPING_START: {
+					const frame = parseFrame(WsTypingStartPayloadSchema, msg.d);
+					if (!frame.ok) {
+						this.rejectFrame(client, msg.op, frame.reason);
+						break;
+					}
+					this.handleTypingStart(client, frame.value);
 					break;
+				}
 				case WsOp.PRESENCE_UPDATE: {
-					const d = this.parseFrame(msg.op, WsPresenceUpdatePayloadSchema, msg.d);
-					if (d) this.settle(msg.op, this.handlePresenceUpdate(client, d));
+					const frame = parseFrame(WsPresenceUpdatePayloadSchema, msg.d);
+					if (!frame.ok) {
+						this.rejectFrame(client, msg.op, frame.reason);
+						break;
+					}
+					this.settle(msg.op, this.handlePresenceUpdate(client, frame.value));
 					break;
 				}
 				case WsOp.VOICE_STATE_UPDATE: {
-					const d = this.parseFrame(msg.op, WsVoiceStateUpdatePayloadSchema, msg.d);
-					if (d) this.settle(msg.op, this.handleVoiceStateUpdate(client, d));
+					const frame = parseFrame(WsVoiceStateUpdatePayloadSchema, msg.d);
+					if (!frame.ok) {
+						this.rejectFrame(client, msg.op, frame.reason);
+						break;
+					}
+					this.settle(msg.op, this.handleVoiceStateUpdate(client, frame.value));
 					break;
 				}
-				case WsOp.WATCH_PROFILES:
-					this.handleWatchProfiles(client, msg.d as { profiles: { did: string; instance_url: string }[] });
+				case WsOp.WATCH_PROFILES: {
+					const frame = parseListField(msg.d, 'profiles', WATCH_PROFILE_ENTRY, {
+						optional: false
+					});
+					if (!frame.ok) {
+						this.rejectFrame(client, msg.op, frame.reason);
+						break;
+					}
+					this.noteSalvage(client, msg.op, 'profiles', frame.value);
+					this.handleWatchProfiles(client, frame.value.items);
 					break;
-				case WsOp.UNWATCH_PROFILES:
-					this.handleUnwatchProfiles(client, msg.d as { dids?: string[] });
+				}
+				case WsOp.UNWATCH_PROFILES: {
+					const frame = parseListField(msg.d, 'dids', WATCHED_DID, { optional: true });
+					if (!frame.ok) {
+						this.rejectFrame(client, msg.op, frame.reason);
+						break;
+					}
+					this.noteSalvage(client, msg.op, 'dids', frame.value);
+					// Absent is not the same as empty: no `dids` means drop every
+					// watch this socket holds, `[]` means drop none. Collapsing the
+					// two would silently leak watches on the disconnect path.
+					this.handleUnwatchProfiles(client, frame.value.absent ? undefined : frame.value.items);
 					break;
+				}
 				// Ops 100-102 (WebRTC signaling) removed — LiveKit handles media routing
 			}
 		} catch (err) {
@@ -193,45 +272,51 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
 	}
 
 	/**
-	 * Validate a frame's `d` against its op's generated schema before any
-	 * handler touches it. Returns the parsed payload, or `null` when the frame
-	 * doesn't match the wire contract — the caller then skips the handler.
+	 * A frame that missed its op's contract: recorded, then dropped.
 	 *
-	 * The socket is left open on purpose: one malformed frame is not grounds to
-	 * drop a session, and a client mid-reconnect would only retry into the same
-	 * close.
+	 * The socket stays open on purpose. The realistic sender is a client one
+	 * version behind or one bad entry deep, not an attacker, and closing on it
+	 * would cost that client every subscription it holds — a worse outcome than
+	 * the frame it got wrong. The op and the sender are enough to find it; the
+	 * payload never goes in the line, because IDENTIFY's is a session token
+	 * and PRESENCE_UPDATE's is user-authored text.
 	 *
-	 * This composes with `settle()` rather than replacing it: validation stops
-	 * the garbage that is recognisably garbage before a handler written against
-	 * a shape it never checked ever sees it, and `settle()` still owns whatever
-	 * a handler throws on a structurally valid frame.
+	 * Validation composes with `settle()` rather than replacing it: the checks
+	 * in `ws-payloads.ts` stop what is recognisably garbage before a handler
+	 * written against a shape it never verified ever sees it, and `settle()`
+	 * still owns whatever a handler throws on a structurally valid frame.
 	 *
-	 * Schemas come from `@slyng/types`, generated from
-	 * `packages/rust/slyng-types/src/ws.rs`, so the accepted shape is whatever
-	 * that file says and it is the same contract the Rust client encodes
-	 * against — keep the struct honest about what clients actually send rather
-	 * than loosening the check here.
-	 *
-	 * `T extends object` because every client → server payload is an object; it
-	 * keeps the `if (d)` at each call site honest.
-	 *
-	 * Only issue paths and codes are logged, never `d` itself: these payloads
-	 * carry user-authored text (custom status) and, on IDENTIFY, a session
-	 * token. Bounded twice — first four issues, 300 chars — so a frame with a
-	 * pathological number of violations can't flood the log.
+	 * Every schema behind those checks comes from `@slyng/types`, generated
+	 * from `packages/rust/slyng-types/src/ws.rs`, so the accepted shape is
+	 * whatever that file says and it is the same contract the Rust client
+	 * encodes against — keep the struct honest about what clients actually
+	 * send rather than loosening the check here.
 	 */
-	private parseFrame<T extends object>(op: number, schema: ZodType<T>, d: unknown): T | null {
-		const parsed = schema.safeParse(d);
-		if (parsed.success) return parsed.data;
-		const detail = parsed.error.issues
-			.slice(0, 4)
-			.map((issue) => `${issue.path.join('.') || '<root>'}: ${issue.code}`)
-			.join('; ');
-		this.logger.warn(`WS op=${op} payload rejected — ${detail.slice(0, 300)}`);
-		return null;
+	private rejectFrame(client: WebSocket, op: number, reason: string) {
+		const state = this.clients.get(client);
+		this.logger.warn(
+			`WS op=${op} rejected from ${state?.userId?.slice(0, 24) ?? 'unidentified'}: ${reason}`
+		);
 	}
 
-	private async handleIdentify(client: WebSocket, data: { token: string }) {
+	/**
+	 * A list-bearing frame that lost entries to the element contract.
+	 *
+	 * Salvaging is the right call for frames that batch independent requests,
+	 * but doing it silently would turn a client-side regression into a partial
+	 * subscribe with no trace of it server-side, so any shortfall leaves a line
+	 * saying how much of the frame survived.
+	 */
+	private noteSalvage(client: WebSocket, op: number, field: string, list: ListField<unknown>) {
+		if (list.items.length === list.offered) return;
+		const state = this.clients.get(client);
+		this.logger.warn(
+			`WS op=${op} off-contract ${field} from ${state?.userId?.slice(0, 24) ?? 'unidentified'}: ` +
+				`kept ${list.items.length} of ${list.offered}`
+		);
+	}
+
+	private async handleIdentify(client: WebSocket, data: WsIdentifyPayload) {
 		const state = this.clients.get(client);
 		if (!state || !this.authService) {
 			this.logger.warn(`handleIdentify bail: state=${!!state} authService=${!!this.authService}`);
@@ -316,10 +401,11 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
 		this.send(client, { op: WsOp.HEARTBEAT_ACK, d: null });
 	}
 
-	private async handleSubscribe(client: WebSocket, data: { channel_ids: string[] }) {
+	/** `channelIds` arrives element-checked from the dispatch switch. */
+	private async handleSubscribe(client: WebSocket, channelIds: string[]) {
 		const state = this.clients.get(client);
 		if (!state?.userId) return;
-		for (const id of data.channel_ids) {
+		for (const id of channelIds) {
 			// Only subscribe to topics the user is actually allowed to read.
 			// The check short-circuits unrelated topics (e.g. DM channels if we
 			// add them later) by returning true when no server context applies.
@@ -328,10 +414,11 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
 		}
 	}
 
-	private handleUnsubscribe(client: WebSocket, data: { channel_ids: string[] }) {
+	/** `channelIds` arrives element-checked from the dispatch switch. */
+	private handleUnsubscribe(client: WebSocket, channelIds: string[]) {
 		const state = this.clients.get(client);
 		if (!state) return;
-		for (const id of data.channel_ids) {
+		for (const id of channelIds) {
 			state.subscribedChannels.delete(id);
 		}
 	}
@@ -389,20 +476,23 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
 		}
 	}
 
-	private handleWatchProfiles(
-		client: WebSocket,
-		data: { profiles: { did: string; instance_url: string }[] }
-	) {
-		if (!this.profileWatcher || !Array.isArray(data?.profiles)) return;
-		this.profileWatcher.register(client, data.profiles);
-	}
-
-	private handleUnwatchProfiles(client: WebSocket, data: { dids?: string[] }) {
+	/**
+	 * `profiles` arrives element-checked from the dispatch switch — the
+	 * `Array.isArray` guard this used to carry now lives there, where a
+	 * non-array is rejected instead of quietly no-op'd.
+	 */
+	private handleWatchProfiles(client: WebSocket, profiles: WsWatchProfileEntry[]) {
 		if (!this.profileWatcher) return;
-		this.profileWatcher.unregister(client, data?.dids);
+		this.profileWatcher.register(client, profiles);
 	}
 
-	private handleTypingStart(client: WebSocket, data: { channel_id: string }) {
+	/** `undefined` drops every watch on this socket; a list drops just those. */
+	private handleUnwatchProfiles(client: WebSocket, dids: string[] | undefined) {
+		if (!this.profileWatcher) return;
+		this.profileWatcher.unregister(client, dids);
+	}
+
+	private handleTypingStart(client: WebSocket, data: WsTypingStartPayload) {
 		const state = this.clients.get(client);
 		if (!state?.userId) return;
 

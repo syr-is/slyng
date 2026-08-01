@@ -153,6 +153,17 @@ pub struct WsEnvelope {
 
 // ── Client → Server payloads ──
 
+/// `IDENTIFY` (op 1). The session token, always present: the client skips
+/// the frame entirely when it holds no bearer rather than sending an empty
+/// one (`slyng-client/src/ws/native.rs:183`, `wasm.rs:134`). The gateway
+/// also raises this payload internally from the `slyng_session` cookie on
+/// connect — the `handleIdentify(client, { token: match[1] })` call inside
+/// `ChatGateway.handleConnection` (`chat.gateway.ts:97`).
+///
+/// `HEARTBEAT` (op 2) has no struct here on purpose. The client sends it as
+/// `{"op":2,"d":null}` (`native.rs:270`, `wasm.rs:195`) and the handler
+/// reads nothing off `d`, so there is no contract to state; an empty struct
+/// would only add a way for a payload-free frame to be rejected.
 #[derive(Clone, Debug, Serialize, Deserialize, ZodSchema)]
 #[cfg_attr(target_arch = "wasm32", derive(Tsify))]
 #[cfg_attr(target_arch = "wasm32", tsify(into_wasm_abi, from_wasm_abi))]
@@ -160,6 +171,28 @@ pub struct WsIdentifyPayload {
 	pub token: String,
 }
 
+/// `SUBSCRIBE` (op 3) and `UNSUBSCRIBE` (op 4) — the two frames carry the
+/// same shape and there is deliberately no separate `WsUnsubscribePayload`;
+/// this is the seam that has to split first if they ever diverge.
+///
+/// `SUBSCRIBE` is additive and idempotent per topic; `UNSUBSCRIBE` is
+/// subtractive. Neither replaces the socket's subscription set, so a frame
+/// carrying one topic leaves every other subscription intact. Both shapes
+/// occur in practice: the whole topic list (server topic plus every channel)
+/// on server load (`ui/src/lib/components/pages/server-layout.svelte:140`)
+/// and on reconnect resubscribe (`slyng-client/src/ws/native.rs:203-212`,
+/// which replays the accumulated set), and a single topic or a delta on
+/// channel open (`pages/channel-page.svelte:121`, `pages/dm-channel.svelte:85`),
+/// voice join (`app-core/src/lib/voice/voice-engine.ts:267`) and
+/// newly-visible channels (`server-layout.svelte:188,267`, both a
+/// `.filter(id => !known.has(id))` delta).
+///
+/// The transport is a pass-through — `native.rs:64` / `wasm.rs:57` send
+/// `json!({ "channel_ids": ids })` over whatever `Vec<String>` the caller
+/// supplied — so the wire shape is identical in every case and carries no
+/// hint of which one it is. The field is required: the handler iterates it
+/// directly. Per-entry policy (salvaging valid ids, dropping bad ones) is
+/// the handler's business, not this schema's.
 #[derive(Clone, Debug, Serialize, Deserialize, ZodSchema)]
 #[cfg_attr(target_arch = "wasm32", derive(Tsify))]
 #[cfg_attr(target_arch = "wasm32", tsify(into_wasm_abi, from_wasm_abi))]
@@ -167,6 +200,8 @@ pub struct WsSubscribePayload {
 	pub channel_ids: Vec<String>,
 }
 
+/// `TYPING_START` (op 5). One channel per frame, always present —
+/// `slyng-client/src/ws/native.rs:78`, `wasm.rs:71`.
 #[derive(Clone, Debug, Serialize, Deserialize, ZodSchema)]
 #[cfg_attr(target_arch = "wasm32", derive(Tsify))]
 #[cfg_attr(target_arch = "wasm32", tsify(into_wasm_abi, from_wasm_abi))]
@@ -548,6 +583,25 @@ pub struct WsCategoryDeletePayload {
 	pub server_id: Option<String>,
 }
 
+/// `WATCH_PROFILES` (op 50). The client registers interest in a set of DIDs.
+/// The frame carries the full roster only on first registration; thereafter
+/// it carries an incremental set of newly-watchable members. Both call sites
+/// filter against what they already watch before sending — server members
+/// with a known instance minus the already-watched
+/// (`ui/src/lib/components/pages/server-layout.svelte:201-204`,
+/// `.filter(m => !!m.syr_instance_url && !currentDids.has(m.user_id))`) and
+/// friends minus the already-watched (`pages/dm-friends.svelte:33,37`,
+/// `next.filter(p => !currentDids.has(p.did))`) — so after the first frame
+/// the payload is a delta, and members that go away leave via
+/// `UNWATCH_PROFILES` rather than by omission here.
+///
+/// Registration is idempotent per DID per socket and ref-counted across
+/// sockets — `ProfileWatcherService.register` skips a DID the socket already
+/// holds (`profile-watcher.service.ts:75`) and otherwise bumps `refcount`
+/// (`:80`) — so a repeated or overlapping frame is harmless and a re-sent
+/// full roster is equally safe. Both sites build entries as bare
+/// `{ did, instance_url }` literals, so the frame carries these two fields
+/// and nothing else. Required: `profiles` is the whole payload.
 #[derive(Clone, Debug, Serialize, Deserialize, ZodSchema)]
 #[cfg_attr(target_arch = "wasm32", derive(Tsify))]
 #[cfg_attr(target_arch = "wasm32", tsify(into_wasm_abi, from_wasm_abi))]
@@ -563,11 +617,25 @@ pub struct WsWatchProfileEntry {
 	pub instance_url: String,
 }
 
+/// `UNWATCH_PROFILES` (op 51).
+///
+/// `dids` is **optional**, and the two cases mean different things:
+/// a list drops those watches, an absent list drops every watch the socket
+/// holds — `ProfileWatcherService.unregister` resolves it as
+/// `dids ?? [...sub]` (`profile-watcher.service.ts:90`), which is the same
+/// path `forgetClient` takes on disconnect. `ChatGateway.handleUnwatchProfiles`
+/// (`chat.gateway.ts:468`) has always accepted the absent case — it took
+/// `{ dids?: string[] }` before this change and takes
+/// `dids: string[] | undefined` after it, the dispatch site passing
+/// `undefined` when the field is absent. Declaring `dids` required here was
+/// drift, and enforcing it would have turned "drop everything" into a
+/// rejected frame.
 #[derive(Clone, Debug, Serialize, Deserialize, ZodSchema)]
 #[cfg_attr(target_arch = "wasm32", derive(Tsify))]
 #[cfg_attr(target_arch = "wasm32", tsify(into_wasm_abi, from_wasm_abi))]
 pub struct WsUnwatchProfilesPayload {
-	pub dids: Vec<String>,
+	#[serde(skip_serializing_if = "Option::is_none", default)]
+	pub dids: Option<Vec<String>>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, ZodSchema)]
