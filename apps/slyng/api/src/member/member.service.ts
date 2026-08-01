@@ -55,7 +55,7 @@ export class MemberService {
 	async leave(serverId: string, userId: string) {
 		const server = await this.servers.findById(serverId);
 		if (!server) throw new Error('Server not found');
-		if ((server as any).owner_id === userId) {
+		if (server.owner_id === userId) {
 			throw new Error('The server owner cannot leave — transfer ownership or delete the server');
 		}
 
@@ -63,9 +63,9 @@ export class MemberService {
 		const member = await this.members.findOne({ server_id: ref, user_id: userId });
 		if (!member) throw new Error('You are not a member of this server');
 
-		await this.members.delete((member as any).id);
+		await this.members.delete(member.id);
 		await this.servers.merge(serverId, {
-			member_count: Math.max(0, ((server as any).member_count ?? 1) - 1)
+			member_count: Math.max(0, (server.member_count ?? 1) - 1)
 		});
 
 		this.gateway?.emitToServer(serverId, {
@@ -84,7 +84,7 @@ export class MemberService {
 	) {
 		const server = await this.servers.findById(serverId);
 		if (!server) throw new Error('Server not found');
-		if ((server as any).owner_id === targetUserId) throw new Error('Cannot kick the server owner');
+		if (server.owner_id === targetUserId) throw new Error('Cannot kick the server owner');
 		if (targetUserId === actorUserId) throw new Error('Cannot kick yourself');
 		// Permission is enforced at the route layer via `@RequirePermission('KICK_MEMBERS')`.
 		// Hierarchy gate: actor must outrank target.
@@ -96,9 +96,9 @@ export class MemberService {
 		const member = await this.members.findOne({ server_id: ref, user_id: targetUserId });
 		if (!member) throw new Error('Member not found');
 
-		await this.members.delete((member as any).id);
+		await this.members.delete(member.id);
 		await this.servers.merge(serverId, {
-			member_count: Math.max(0, ((server as any).member_count ?? 1) - 1)
+			member_count: Math.max(0, (server.member_count ?? 1) - 1)
 		});
 
 		if (opts.deleteMessageSeconds !== undefined) {
@@ -134,7 +134,7 @@ export class MemberService {
 	) {
 		const server = await this.servers.findById(serverId);
 		if (!server) throw new Error('Server not found');
-		if ((server as any).owner_id === targetUserId) throw new Error('Cannot ban the server owner');
+		if (server.owner_id === targetUserId) throw new Error('Cannot ban the server owner');
 		if (targetUserId === actorUserId) throw new Error('Cannot ban yourself');
 		// Permission is enforced at the route layer via `@RequirePermission('BAN_MEMBERS')`.
 		// Hierarchy gate: actor must outrank target.
@@ -148,9 +148,9 @@ export class MemberService {
 		// Remove existing membership if any (silent if already out of server)
 		const member = await this.members.findOne({ server_id: ref, user_id: targetUserId });
 		if (member) {
-			await this.members.delete((member as any).id);
+			await this.members.delete(member.id);
 			await this.servers.merge(serverId, {
-				member_count: Math.max(0, ((server as any).member_count ?? 1) - 1)
+				member_count: Math.max(0, (server.member_count ?? 1) - 1)
 			});
 		}
 
@@ -163,7 +163,7 @@ export class MemberService {
 			active: true
 		});
 		for (const r of activeRows) {
-			await this.bans.merge((r as any).id, {
+			await this.bans.merge(r.id, {
 				active: false,
 				unbanned_at: now,
 				unbanned_by: actorUserId,
@@ -215,7 +215,7 @@ export class MemberService {
 		if (!this.gateway) return;
 		const serverRef = stringToRecordId.decode(serverId);
 		const channels = await this.channels.findMany({ server_id: serverRef });
-		const channelIds = channels.map((c) => stringToRecordId.encode((c as any).id));
+		const channelIds = channels.map((c) => stringToRecordId.encode(c.id));
 		await this.gateway.evictUserFromServer(targetUserId, serverId, channelIds);
 	}
 
@@ -230,7 +230,7 @@ export class MemberService {
 		if (!activeRows.length) throw new Error('User is not banned');
 		const now = new Date();
 		for (const r of activeRows) {
-			await this.bans.merge((r as any).id, {
+			await this.bans.merge(r.id, {
 				active: false,
 				unbanned_at: now,
 				unbanned_by: actorUserId,
@@ -301,25 +301,26 @@ export class MemberService {
 		const channels = await this.channels.findMany({ server_id: serverRef });
 		if (!channels.length) return;
 
-		const db = (this.messages as any).db;
 		const actor = actorUserId ?? userId; // fallback if caller didn't pass one
 		const batchId = randomUUID();
 		const now = new Date();
 		let totalPurged = 0;
 
 		for (const channel of channels) {
-			const channelRef = (channel as any).id as RecordId;
+			const channelRef = channel.id as RecordId;
 			const channelIdStr = stringToRecordId.encode(channelRef);
-			// Soft-delete via UPDATE ... RETURN AFTER. Rows stay in the table;
-			// `deleted=true` marks them, `deleted_by` + `deleted_at` record the
-			// context. Privileged clients receive MESSAGE_UPDATE with full
+			// Soft-delete, never DELETE FROM — the repository does the UPDATE ...
+			// RETURN AFTER and hands back the updated rows so we can broadcast
+			// per message. Privileged clients receive MESSAGE_UPDATE with full
 			// content (their toggle decides visibility); non-priv get
 			// MESSAGE_DELETE and drop the row.
-			const result = (await db.query(
-				`UPDATE message SET deleted = true, deleted_at = $now, deleted_by = $actor, updated_at = $now WHERE channel_id = $ch AND sender_id = $uid AND created_at > $cutoff AND (deleted = NONE OR deleted = false) RETURN AFTER`,
-				{ ch: channelRef, uid: userId, cutoff, actor, now }
-			)) as any[];
-			const rows = (result[0] ?? []) as any[];
+			const rows = await this.messages.softDeleteBySenderSince(
+				channelRef,
+				userId,
+				cutoff,
+				actor,
+				now
+			);
 			totalPurged += rows.length;
 			if (!rows.length) continue;
 
@@ -401,18 +402,18 @@ export class MemberService {
 		);
 
 		// Enrich with syr_instance_url so client can render avatars / names
-		const userIds = [...new Set(items.map((b) => (b as any).user_id as string))];
+		const userIds = [...new Set(items.map((b) => b.user_id as string))];
 		const users = await this.users.findMany();
 		const instanceMap = new Map<string, string>(
 			users
-				.filter((u) => userIds.includes((u as any).did as string))
-				.map((u) => [(u as any).did as string, (u as any).syr_instance_url as string])
+				.filter((u) => userIds.includes(u.did as string))
+				.map((u) => [u.did as string, u.syr_instance_url as string])
 		);
 
 		return {
 			items: items.map((b) => ({
 				...b,
-				syr_instance_url: instanceMap.get((b as any).user_id as string)
+				syr_instance_url: instanceMap.get(b.user_id as string)
 			})),
 			total
 		};
@@ -481,39 +482,39 @@ export class MemberService {
 	private async enrichMembers(serverRef: RecordId, members: any[]) {
 		if (!members.length) return [];
 
-		const userIds = [...new Set(members.map((m) => (m as any).user_id as string))];
+		const userIds = [...new Set(members.map((m) => m.user_id as string))];
 		const users = await this.users.findMany();
 		const instanceMap = new Map<string, string>(
 			users
-				.filter((u) => userIds.includes((u as any).did as string))
-				.map((u) => [(u as any).did as string, (u as any).syr_instance_url as string])
+				.filter((u) => userIds.includes(u.did as string))
+				.map((u) => [u.did as string, u.syr_instance_url as string])
 		);
 
 		const server = await this.servers.findById(serverRef);
-		const ownerId = (server as any)?.owner_id as string | undefined;
+		const ownerId = server?.owner_id;
 
 		const roles = await this.roles.findMany({ server_id: serverRef });
 		const rolePermMap = new Map<string, bigint>(
-			roles.map((r) => [stringToRecordId.encode((r as any).id), BigInt(((r as any).permissions as string) ?? '0')])
+			roles.map((r) => [stringToRecordId.encode(r.id), BigInt((r.permissions as string) ?? '0')])
 		);
 		const defaultRolePerms = roles
-			.filter((r) => (r as any).is_default)
-			.reduce((acc, r) => acc | BigInt(((r as any).permissions as string) ?? '0'), 0n);
+			.filter((r) => r.is_default)
+			.reduce((acc, r) => acc | BigInt((r.permissions as string) ?? '0'), 0n);
 
 		const roleMap = new Map<string, { id: string; name: string; color: string | null; position: number }>(
 			roles.map((r) => [
-				stringToRecordId.encode((r as any).id),
+				stringToRecordId.encode(r.id),
 				{
-					id: stringToRecordId.encode((r as any).id),
-					name: (r as any).name as string,
-					color: (r as any).color as string | null,
-					position: (r as any).position as number
+					id: stringToRecordId.encode(r.id),
+					name: r.name as string,
+					color: r.color as string | null,
+					position: r.position as number
 				}
 			])
 		);
 
 		return members.map((m) => {
-			const roleIds = (((m as any).role_ids ?? []) as RecordId[]).map((r) => stringToRecordId.encode(r));
+			const roleIds = ((m.role_ids ?? []) as RecordId[]).map((r) => stringToRecordId.encode(r));
 			const memberRoles = roleIds
 				.map((id) => roleMap.get(id))
 				.filter((r): r is NonNullable<typeof r> => !!r)
@@ -521,7 +522,7 @@ export class MemberService {
 
 			// Effective permissions: server owner always gets ADMINISTRATOR;
 			// everyone else gets the OR of default-role perms + their role perms.
-			const isOwner = ownerId && (m as any).user_id === ownerId;
+			const isOwner = ownerId && m.user_id === ownerId;
 			let perms = isOwner ? Permissions.ADMINISTRATOR : defaultRolePerms;
 			if (!isOwner) {
 				for (const roleId of roleIds) perms |= rolePermMap.get(roleId) ?? 0n;
@@ -530,7 +531,7 @@ export class MemberService {
 
 			return {
 				...m,
-				syr_instance_url: instanceMap.get((m as any).user_id as string),
+				syr_instance_url: instanceMap.get(m.user_id as string),
 				roles: memberRoles,
 				permissions: perms.toString(),
 				permission_count
@@ -541,9 +542,9 @@ export class MemberService {
 	async getUnreadCounts(userId: string) {
 		const rows = await this.readStates.findMany({ user_id: userId });
 		return rows.map((r) => ({
-			channel_id: (r as any).channel_id,
-			last_read_message_id: (r as any).last_read_message_id,
-			mention_count: (r as any).mention_count ?? 0
+			channel_id: r.channel_id,
+			last_read_message_id: r.last_read_message_id,
+			mention_count: r.mention_count ?? 0
 		}));
 	}
 
@@ -554,7 +555,7 @@ export class MemberService {
 		const now = new Date();
 
 		if (existing) {
-			await this.readStates.merge((existing as any).id, {
+			await this.readStates.merge(existing.id, {
 				last_read_message_id: messageRef,
 				mention_count: 0,
 				updated_at: now
@@ -577,8 +578,8 @@ export class MemberService {
 		const now = new Date();
 
 		if (existing) {
-			await this.readStates.merge((existing as any).id, {
-				mention_count: ((existing as any).mention_count ?? 0) + 1,
+			await this.readStates.merge(existing.id, {
+				mention_count: (existing.mention_count ?? 0) + 1,
 				updated_at: now
 			});
 		} else {

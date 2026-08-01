@@ -1,8 +1,8 @@
 # Slyng
 
-Federated real-time chat on the syr platform.
-
-> **Note:** Slyng is a vibecoded platform with zero architectural considerations. The majority of it was written in under a day. It exists solely to showcase Syr's platform delegation capabilities and the capabilities of human-driven people discovery over an algorithmic/AI-driven shared heap architecture.
+Federated real-time chat on the syr platform. Slyng exists to showcase syr's
+platform-delegation capabilities, and human-driven people discovery as an
+alternative to an algorithmic shared-heap architecture.
 
 ## Dev
 

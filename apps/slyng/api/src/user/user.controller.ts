@@ -5,6 +5,7 @@ import { UserRepository } from '../auth/user.repository';
 import { WsOp, type AllowDms, type AllowFriendRequests } from '@slyng/types';
 import { ChatGateway } from '../gateway/chat.gateway';
 import { UpdateMyselfDto } from '../dto';
+import type { AuthedRequest } from '../auth/authed-request';
 
 @Controller('users')
 @UseGuards(AuthGuard)
@@ -17,7 +18,7 @@ export class UserController {
 	) {}
 
 	@Get('@me')
-	async me(@Req() req: any) {
+	async me(@Req() req: AuthedRequest) {
 		const did = req.user?.did;
 		if (!did) throw new HttpException('Unauthorized', 401);
 
@@ -25,18 +26,18 @@ export class UserController {
 		if (!user) throw new HttpException('User not found', 404);
 
 		return {
-			did: (user as any).did,
-			syr_instance_url: (user as any).syr_instance_url,
-			trusted_domains: (user as any).trusted_domains ?? [],
-			allow_dms: ((user as any).allow_dms as AllowDms | undefined) ?? 'open',
+			did: user.did,
+			syr_instance_url: user.syr_instance_url,
+			trusted_domains: user.trusted_domains ?? [],
+			allow_dms: (user.allow_dms as AllowDms | undefined) ?? 'open',
 			allow_friend_requests:
-				((user as any).allow_friend_requests as AllowFriendRequests | undefined) ?? 'open'
+				(user.allow_friend_requests as AllowFriendRequests | undefined) ?? 'open'
 		};
 	}
 
 	@Get('resolve')
 	@SkipServerAccess()
-	async resolve(@Query('q') q: string, @Req() req: any) {
+	async resolve(@Query('q') q: string, @Req() req: AuthedRequest) {
 		if (!req.user?.id) throw new HttpException('Unauthorized', 401);
 		if (!q?.trim()) throw new HttpException('q parameter required', 400);
 		const input = q.trim();
@@ -101,7 +102,7 @@ export class UserController {
 	}
 
 	@Patch('@me')
-	async updateMe(@Req() req: any, @Body() body: UpdateMyselfDto) {
+	async updateMe(@Req() req: AuthedRequest, @Body() body: UpdateMyselfDto) {
 		const did = req.user?.did;
 		if (!did) throw new HttpException('Unauthorized', 401);
 
@@ -122,16 +123,19 @@ export class UserController {
 			policyChanged = true;
 		}
 
-		await this.users.mergeWhere({ did }, merge as any);
+		await this.users.mergeWhere({ did }, merge);
 		const updated = await this.users.findOne({ did });
+		// findOne is nullable; the previous cast let a missing row reach the
+		// property reads below and throw a bare TypeError instead of a 404.
+		if (!updated) throw new HttpException('User not found', 404);
 
 		const result = {
-			did: (updated as any).did,
-			syr_instance_url: (updated as any).syr_instance_url,
-			trusted_domains: (updated as any).trusted_domains ?? [],
-			allow_dms: ((updated as any).allow_dms as AllowDms | undefined) ?? 'open',
+			did: updated.did,
+			syr_instance_url: updated.syr_instance_url,
+			trusted_domains: updated.trusted_domains ?? [],
+			allow_dms: (updated.allow_dms as AllowDms | undefined) ?? 'open',
 			allow_friend_requests:
-				((updated as any).allow_friend_requests as AllowFriendRequests | undefined) ?? 'open'
+				(updated.allow_friend_requests as AllowFriendRequests | undefined) ?? 'open'
 		};
 
 		// Broadcast DM policy changes to all of the user's own sockets so other

@@ -112,13 +112,13 @@ export class AuditLogService {
 		if (options.since) {
 			const sinceMs = options.since.getTime();
 			filtered = filtered.filter(
-				(r) => new Date((r as any).created_at as string).getTime() >= sinceMs
+				(r) => new Date(r.created_at as string).getTime() >= sinceMs
 			);
 		}
 		if (options.until) {
 			const untilMs = options.until.getTime();
 			filtered = filtered.filter(
-				(r) => new Date((r as any).created_at as string).getTime() <= untilMs
+				(r) => new Date(r.created_at as string).getTime() <= untilMs
 			);
 		}
 
@@ -174,7 +174,7 @@ export class AuditLogService {
 		const messages = await this.messages.findByIds(messageIds);
 		const byId = new Map<string, any>();
 		for (const m of messages) {
-			byId.set(stringToRecordId.encode((m as any).id as RecordId), m);
+			byId.set(stringToRecordId.encode(m.id as RecordId), m);
 		}
 
 		return items.map((r) => {
@@ -188,9 +188,9 @@ export class AuditLogService {
 					...r,
 					metadata: {
 						...r.metadata,
-						message_content: (m as any).content ?? '',
-						message_attachments: (m as any).attachments ?? [],
-						message_sender_id: (m as any).sender_id ?? null
+						message_content: m.content ?? '',
+						message_attachments: m.attachments ?? [],
+						message_sender_id: m.sender_id ?? null
 					}
 				};
 			}

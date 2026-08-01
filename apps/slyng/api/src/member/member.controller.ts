@@ -5,6 +5,7 @@ import { MessageService } from '../message/message.service';
 import { RequirePermission } from '../auth/require-permission.decorator';
 import { PaginatedQuery, type PaginationOptions } from '../common/pagination';
 import { BanMemberDto, MarkChannelReadDto, PurgeMessagesDto } from '../dto';
+import type { AuthedRequest } from '../auth/authed-request';
 
 @ApiTags('members')
 @Controller()
@@ -41,7 +42,7 @@ export class MemberController {
 
 	@Delete('servers/:serverId/members/@me')
 	@ApiOperation({ summary: 'Leave a server (self)' })
-	async leave(@Param('serverId') serverId: string, @Req() req: any) {
+	async leave(@Param('serverId') serverId: string, @Req() req: AuthedRequest) {
 		const userId = req.user?.id;
 		if (!userId) throw new HttpException('Unauthorized', 401);
 		try {
@@ -59,7 +60,7 @@ export class MemberController {
 		@Param('serverId') serverId: string,
 		@Param('userId') targetUserId: string,
 		@Query('delete_seconds') deleteSeconds: string | undefined,
-		@Req() req: any
+		@Req() req: AuthedRequest
 	) {
 		const actor = req.user?.id;
 		if (!actor) throw new HttpException('Unauthorized', 401);
@@ -81,7 +82,7 @@ export class MemberController {
 	async ban(
 		@Param('serverId') serverId: string,
 		@Body() body: BanMemberDto,
-		@Req() req: any
+		@Req() req: AuthedRequest
 	) {
 		const actor = req.user?.id;
 		if (!actor) throw new HttpException('Unauthorized', 401);
@@ -102,7 +103,7 @@ export class MemberController {
 	async unban(
 		@Param('serverId') serverId: string,
 		@Param('userId') targetUserId: string,
-		@Req() req: any
+		@Req() req: AuthedRequest
 	) {
 		const actor = req.user?.id;
 		if (!actor) throw new HttpException('Unauthorized', 401);
@@ -120,7 +121,7 @@ export class MemberController {
 	async listBans(
 		@Param('serverId') serverId: string,
 		@PaginatedQuery() p: PaginationOptions,
-		@Req() req: any
+		@Req() req: AuthedRequest
 	) {
 		const actor = req.user?.id;
 		if (!actor) throw new HttpException('Unauthorized', 401);
@@ -139,7 +140,7 @@ export class MemberController {
 	async markRead(
 		@Param('channelId') channelId: string,
 		@Body() body: MarkChannelReadDto,
-		@Req() req: any
+		@Req() req: AuthedRequest
 	) {
 		const userId = req.user?.id;
 		if (!userId) throw new HttpException('Unauthorized', 401);
@@ -184,9 +185,11 @@ export class MemberController {
 		@Param('serverId') serverId: string,
 		@Param('userId') targetUserId: string,
 		@Body() body: PurgeMessagesDto,
-		@Req() req: any
+		@Req() req: AuthedRequest
 	) {
-		await this.memberService.purgeMessagesPublic(serverId, targetUserId, body.delete_seconds, req.user?.id);
+		const actorId = req.user?.id;
+		if (!actorId) throw new HttpException('Unauthorized', 401);
+		await this.memberService.purgeMessagesPublic(serverId, targetUserId, body.delete_seconds, actorId);
 		return { success: true };
 	}
 

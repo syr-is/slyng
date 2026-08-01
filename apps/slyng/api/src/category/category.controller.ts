@@ -3,6 +3,7 @@ import { ApiTags, ApiOperation } from '@nestjs/swagger';
 import { RequirePermission } from '../auth/require-permission.decorator';
 import { CategoryService } from './category.service';
 import { CategoryReorderDto, CreateCategoryDto, UpdateCategoryDto } from '../dto';
+import type { AuthedRequest } from '../auth/authed-request';
 
 @ApiTags('categories')
 @Controller()
@@ -21,7 +22,7 @@ export class CategoryController {
 	async create(
 		@Param('serverId') serverId: string,
 		@Body() body: CreateCategoryDto,
-		@Req() req: any
+		@Req() req: AuthedRequest
 	) {
 		const userId = req.user?.id;
 		if (!userId) throw new HttpException('Unauthorized', 401);
@@ -38,7 +39,7 @@ export class CategoryController {
 	async update(
 		@Param('categoryId') categoryId: string,
 		@Body() body: UpdateCategoryDto,
-		@Req() req: any
+		@Req() req: AuthedRequest
 	) {
 		const userId = req.user?.id;
 		if (!userId) throw new HttpException('Unauthorized', 401);
@@ -52,7 +53,7 @@ export class CategoryController {
 	@Delete('categories/:categoryId')
 	@RequirePermission('MANAGE_CHANNELS')
 	@ApiOperation({ summary: 'Delete a category (uncategorizes child channels)' })
-	async remove(@Param('categoryId') categoryId: string, @Req() req: any) {
+	async remove(@Param('categoryId') categoryId: string, @Req() req: AuthedRequest) {
 		const userId = req.user?.id;
 		if (!userId) throw new HttpException('Unauthorized', 401);
 		try {
@@ -69,7 +70,7 @@ export class CategoryController {
 	async reorder(
 		@Param('serverId') serverId: string,
 		@Body() body: CategoryReorderDto,
-		@Req() req: any
+		@Req() req: AuthedRequest
 	) {
 		const userId = req.user?.id;
 		if (!userId) throw new HttpException('Unauthorized', 401);
@@ -86,7 +87,7 @@ export class CategoryController {
 	async swap(
 		@Param('categoryId') a: string,
 		@Param('otherCategoryId') b: string,
-		@Req() req: any
+		@Req() req: AuthedRequest
 	) {
 		const userId = req.user?.id;
 		if (!userId) throw new HttpException('Unauthorized', 401);

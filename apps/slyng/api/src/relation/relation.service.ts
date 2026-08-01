@@ -98,11 +98,11 @@ export class RelationService {
 		const aMembers = await this.members.findMany({ user_id: a });
 		if (!aMembers.length) return false;
 		const aServerIds = new Set(
-			aMembers.map((m) => stringToRecordId.encode((m as any).server_id as RecordId))
+			aMembers.map((m) => stringToRecordId.encode(m.server_id as RecordId))
 		);
 		const bMembers = await this.members.findMany({ user_id: b });
 		return bMembers.some((m) =>
-			aServerIds.has(stringToRecordId.encode((m as any).server_id as RecordId))
+			aServerIds.has(stringToRecordId.encode(m.server_id as RecordId))
 		);
 	}
 
@@ -150,8 +150,8 @@ export class RelationService {
 			this.users.findOne({ did: userId }) as Promise<any>
 		]);
 
-		const blocked = blockedRows.map((b) => (b as any).blocked_id as string);
-		const ignored = ignoredRows.map((i) => (i as any).ignored_id as string);
+		const blocked = blockedRows.map((b) => b.blocked_id as string);
+		const ignored = ignoredRows.map((i) => i.ignored_id as string);
 		const allDids = new Set<string>([
 			...friends,
 			...incoming.map((r) => r.from),
@@ -185,8 +185,8 @@ export class RelationService {
 		const wanted = new Set(dids);
 		const out: Record<string, string> = {};
 		for (const u of all) {
-			const did = (u as any).did as string | undefined;
-			const instance = (u as any).syr_instance_url as string | undefined;
+			const did = u.did as string | undefined;
+			const instance = u.syr_instance_url as string | undefined;
 			if (did && instance && wanted.has(did)) out[did] = instance;
 		}
 		return out;
@@ -266,10 +266,10 @@ export class RelationService {
 
 	async acceptFriendRequest(actor: string, requester: string) {
 		const pending = await this.findPendingBetween(actor, requester);
-		if (!pending || (pending as any).requested_by === actor) {
+		if (!pending || pending.requested_by === actor) {
 			throw new NotFoundException('No pending request from this user');
 		}
-		const updated = await this.friendships.merge((pending as any).id, {
+		const updated = await this.friendships.merge(pending.id, {
 			status: 'accepted',
 			updated_at: new Date()
 		} as any);
@@ -282,10 +282,10 @@ export class RelationService {
 
 	async declineFriendRequest(actor: string, requester: string) {
 		const pending = await this.findPendingBetween(actor, requester);
-		if (!pending || (pending as any).requested_by === actor) {
+		if (!pending || pending.requested_by === actor) {
 			throw new NotFoundException('No pending request from this user');
 		}
-		await this.friendships.delete((pending as any).id);
+		await this.friendships.delete(pending.id);
 		const [lo, hi] = this.orderPair(actor, requester);
 		const payload = { pair: { a: lo, b: hi }, status: 'declined', by: actor };
 		this.gateway?.emitToUser(actor, { op: WsOp.FRIEND_REQUEST_UPDATE, d: payload });
@@ -294,10 +294,10 @@ export class RelationService {
 
 	async cancelFriendRequest(actor: string, recipient: string) {
 		const pending = await this.findPendingBetween(actor, recipient);
-		if (!pending || (pending as any).requested_by !== actor) {
+		if (!pending || pending.requested_by !== actor) {
 			throw new NotFoundException('No outgoing request to this user');
 		}
-		await this.friendships.delete((pending as any).id);
+		await this.friendships.delete(pending.id);
 		const [lo, hi] = this.orderPair(actor, recipient);
 		const payload = { pair: { a: lo, b: hi }, status: 'cancelled', by: actor };
 		this.gateway?.emitToUser(actor, { op: WsOp.FRIEND_REQUEST_UPDATE, d: payload });
@@ -363,7 +363,7 @@ export class RelationService {
 	async unblock(actor: string, target: string) {
 		const existing = await this.blocks.findOne({ blocker_id: actor, blocked_id: target });
 		if (!existing) throw new NotFoundException('Not blocked');
-		await this.blocks.delete((existing as any).id);
+		await this.blocks.delete(existing.id);
 		this.gateway?.emitToUser(actor, {
 			op: WsOp.BLOCK_UPDATE,
 			d: { target, blocked: false }
@@ -397,7 +397,7 @@ export class RelationService {
 	async unignore(actor: string, target: string) {
 		const existing = await this.ignores.findOne({ user_id: actor, ignored_id: target });
 		if (!existing) throw new NotFoundException('Not ignored');
-		await this.ignores.delete((existing as any).id);
+		await this.ignores.delete(existing.id);
 		this.gateway?.emitToUser(actor, {
 			op: WsOp.IGNORE_UPDATE,
 			d: { target, ignored: false }

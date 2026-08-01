@@ -9,6 +9,7 @@ import {
 	RemoveReactionDto,
 	SendMessageDto
 } from '../dto';
+import type { AuthedRequest } from '../auth/authed-request';
 
 @ApiTags('messages')
 @Controller('channels/:channelId')
@@ -42,7 +43,7 @@ export class MessageController {
 	async create(
 		@Param('channelId') channelId: string,
 		@Body() body: SendMessageDto,
-		@Req() req: any
+		@Req() req: AuthedRequest
 	) {
 		const userId = req.user?.id;
 		if (!userId) throw new HttpException('Unauthorized', 401);
@@ -69,7 +70,7 @@ export class MessageController {
 	async update(
 		@Param('messageId') messageId: string,
 		@Body() body: EditMessageDto,
-		@Req() req: any
+		@Req() req: AuthedRequest
 	) {
 		const userId = req.user?.id;
 		if (!userId) throw new HttpException('Unauthorized', 401);
@@ -82,7 +83,7 @@ export class MessageController {
 
 	@Delete('messages/:messageId')
 	@ApiOperation({ summary: 'Soft-delete a message' })
-	async delete(@Param('messageId') messageId: string, @Req() req: any) {
+	async delete(@Param('messageId') messageId: string, @Req() req: AuthedRequest) {
 		const userId = req.user?.id;
 		if (!userId) throw new HttpException('Unauthorized', 401);
 		try {
@@ -96,7 +97,7 @@ export class MessageController {
 	@Post('messages/:messageId/restore')
 	@RequirePermission('VIEW_TRASH')
 	@ApiOperation({ summary: 'Restore a soft-deleted message' })
-	async restore(@Param('messageId') messageId: string, @Req() req: any) {
+	async restore(@Param('messageId') messageId: string, @Req() req: AuthedRequest) {
 		const userId = req.user?.id;
 		if (!userId) throw new HttpException('Unauthorized', 401);
 		try {
@@ -109,7 +110,7 @@ export class MessageController {
 	@Delete('messages/:messageId/hard')
 	@RequirePermission('HARD_DELETE')
 	@ApiOperation({ summary: 'Permanently delete a trashed message' })
-	async hardDelete(@Param('messageId') messageId: string, @Req() req: any) {
+	async hardDelete(@Param('messageId') messageId: string, @Req() req: AuthedRequest) {
 		const userId = req.user?.id;
 		if (!userId) throw new HttpException('Unauthorized', 401);
 		try {
@@ -122,7 +123,7 @@ export class MessageController {
 
 	@Delete('messages/:messageId/embeds')
 	@ApiOperation({ summary: 'Clear embeds on own message' })
-	async clearEmbeds(@Param('messageId') messageId: string, @Req() req: any) {
+	async clearEmbeds(@Param('messageId') messageId: string, @Req() req: AuthedRequest) {
 		const userId = req.user?.id;
 		if (!userId) throw new HttpException('Unauthorized', 401);
 		try {
@@ -139,7 +140,7 @@ export class MessageController {
 		@Param('channelId') channelId: string,
 		@Param('messageId') messageId: string,
 		@Body() body: AddReactionDto,
-		@Req() req: any
+		@Req() req: AuthedRequest
 	) {
 		const userId = req.user?.id;
 		if (!userId) throw new HttpException('Unauthorized', 401);
@@ -154,7 +155,7 @@ export class MessageController {
 		@Param('channelId') channelId: string,
 		@Param('messageId') messageId: string,
 		@Body() body: RemoveReactionDto,
-		@Req() req: any
+		@Req() req: AuthedRequest
 	) {
 		const userId = req.user?.id;
 		if (!userId) throw new HttpException('Unauthorized', 401);
@@ -183,7 +184,7 @@ export class MessageController {
 	async pin(
 		@Param('channelId') channelId: string,
 		@Body() body: PinMessageDto,
-		@Req() req: any
+		@Req() req: AuthedRequest
 	) {
 		const userId = req.user?.id;
 		if (!userId) throw new HttpException('Unauthorized', 401);
@@ -201,7 +202,7 @@ export class MessageController {
 	async unpin(
 		@Param('channelId') channelId: string,
 		@Param('messageId') messageId: string,
-		@Req() req: any
+		@Req() req: AuthedRequest
 	) {
 		const userId = req.user?.id;
 		if (!userId) throw new HttpException('Unauthorized', 401);

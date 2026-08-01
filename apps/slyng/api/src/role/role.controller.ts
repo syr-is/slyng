@@ -3,6 +3,7 @@ import { ApiTags, ApiOperation } from '@nestjs/swagger';
 import { RoleService } from './role.service';
 import { RequirePermission } from '../auth/require-permission.decorator';
 import { CreateRoleDto, RoleReorderDto, UpdateRoleDto } from '../dto';
+import type { AuthedRequest } from '../auth/authed-request';
 
 @ApiTags('roles')
 @Controller()
@@ -21,7 +22,7 @@ export class RoleController {
 	async create(
 		@Param('serverId') serverId: string,
 		@Body() body: CreateRoleDto,
-		@Req() req: any
+		@Req() req: AuthedRequest
 	) {
 		const userId = req.user?.id;
 		if (!userId) throw new HttpException('Unauthorized', 401);
@@ -38,7 +39,7 @@ export class RoleController {
 	async update(
 		@Param('roleId') roleId: string,
 		@Body() body: UpdateRoleDto,
-		@Req() req: any
+		@Req() req: AuthedRequest
 	) {
 		const userId = req.user?.id;
 		if (!userId) throw new HttpException('Unauthorized', 401);
@@ -55,7 +56,7 @@ export class RoleController {
 	async swap(
 		@Param('roleId') roleId: string,
 		@Param('otherRoleId') otherRoleId: string,
-		@Req() req: any
+		@Req() req: AuthedRequest
 	) {
 		const userId = req.user?.id;
 		if (!userId) throw new HttpException('Unauthorized', 401);
@@ -72,7 +73,7 @@ export class RoleController {
 	async reorder(
 		@Param('serverId') serverId: string,
 		@Body() body: RoleReorderDto,
-		@Req() req: any
+		@Req() req: AuthedRequest
 	) {
 		const userId = req.user?.id;
 		if (!userId) throw new HttpException('Unauthorized', 401);
@@ -86,7 +87,7 @@ export class RoleController {
 	@Delete('roles/:roleId')
 	@RequirePermission('MANAGE_ROLES')
 	@ApiOperation({ summary: 'Soft-delete a role (move to trash)' })
-	async remove(@Param('roleId') roleId: string, @Req() req: any) {
+	async remove(@Param('roleId') roleId: string, @Req() req: AuthedRequest) {
 		const userId = req.user?.id;
 		if (!userId) throw new HttpException('Unauthorized', 401);
 		try {
@@ -107,7 +108,7 @@ export class RoleController {
 	@Post('roles/:roleId/restore')
 	@RequirePermission('VIEW_TRASH')
 	@ApiOperation({ summary: 'Restore a soft-deleted role' })
-	async restore(@Param('roleId') roleId: string, @Req() req: any) {
+	async restore(@Param('roleId') roleId: string, @Req() req: AuthedRequest) {
 		const userId = req.user?.id;
 		if (!userId) throw new HttpException('Unauthorized', 401);
 		try {
@@ -120,7 +121,7 @@ export class RoleController {
 	@Delete('roles/:roleId/hard')
 	@RequirePermission('HARD_DELETE')
 	@ApiOperation({ summary: 'Permanently delete a trashed role and scrub from members' })
-	async hardDelete(@Param('roleId') roleId: string, @Req() req: any) {
+	async hardDelete(@Param('roleId') roleId: string, @Req() req: AuthedRequest) {
 		const userId = req.user?.id;
 		if (!userId) throw new HttpException('Unauthorized', 401);
 		try {
@@ -138,7 +139,7 @@ export class RoleController {
 		@Param('serverId') serverId: string,
 		@Param('userId') targetUserId: string,
 		@Param('roleId') roleId: string,
-		@Req() req: any
+		@Req() req: AuthedRequest
 	) {
 		const actor = req.user?.id;
 		if (!actor) throw new HttpException('Unauthorized', 401);
@@ -156,7 +157,7 @@ export class RoleController {
 		@Param('serverId') serverId: string,
 		@Param('userId') targetUserId: string,
 		@Param('roleId') roleId: string,
-		@Req() req: any
+		@Req() req: AuthedRequest
 	) {
 		const actor = req.user?.id;
 		if (!actor) throw new HttpException('Unauthorized', 401);
@@ -173,7 +174,7 @@ export class RoleController {
 	async permissionTree(
 		@Param('serverId') serverId: string,
 		@Param('userId') targetUserId: string,
-		@Req() req: any
+		@Req() req: AuthedRequest
 	) {
 		const actor = req.user?.id;
 		if (!actor) throw new HttpException('Unauthorized', 401);
@@ -190,7 +191,7 @@ export class RoleController {
 	async memberPermissions(
 		@Param('serverId') serverId: string,
 		@Param('userId') targetUserId: string,
-		@Req() req: any
+		@Req() req: AuthedRequest
 	) {
 		const actor = req.user?.id;
 		if (!actor) throw new HttpException('Unauthorized', 401);
@@ -229,7 +230,7 @@ export class RoleController {
 
 	@Get('servers/:serverId/members/@me/permissions')
 	@ApiOperation({ summary: 'Get current user effective permissions' })
-	async myPermissions(@Param('serverId') serverId: string, @Req() req: any) {
+	async myPermissions(@Param('serverId') serverId: string, @Req() req: AuthedRequest) {
 		const userId = req.user?.id;
 		if (!userId) throw new HttpException('Unauthorized', 401);
 		const [perms, highest, owner] = await Promise.all([

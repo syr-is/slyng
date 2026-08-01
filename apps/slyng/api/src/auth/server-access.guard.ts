@@ -57,7 +57,7 @@ export class ServerAccessGuard implements CanActivate {
 		if (!serverId && params.channelId) {
 			const channel = await this.channels.findById(params.channelId);
 			if (!channel) throw new ForbiddenException('Channel not found');
-			const sid = (channel as any).server_id;
+			const sid = channel.server_id;
 			if (sid) serverId = stringToRecordId.encode(sid);
 		}
 		if (!serverId) return true; // route not server-scoped

@@ -7,6 +7,7 @@ import {
 	MessageBody,
 	ConnectedSocket
 } from '@nestjs/websockets';
+import type { AuthedRequest } from '../auth/authed-request';
 import { Inject, Optional, Logger, forwardRef } from '@nestjs/common';
 import { Server, WebSocket } from 'ws';
 import { WsOp } from '@slyng/types';
@@ -57,7 +58,7 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
 		private readonly profileWatcher?: ProfileWatcherService
 	) {}
 
-	async handleConnection(client: WebSocket, req: any) {
+	async handleConnection(client: WebSocket, req: AuthedRequest) {
 		this.clients.set(client, {
 			userId: null,
 			subscribedChannels: new Set(),
@@ -368,7 +369,7 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
 				updated_at: new Date()
 			};
 			if (next.status !== 'idle') patch.preferred_status = next.status;
-			await this.users.merge((userRecord as any).id, patch);
+			await this.users.merge(userRecord.id, patch);
 		}
 	}
 

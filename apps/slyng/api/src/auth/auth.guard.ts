@@ -2,7 +2,7 @@ import { Injectable, CanActivate, ExecutionContext, Logger } from '@nestjs/commo
 import { Reflector } from '@nestjs/core';
 import { AuthService } from './auth.service';
 import { IS_PUBLIC_KEY } from './public.decorator';
-import type { Request } from 'express';
+import type { AuthedRequest } from './authed-request';
 
 @Injectable()
 export class AuthGuard implements CanActivate {
@@ -20,7 +20,7 @@ export class AuthGuard implements CanActivate {
 		]);
 		if (isPublic) return true;
 
-		const request = context.switchToHttp().getRequest<Request>();
+		const request = context.switchToHttp().getRequest<AuthedRequest>();
 
 		// Accept the session via either the slyng_session cookie (web) or
 		// `Authorization: Bearer <session>` (native / WASM client). Same
@@ -42,7 +42,7 @@ export class AuthGuard implements CanActivate {
 			const tokenExpiry = new Date(session.token_expires_at);
 			if (tokenExpiry < new Date()) return false;
 
-			(request as any).user = {
+			request.user = {
 				id: session.did,
 				did: session.did,
 				delegate_public_key: session.delegate_public_key,

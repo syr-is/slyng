@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, NotFoundException } from '@nestjs/common';
 import { stringToRecordId } from '@slyng/types';
 import { VoiceStateRepository } from './voice.repository';
 import { ChannelRepository } from '../channel/channel.repository';
@@ -27,7 +27,11 @@ export class VoiceService {
 	async join(userId: string, channelId: string, serverId: string): Promise<VoiceState> {
 		if (!serverId) {
 			const channel = await this.channels.findById(channelId);
-			serverId = channel ? stringToRecordId.encode((channel as any).server_id) : '';
+			// A missing channel and a DM channel both used to collapse to '',
+			// persisting a voice state for a channel that doesn't exist. Only the
+			// DM case is legitimate: DM channels genuinely have no server_id.
+			if (!channel) throw new NotFoundException('Channel not found');
+			serverId = channel.server_id ? stringToRecordId.encode(channel.server_id) : '';
 		}
 		await this.leave(userId);
 
@@ -49,19 +53,23 @@ export class VoiceService {
 
 		const existing = await this.voiceStates.findOne({ user_id: userId });
 		if (existing) {
-			await this.voiceStates.merge((existing as any).id, {
+			await this.voiceStates.merge(existing.id, {
 				channel_id: dbChannelId,
 				server_id: dbServerId,
 				self_mute: false,
 				self_deaf: false,
+				has_camera: false,
+				has_screen: false,
 				joined_at: state.joined_at,
 				updated_at: new Date()
 			});
 		} else {
+			// Spread the in-memory state but overwrite the two id fields with
+			// RecordId links — the row stores links where VoiceState holds strings.
 			await this.voiceStates.create({
 				...state,
-				channel_id: dbChannelId as any,
-				server_id: dbServerId as any,
+				channel_id: dbChannelId,
+				server_id: dbServerId,
 				updated_at: new Date()
 			});
 		}
@@ -87,7 +95,7 @@ export class VoiceService {
 
 		const existing = await this.voiceStates.findOne({ user_id: userId });
 		if (existing) {
-			await this.voiceStates.merge((existing as any).id, {
+			await this.voiceStates.merge(existing.id, {
 				self_mute: selfMute,
 				self_deaf: selfDeaf,
 				updated_at: new Date()
@@ -127,10 +135,34 @@ export class VoiceService {
 		return this.states.get(userId) || null;
 	}
 
+	/**
+	 * Rehydrate presence after a restart.
+	 *
+	 * Rows must be mapped, not spread: they store `channel_id` / `server_id` as
+	 * `RecordId` links while `VoiceState` holds encoded strings. The previous
+	 * `row as any` put raw links into the map, so every downstream string
+	 * comparison — `s.channel_id === channelId` in `getChannelUsers`,
+	 * `s.server_id !== serverId` in `getByServer` — silently stopped matching,
+	 * and reloaded presence was invisible to clients.
+	 *
+	 * Rows with no `channel_id` are skipped: a state not in a channel is not
+	 * presence. `has_camera` / `has_screen` default to false — video state is
+	 * renegotiated by the client on reconnect, never trusted from storage.
+	 */
 	async loadFromDb(): Promise<void> {
 		const rows = await this.voiceStates.findMany();
 		for (const row of rows) {
-			this.states.set((row as any).user_id, row as any);
+			if (!row.channel_id) continue;
+			this.states.set(row.user_id, {
+				user_id: row.user_id,
+				channel_id: stringToRecordId.encode(row.channel_id),
+				server_id: row.server_id ? stringToRecordId.encode(row.server_id) : '',
+				self_mute: row.self_mute ?? false,
+				self_deaf: row.self_deaf ?? false,
+				has_camera: false,
+				has_screen: false,
+				joined_at: row.joined_at ?? new Date()
+			});
 		}
 	}
 }

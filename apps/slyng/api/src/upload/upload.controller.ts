@@ -3,6 +3,7 @@ import { ApiTags, ApiOperation } from '@nestjs/swagger';
 import type { Response } from 'express';
 import { UploadService } from './upload.service';
 import { UploadFinalizeDto, UploadPresignDto } from '../dto';
+import type { AuthedRequest } from '../auth/authed-request';
 
 @ApiTags('uploads')
 @Controller('uploads')
@@ -13,7 +14,7 @@ export class UploadController {
 	@ApiOperation({ summary: 'Request a presigned URL for a direct S3 PUT upload' })
 	async presign(
 		@Body() body: UploadPresignDto,
-		@Req() req: any
+		@Req() req: AuthedRequest
 	) {
 		const userId = req.user?.id;
 		if (!userId) throw new HttpException('Unauthorized', 401);
@@ -29,7 +30,7 @@ export class UploadController {
 	async finalize(
 		@Param('uploadId') uploadId: string,
 		@Body() body: UploadFinalizeDto,
-		@Req() req: any,
+		@Req() req: AuthedRequest,
 		@Res({ passthrough: true }) res: Response
 	) {
 		const userId = req.user?.id;

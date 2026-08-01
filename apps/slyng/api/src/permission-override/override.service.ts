@@ -68,7 +68,7 @@ export class OverrideService {
 
 		let result: unknown;
 		if (existing) {
-			result = await this.overrides.merge((existing as any).id, {
+			result = await this.overrides.merge(existing.id, {
 				allow: data.allow,
 				deny: data.deny,
 				updated_at: now

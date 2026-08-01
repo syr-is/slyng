@@ -55,7 +55,7 @@ export class ServerService {
 			created_at: now,
 			updated_at: now
 		});
-		const serverId = (server as any).id as RecordId;
+		const serverId = server.id as RecordId;
 
 		await this.roles.create({
 			server_id: serverId,
@@ -184,7 +184,7 @@ export class ServerService {
 	async transferOwnership(serverId: string, actorUserId: string, newOwnerId: string) {
 		const server = await this.servers.findById(serverId);
 		if (!server) throw new Error('Server not found');
-		if ((server as any).owner_id !== actorUserId)
+		if (server.owner_id !== actorUserId)
 			throw new Error('Only the current owner can transfer ownership');
 		if (newOwnerId === actorUserId)
 			throw new Error('Cannot transfer ownership to yourself');
@@ -196,7 +196,7 @@ export class ServerService {
 		// Step 1 — Former Owner role at top of hierarchy with ADMINISTRATOR.
 		const allRoles = await this.roles.findMany({ server_id: ref });
 		const topPosition =
-			allRoles.reduce((max, r) => Math.max(max, ((r as any).position as number) ?? 0), 0) + 1;
+			allRoles.reduce((max, r) => Math.max(max, (r.position as number) ?? 0), 0) + 1;
 		const adminAllow = Permissions.ADMINISTRATOR.toString();
 		const now = new Date();
 		const newRole = await this.roles.create({
@@ -212,7 +212,7 @@ export class ServerService {
 			created_at: now,
 			updated_at: now
 		});
-		const newRoleId = (newRole as any).id as RecordId;
+		const newRoleId = newRole.id as RecordId;
 		const roleIdStr = stringToRecordId.encode(newRoleId);
 
 		// Step 2 — assign it to the outgoing owner.
@@ -222,12 +222,12 @@ export class ServerService {
 		});
 		let refreshedOutgoing: unknown = null;
 		if (outgoingMember) {
-			const ids = ((outgoingMember as any).role_ids ?? []) as RecordId[];
-			await this.members.merge((outgoingMember as any).id, {
+			const ids = (outgoingMember.role_ids ?? []) as RecordId[];
+			await this.members.merge(outgoingMember.id, {
 				role_ids: [...ids, newRoleId],
 				updated_at: now
 			});
-			refreshedOutgoing = await this.members.findById((outgoingMember as any).id);
+			refreshedOutgoing = await this.members.findById(outgoingMember.id);
 		}
 
 		// Step 3 — flip ownership.
@@ -293,7 +293,7 @@ export class ServerService {
 	async delete(serverId: string, userId: string) {
 		const server = await this.servers.findById(serverId);
 		if (!server) throw new Error('Server not found');
-		if ((server as any).owner_id !== userId) throw new Error('Only the server owner can delete the server');
+		if (server.owner_id !== userId) throw new Error('Only the server owner can delete the server');
 
 		const id = stringToRecordId.decode(serverId);
 		// Broadcast first so subscribers can react while topic subscriptions still resolve
@@ -313,7 +313,7 @@ export class ServerService {
 	async findByMember(userId: string) {
 		const memberships = await this.members.findMany({ user_id: userId });
 		if (!memberships.length) return [];
-		const serverIds = memberships.map((m) => (m as any).server_id as RecordId);
+		const serverIds = memberships.map((m) => m.server_id as RecordId);
 		return this.servers.findByIds(serverIds);
 	}
 
@@ -603,7 +603,7 @@ export class ServerService {
 		});
 		if (existingBan) {
 			this.logger.warn(
-				`join blocked: user=${userId.slice(0, 24)} is banned from server=${String(inv.server_id)} (ban_id=${String((existingBan as any).id)})`
+				`join blocked: user=${userId.slice(0, 24)} is banned from server=${String(inv.server_id)} (ban_id=${String(existingBan.id)})`
 			);
 			throw new Error('You cannot join this server');
 		}

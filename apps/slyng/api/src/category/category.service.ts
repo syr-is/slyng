@@ -40,7 +40,7 @@ export class CategoryService {
 			created_at: now,
 			updated_at: now
 		} as any);
-		const catId = stringToRecordId.encode((category as any).id as RecordId);
+		const catId = stringToRecordId.encode(category.id as RecordId);
 		this.gateway?.emitToServer(serverId, { op: WsOp.CATEGORY_CREATE, d: category });
 		await this.audit.record({
 			serverId,
@@ -57,7 +57,7 @@ export class CategoryService {
 	async update(categoryId: string, userId: string, data: { name?: string }) {
 		const cat = await this.categories.findById(categoryId);
 		if (!cat) throw new Error('Category not found');
-		const serverId = stringToRecordId.encode((cat as any).server_id as RecordId);
+		const serverId = stringToRecordId.encode(cat.server_id as RecordId);
 		const merge: Record<string, unknown> = { updated_at: new Date() };
 		if (data.name !== undefined) merge.name = data.name;
 		await this.categories.merge(categoryId, merge);
@@ -77,13 +77,13 @@ export class CategoryService {
 	async delete(categoryId: string, userId: string) {
 		const cat = await this.categories.findById(categoryId);
 		if (!cat) throw new Error('Category not found');
-		const serverId = stringToRecordId.encode((cat as any).server_id as RecordId);
+		const serverId = stringToRecordId.encode(cat.server_id as RecordId);
 		const catRef = stringToRecordId.decode(categoryId);
 
 		// Uncategorize all child channels
 		const children = await this.channels.findMany({ category_id: catRef });
 		for (const ch of children) {
-			await this.channels.merge((ch as any).id, {
+			await this.channels.merge(ch.id, {
 				category_id: null,
 				updated_at: new Date()
 			});
@@ -104,7 +104,7 @@ export class CategoryService {
 			action: 'channel_delete',
 			targetKind: 'channel',
 			targetId: categoryId,
-			metadata: { name: (cat as any).name, kind: 'category' }
+			metadata: { name: cat.name, kind: 'category' }
 		});
 		this.logger.log(`Category deleted: ${categoryId}`);
 	}
@@ -160,9 +160,9 @@ export class CategoryService {
 		const a = await this.categories.findById(categoryAId);
 		const b = await this.categories.findById(categoryBId);
 		if (!a || !b) throw new Error('Category not found');
-		const serverId = stringToRecordId.encode((a as any).server_id as RecordId);
-		const posA = (a as any).position as number;
-		const posB = (b as any).position as number;
+		const serverId = stringToRecordId.encode(a.server_id as RecordId);
+		const posA = a.position as number;
+		const posB = b.position as number;
 		const now = new Date();
 		await this.categories.merge(categoryAId, { position: posB, updated_at: now });
 		await this.categories.merge(categoryBId, { position: posA, updated_at: now });
