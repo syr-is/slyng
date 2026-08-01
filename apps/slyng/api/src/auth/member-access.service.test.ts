@@ -56,15 +56,14 @@ const everyoneRole = (server_id: RecordId) => ({
 const denyRead = (
 	server_id: RecordId,
 	scope_type: 'server' | 'category' | 'channel',
-	scope_id: RecordId | null,
-	target_id = ALICE
+	scope_id: RecordId | null
 ): PermissionOverrideRow => ({
 	id: new RecordId('permission_override', `o-${scope_type}-${scope_id?.id ?? 'none'}`),
 	server_id,
 	scope_type,
 	scope_id,
 	target_type: 'user',
-	target_id,
+	target_id: ALICE,
 	allow: '0',
 	deny: Permissions.READ_MESSAGES.toString(),
 	created_at: new Date(),
@@ -187,7 +186,7 @@ describe('MemberAccessService.canReadChannels', () => {
 	});
 
 	it('keeps one server’s overrides out of another server’s fold', async () => {
-		// Same category id shape, but owned by server A: server B must not see it.
+		// A server-wide deny owned by A: both of A's channels go, B's and the DM stay.
 		const { svc } = makeService({ overrides: [denyRead(S_A, 'server', null)] });
 		const allowed = await svc.canReadChannels(ALICE, ALL_IDS);
 		expect(sorted(allowed)).toEqual([enc(CH_B.id), enc(CH_DM.id)]);
