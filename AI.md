@@ -148,6 +148,45 @@ No `prompt()`, no `confirm()`, no `alert()`. No `// TODO: implement later`. No h
 
 ---
 
+## Compound tasks — the parallel worktree tournament
+
+For a prompt that carries several independent fixes or features at once ("do all of these"), don't do them serially in one branch. Fan out, review adversarially, then merge by intent.
+
+```mermaid
+flowchart TD
+    A[Scout: split into tracks with DISJOINT files] --> B1[track 1 worktree]
+    A --> B2[track 2 worktree]
+    A --> B3[track 3 worktree]
+    B1 --> C1{2 adversaries}
+    B2 --> C2{2 adversaries}
+    B3 --> C3{2 adversaries}
+    C1 -->|findings| B1
+    C2 -->|findings| B2
+    C3 -->|findings| B3
+    C1 -->|0 findings| D[merge tournament]
+    C2 -->|0 findings| D
+    C3 -->|0 findings| D
+    D --> E[pairwise merge by INTENT]
+    E --> F[final verify]
+    F --> G[one PR]
+```
+
+**Split by files, not by topic.** Tracks must own disjoint files or the merge becomes the whole job. Sharing one generated file is fine — see below. Sharing a hand-written file is not.
+
+**Scout before you fan out.** Prove the build recipe yourself first — three agents discovering the same environment gotcha is three times the cost and they may each "fix" it differently. In this repo a fresh worktree needs `pnpm install --frozen-lockfile` *and* `cp -R <main>/packages/ts/idp-crypto/dist packages/ts/idp-crypto/dist` (gitignored wasm build), or you get 16 phantom `TS2307`s.
+
+**Two adversaries per track, with different lenses.** Technical correctness (does it compile, does it hold, does the generated output match the source) and vision correctness (does every real user flow still work). Redundant reviewers find redundant bugs. The vision lens is the one that catches "the schema is beautiful and it broke leaving a voice call."
+
+**Loop to zero findings, but cap the rounds** and surface what's still open. A track that exits at the cap with findings outstanding must say so — silently dropping them defeats the point.
+
+**Verify the findings yourself before acting on them.** Adversaries produce stale and overstated findings. In the WS-contract run, of two findings left open at the cap, one was already fixed by a later merge and the other was real but far narrower than claimed. Fixing the first would have been wasted work; trusting the summary would have shipped the second.
+
+**Merge by intent, not by text.** The merge agent gets each branch's *behavioural* description and reconciles with it. Deterministic rules beat judgement where they exist: machine-generated files (`packages/ts/types/src/generated.ts`) are never hand-merged — take either side, re-run `pnpm gen`, commit the result. That single rule is what makes tracks sharing a generated file tractable.
+
+**Agents don't push.** No `git push`, no `gh`, no PR edits from a subagent. The final diff gets read by one accountable reviewer before anything leaves the machine.
+
+---
+
 ## Architecture cheat sheet
 
 ### Auth guard stack (request order)
