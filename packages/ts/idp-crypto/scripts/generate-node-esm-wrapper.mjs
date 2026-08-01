@@ -5,7 +5,7 @@
  * allowing Vite SSR (ESM) to use the Node build without "exports is not defined".
  */
 
-import { writeFileSync } from "fs";
+import { rmSync, writeFileSync } from "fs";
 import { dirname, join } from "path";
 import { fileURLToPath } from "url";
 
@@ -69,3 +69,15 @@ writeFileSync(
   JSON.stringify({ type: "commonjs" }, null, 2) + "\n",
   "utf8",
 );
+
+// wasm-pack drops a `.gitignore` containing `*` into every --out-dir, even
+// with --no-pack. npm-packlist honours .gitignore files nested inside a
+// directory that `files` included, so those two lines silently strip
+// dist/wasm/** back out of the tarball: `pnpm pack` and, more importantly,
+// the `pnpm deploy` in docker/prod/slyng-api.dockerfile ship a dist/index.js
+// whose ./wasm subpath export points at a file that was never packed, and the
+// API dies at boot on ERR_MODULE_NOT_FOUND. dist/ is already ignored by the
+// root .gitignore, so nothing wants these.
+for (const target of ["node", "web"]) {
+  rmSync(join(pkgRoot, `dist/wasm/${target}/.gitignore`), { force: true });
+}
