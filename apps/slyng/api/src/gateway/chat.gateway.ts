@@ -8,7 +8,7 @@ import {
 	ConnectedSocket
 } from '@nestjs/websockets';
 import type { AuthedRequest } from '../auth/authed-request';
-import { Inject, Optional, Logger, forwardRef } from '@nestjs/common';
+import { Inject, Optional, Logger, forwardRef, type OnModuleInit } from '@nestjs/common';
 import { Server, WebSocket } from 'ws';
 import {
 	WsOp,
@@ -33,6 +33,7 @@ import { MemberAccessService } from '../auth/member-access.service';
 import { ProfileWatcherService } from '../profile-watcher/profile-watcher.service';
 import { serializeForWire } from '../common/serialize';
 import { describeError } from '../common/describe-error';
+import { isChannelTopic } from '../common/channel-topics';
 
 // Element contracts, read off the generated payload schemas rather than
 // restated next to them. A second hand-written definition of a wire shape is
@@ -55,7 +56,7 @@ interface PresenceRecord {
 }
 
 @WebSocketGateway({ path: '/ws' })
-export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
+export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect, OnModuleInit {
 	@WebSocketServer()
 	server!: Server;
 
@@ -81,6 +82,25 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
 		@Optional() @Inject(forwardRef(() => ProfileWatcherService))
 		private readonly profileWatcher?: ProfileWatcherService
 	) {}
+
+	/**
+	 * `memberAccess` is `@Optional()` so the gateway can be constructed without
+	 * the auth graph, but `GatewayModule` imports `AuthModule`, which exports
+	 * `MemberAccessService` — so in a correctly wired app it is always present.
+	 *
+	 * Absent, every subscription authorisation below fails closed. That is the
+	 * safe direction but a silent one, and a gateway that refuses every
+	 * subscribe looks like a permissions bug rather than a wiring bug. Say so
+	 * once, loudly, at boot.
+	 */
+	onModuleInit() {
+		if (!this.memberAccess) {
+			this.logger.error(
+				'MemberAccessService was not injected — every SUBSCRIBE will be denied. ' +
+					'Check that GatewayModule still imports AuthModule.'
+			);
+		}
+	}
 
 	async handleConnection(client: WebSocket, req: AuthedRequest) {
 		this.clients.set(client, {
@@ -405,12 +425,31 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
 	private async handleSubscribe(client: WebSocket, channelIds: string[]) {
 		const state = this.clients.get(client);
 		if (!state?.userId) return;
+		const userId = state.userId;
+
+		// Clients send their whole topic list — the server plus every one of its
+		// channels — in a single frame, and re-send it on every reconnect. The
+		// channel topics are therefore authorised as a batch: one permission
+		// fold per server instead of one full cascade per channel.
+		//
+		// Partitioned once, so `isChannelTopic` decides the split in exactly one
+		// place and the loop below cannot disagree with the batch it was given.
+		const channelTopics: string[] = [];
+		const otherTopics: string[] = [];
 		for (const id of channelIds) {
-			// Only subscribe to topics the user is actually allowed to read.
-			// The check short-circuits unrelated topics (e.g. DM channels if we
-			// add them later) by returning true when no server context applies.
-			const allowed = await this.canSubscribe(state.userId, id);
-			if (allowed) state.subscribedChannels.add(id);
+			(isChannelTopic(id) ? channelTopics : otherTopics).push(id);
+		}
+
+		const readable = await this.readableChannelTopics(userId, channelTopics);
+		for (const id of channelTopics) {
+			if (readable.has(id)) state.subscribedChannels.add(id);
+		}
+		for (const id of otherTopics) {
+			// The server topic, and any future topic type: each resolves its own
+			// server and passes when none applies.
+			if (await this.canSubscribeToNonChannelTopic(userId, id)) {
+				state.subscribedChannels.add(id);
+			}
 		}
 	}
 
@@ -424,23 +463,48 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
 	}
 
 	/**
-	 * Authorisation check for a SUBSCRIBE topic. The topic may be a server id
-	 * (the layout subscribes to it for server-wide events) or a channel id.
-	 * Either way, the subscribing user must be a member of the resolved
-	 * server and not banned. Returns true on topics outside the server model
-	 * (no server resolved) so new topic types don't require guard updates.
+	 * Batched authorisation for the `channel:` topics of a SUBSCRIBE frame, and
+	 * the only thing that answers them.
+	 *
+	 * The failure *granularity* differs from the per-id loop this replaced: that
+	 * caught per id, so a fault denied one topic. Here a fault inside
+	 * `canReadChannels` denies only its own server's channels, but one escaping
+	 * it — in practice the initial row read — denies every channel topic in the
+	 * frame. Fail-closed in all three cases, including the one where the
+	 * provider is missing: `assertDependencies` has already logged that at
+	 * boot, and a gateway that cannot authorise must not subscribe anyone.
 	 */
-	private async canSubscribe(userId: string, topicId: string): Promise<boolean> {
-		if (!this.memberAccess) return true;
+	private async readableChannelTopics(userId: string, topicIds: string[]): Promise<Set<string>> {
+		if (!this.memberAccess) return new Set();
+		if (!topicIds.length) return new Set();
+		try {
+			return await this.memberAccess.canReadChannels(userId, topicIds);
+		} catch (err) {
+			// `err instanceof Error ? … : String(err)`, not `(err as Error).message`:
+			// a thrown `null` makes the latter raise inside the catch, which
+			// escapes the one function whose whole contract is that nothing does.
+			this.logger.warn(`Channel topic authorisation failed: ${describeError(err)}`);
+			return new Set();
+		}
+	}
+
+	/**
+	 * Authorisation for the topics that are not channels — the server topic the
+	 * layout subscribes to for server-wide events, and any future topic type.
+	 * The subscribing user must be a member of the resolved server and not
+	 * banned; a topic that resolves to no server passes, so a new topic type
+	 * does not require a guard update.
+	 *
+	 * Deliberately has no `channel:` case — `handleSubscribe` partitions those
+	 * off and answers the whole batch through `readableChannelTopics`. Adding
+	 * one back would be a second answer to a question that already has one.
+	 */
+	private async canSubscribeToNonChannelTopic(userId: string, topicId: string): Promise<boolean> {
+		if (!this.memberAccess) return false;
 		try {
 			const serverId = await this.memberAccess.resolveServerId(topicId);
 			if (!serverId) return true;
-			if (!(await this.memberAccess.isAllowed(userId, serverId))) return false;
-			// Channel-level READ_MESSAGES check
-			if (topicId.startsWith('channel:')) {
-				return this.memberAccess.canReadChannel(userId, topicId);
-			}
-			return true;
+			return await this.memberAccess.isAllowed(userId, serverId);
 		} catch {
 			return false;
 		}

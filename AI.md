@@ -171,17 +171,46 @@ flowchart TD
     F --> G[one PR]
 ```
 
-**Split by files, not by topic.** Tracks must own disjoint files or the merge becomes the whole job. Sharing one generated file is fine — see below. Sharing a hand-written file is not.
+**Foundation wave first, before anyone forks.** Some files every track touches: `packages/ts/types/src/index.ts`, the schema string in `db.service.ts`, the purge lists, this file. Fork before those settle and every branch edits the same lines — exactly the conflict the split was meant to avoid. Land shared vocabulary as **one agent, no parallelism**, merged before any worktree exists. Additive by default: existing rows must parse unchanged, and a new field on an existing entity is `.optional()`, never `.default()` (a default makes it required on the inferred output type and breaks every construction site).
 
-**Scout before you fan out.** Prove the build recipe yourself first — three agents discovering the same environment gotcha is three times the cost and they may each "fix" it differently. In this repo a fresh worktree needs `pnpm install --frozen-lockfile` *and* `cp -R <main>/packages/ts/idp-crypto/dist packages/ts/idp-crypto/dist` (gitignored wasm build), or you get 16 phantom `TS2307`s.
+**Split by files, not by topic.** Tracks must own disjoint files or the merge becomes the whole job. Sharing one generated file is fine — see below. Sharing a hand-written file is not. Give each track an **explicit file territory** and say what happens at the boundary: out-of-territory problems get reported in the hand-off, never fixed. Where two tracks must touch one file, split it by function and name the exact lines each owns.
 
-**Two adversaries per track, with different lenses.** Technical correctness (does it compile, does it hold, does the generated output match the source) and vision correctness (does every real user flow still work). Redundant reviewers find redundant bugs. The vision lens is the one that catches "the schema is beautiful and it broke leaving a voice call."
+**Scout before you fan out.** Prove the build recipe yourself first — three agents discovering the same environment gotcha is three times the cost and they may each "fix" it differently. A fresh worktree here has no `node_modules` and no built `dist/`, so the API typecheck fails on unresolvable `@slyng/*` types before the agent writes a line, and rebuilding `idp-crypto` means wasm-pack and a Rust toolchain. Seed the built dists from your main checkout and verify a clean baseline `tsc` **before** launching the agent:
 
-**Loop to zero findings, but cap the rounds** and surface what's still open. A track that exits at the cap with findings outstanding must say so — silently dropping them defeats the point.
+```bash
+MAIN_CHECKOUT=/absolute/path/to/your/main/checkout   # replace: the worktree you already build in
+
+git worktree add -b track/<name> ../.slyng-worktrees/<name> <integration-branch>
+cd ../.slyng-worktrees/<name>
+pnpm install --frozen-lockfile --prefer-offline
+
+# dist/ is gitignored, so it does not come across with the worktree. Copy each
+# package's dist to its OWN destination — `cp -R src/*/dist dest/*/` expands
+# both globs and merges every source into the last destination directory.
+for pkg in "$MAIN_CHECKOUT"/packages/ts/*/dist; do
+  name=$(basename "$(dirname "$pkg")")
+  [ -d "packages/ts/$name" ] && cp -R "$pkg" "packages/ts/$name/dist"
+done
+
+pnpm --filter @slyng/types build
+pnpm --filter @slyng/api exec tsc --noEmit -p tsconfig.json   # must be 0 before you start
+```
+
+Skip the copy and you get a wall of phantom `TS2307`s that have nothing to do with the task.
+
+**Two adversaries per track, with different lenses.** Technical (does it compile, does it hold, does the generated output match its source, edge cases, compiles-but-wrong) and vision (is this the right change at the right level for this codebase — rule compliance, layering, over-engineering, comment truth, scope discipline, and does every real user flow still work). Redundant reviewers find redundant bugs. The vision lens is the one that catches "the schema is beautiful and it broke leaving a voice call."
+
+Both must be told to REFUTE, and both must be told **a clean verdict is an acceptable outcome** — an adversary that believes it is judged on findings invents them. And an adversary must **rebuild the implementer's proof itself**: a differential harness written by the author of the change proves nothing about the author's blind spot, so the review only counts when the oracle was derived independently.
+
+**Loop to zero findings, but cap the rounds** and surface what's still open. Findings go back to the implementing agent, which fixes or rejects each **with a reason**, then both adversaries re-review. A track that exits at the cap with findings outstanding must say so — silently dropping them defeats the point.
+
+**If an adversary refutes a track's premise, drop the track — do not patch it.** A change whose justification turned out to be false is not salvageable by rewriting its comment; shipping it leaves churn plus a docstring that installs a false belief in the next reader. Killing a track is a successful round.
 
 **Verify the findings yourself before acting on them.** Adversaries produce stale and overstated findings. In the WS-contract run, of two findings left open at the cap, one was already fixed by a later merge and the other was real but far narrower than claimed. Fixing the first would have been wasted work; trusting the summary would have shipped the second.
 
-**Merge by intent, not by text.** The merge agent gets each branch's *behavioural* description and reconciles with it. Deterministic rules beat judgement where they exist: machine-generated files (`packages/ts/types/src/generated.ts`) are never hand-merged — take either side, re-run `pnpm gen`, commit the result. That single rule is what makes tracks sharing a generated file tractable.
+**Merge by intent, not by text.** When two branches come back clean they pair up: a merge agent takes both diffs **plus each branch's stated intent** — what it changed about the product, what it changed about the code, what it deliberately did not change — and produces one branch. Winners keep pairing until one remains. Deterministic rules beat judgement where they exist: machine-generated files (`packages/ts/types/src/generated.ts`) are never hand-merged — take either side, re-run `pnpm gen`, commit the result. That single rule is what makes tracks sharing a generated file tractable.
+
+**Check the merged result, not just the parts.** Two individually-clean diffs can typecheck apart and not together, so the repo checks run on the final branch. Then rebuild and restart the dev containers so the work can be reviewed running live.
 
 **Agents don't push.** No `git push`, no `gh`, no PR edits from a subagent. The final diff gets read by one accountable reviewer before anything leaves the machine.
 

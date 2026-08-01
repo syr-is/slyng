@@ -1,4 +1,17 @@
 {
 	"extends": "./tsconfig.json",
-	"exclude": ["node_modules", "dist", "test", "**/*.test.ts", "**/*.spec.ts"]
+	// `include` is scoped to `src` rather than listing files to exclude. The
+	// build's root directory is the common ancestor of whatever it compiles, so
+	// ANY file at the package root — `vitest.config.ts`, the next
+	// `*.config.ts` — silently relocates the whole output to `dist/src/…` and
+	// breaks `start:prod` (`node dist/main`) and both dockerfiles. A denylist
+	// only disarms that for the filenames somebody remembered; scoping the
+	// include disarms it for all of them.
+	//
+	// Do not "fix" the same problem by pinning `compilerOptions.rootDir`: that
+	// moves `tsconfig.build.tsbuildinfo` out of `dist`, where nest's
+	// `deleteOutDir` can no longer invalidate it, so every rebuild after the
+	// first wipes `dist` and then emits nothing at all — exit 0, empty artifact.
+	"include": ["src/**/*"],
+	"exclude": ["node_modules", "dist", "**/*.test.ts", "**/*.spec.ts"]
 }

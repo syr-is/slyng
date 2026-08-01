@@ -53,19 +53,23 @@ export class ChannelService {
 	}
 
 	async findVisibleByServer(serverId: string, userId: string) {
-		const all = await this.findByServer(serverId);
-		const results = await Promise.all(
-			all.map(async (ch) => {
-				const chId = stringToRecordId.encode(ch.id as RecordId);
-				const perms = await this.roleService.computePermissions(userId, serverId, chId);
-				const canRead = hasPermission(perms, Permissions.READ_MESSAGES);
-				return { channel: ch, perms, canRead };
-			})
-		);
+		// One fold for the whole server instead of a full permission resolution
+		// per channel, and the rows already carry `category_id`. The fold does
+		// not read the channel rows, so the two reads overlap rather than queue.
+		const [all, fold] = await Promise.all([
+			this.findByServer(serverId),
+			this.roleService.loadPermissionFold(userId, serverId)
+		]);
+		const results = all.map((ch) => {
+			const chId = stringToRecordId.encode(ch.id as RecordId);
+			const catId = ch.category_id ? stringToRecordId.encode(ch.category_id) : null;
+			const perms = fold.forChannel(chId, catId);
+			return { channel: ch, perms, canRead: hasPermission(perms, Permissions.READ_MESSAGES) };
+		});
 		return results
 			.filter((r) => r.canRead)
 			.map((r) => ({
-				...(r.channel as any),
+				...r.channel,
 				my_permissions: r.perms.toString()
 			}));
 	}

@@ -13,6 +13,8 @@
 		"format": "prettier --write .",
 		"format:check": "prettier --check .",
 		"check": "tsc --noEmit",
+		"test": "vitest run",
+		"test:watch": "vitest",
 		"lint": "prettier --check . && eslint ."
 	},
 	"dependencies": {
@@ -57,6 +59,7 @@
 		"eslint-config-prettier": "catalog:",
 		"prettier": "catalog:",
 		"typescript": "^5.9.2",
-		"typescript-eslint": "catalog:"
+		"typescript-eslint": "catalog:",
+		"vitest": "^4.0.18"
 	}
 }

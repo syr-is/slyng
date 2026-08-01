@@ -18,6 +18,11 @@ import {
 } from '../channel/channel.repository';
 import { ChatGateway } from '../gateway/chat.gateway';
 import { AuditLogService } from '../audit-log/audit-log.service';
+import {
+	constantPermissionFold,
+	resolvePermissionFold,
+	type PermissionFold
+} from '../common/permission-fold';
 
 /**
  * Shape of `buildPermissionTree`. Exported because consumers (channel listing,
@@ -607,108 +612,53 @@ export class RoleService {
 	 * Channel scope always beats category scope for the same target type.
 	 * Owner/admin bypass is checked at entry and after full computation.
 	 * When `channelId` is omitted, only layers 1-2 apply (server-wide check).
+	 *
+	 * The cascade itself lives in `common/permission-fold`; this is the
+	 * single-channel entry point onto it, so there is one copy of the rules.
 	 */
 	async computePermissions(userId: string, serverId: string, channelId?: string): Promise<bigint> {
+		const fold = await this.loadPermissionFold(userId, serverId);
+		// No channel asked for, or nothing channel-scoped could move the answer —
+		// don't spend a query resolving the channel's category.
+		if (!channelId || !fold.hasChannelScopedOverrides) return fold.serverPermissions;
+
+		const categoryRef = await this.channels.findCategoryId(stringToRecordId.decode(channelId));
+		return fold.forChannel(channelId, categoryRef ? stringToRecordId.encode(categoryRef) : null);
+	}
+
+	/**
+	 * Load the server-scoped half of the cascade once and hand back a fold that
+	 * answers for any number of channels.
+	 *
+	 * Callers that evaluate a whole server's channel list (`getVisibleChannels`,
+	 * `buildPermissionTree`, `ChannelService.findVisibleByServer`) must use this
+	 * rather than looping `computePermissions`: the server, member, role and
+	 * override reads are identical for every channel, so looping re-issues them
+	 * once per channel. Pass the channel's already-known `category_id` to
+	 * `forChannel` — re-reading that column per channel is another query the
+	 * caller already paid for.
+	 *
+	 * `MemberAccessService` cannot use this (it is on the
+	 * `RoleService → ChatGateway → MemberAccessService` cycle) and owns the
+	 * equivalent batch itself as `canReadChannels`. The shared piece is the
+	 * cascade in `common/permission-fold`, not this loader.
+	 */
+	async loadPermissionFold(userId: string, serverId: string): Promise<PermissionFold> {
 		const server = await this.servers.findById(serverId);
-		if (!server) return 0n;
-		if (server.owner_id === userId) return Permissions.ADMINISTRATOR;
+		if (!server) return constantPermissionFold(0n);
+		if (server.owner_id === userId) return constantPermissionFold(Permissions.ADMINISTRATOR);
 
 		const ref = stringToRecordId.decode(serverId);
 		const member = await this.members.findOne({ server_id: ref, user_id: userId });
-		if (!member) return 0n;
+		if (!member) return constantPermissionFold(0n);
 
-		const roleIds = (member.role_ids ?? []) as RecordId[];
-		const assignedSet = new Set(roleIds.map((rid) => stringToRecordId.encode(rid)));
-
-		const allRoles = (await this.roles.findMany({ server_id: ref }))
-			.filter((r) => !r.deleted)
-			.sort(
-				(a, b) =>
-					((a.position as number) ?? 0) -
-					((b.position as number) ?? 0)
-			);
-
-		const applicable = allRoles.filter(
-			(r) =>
-				r.is_default ||
-				assignedSet.has(stringToRecordId.encode(r.id as RecordId))
-		);
-
-		// Layer 1: server role perms
-		let perms = 0n;
-		for (const r of applicable) {
-			const allow = BigInt((r.permissions_allow as string) ?? (r.permissions as string) ?? '0');
-			const deny = BigInt((r.permissions_deny as string) ?? '0');
-			perms = (perms & ~deny) | allow;
-		}
-
-		// Early admin bypass — no need to walk overrides
-		if (hasPermission(perms, Permissions.ADMINISTRATOR)) return perms;
-
-		// Fetch all overrides for this server in one query — filtered in memory
-		const allOverrides = await this.permOverrides.findMany({ server_id: ref });
-
-		const applyOverride = (o: any) => {
-			const allow = BigInt((o.allow as string) ?? '0');
-			const deny = BigInt((o.deny as string) ?? '0');
-			perms = (perms & ~deny) | allow;
-		};
-
-		const roleOverridesForScope = (scopeType: string, scopeId: string | null) => {
-			return allOverrides
-				.filter((o: any) => {
-					if (o.target_type !== 'role') return false;
-					if (o.scope_type !== scopeType) return false;
-					const oScopeId = o.scope_id ? stringToRecordId.encode(o.scope_id as RecordId) : null;
-					if (oScopeId !== scopeId) return false;
-					return assignedSet.has(o.target_id as string) ||
-						allRoles.some((r) => r.is_default && stringToRecordId.encode(r.id as RecordId) === o.target_id);
-				})
-				.sort((a, b) => {
-					const posA = allRoles.find((r) => stringToRecordId.encode(r.id as RecordId) === a.target_id);
-					const posB = allRoles.find((r) => stringToRecordId.encode(r.id as RecordId) === b.target_id);
-					return (((posA as any)?.position as number) ?? 0) - (((posB as any)?.position as number) ?? 0);
-				});
-		};
-
-		const userOverrideForScope = (scopeType: string, scopeId: string | null) => {
-			return allOverrides.find((o: any) => {
-				if (o.target_type !== 'user' || o.target_id !== userId) return false;
-				if (o.scope_type !== scopeType) return false;
-				const oScopeId = o.scope_id ? stringToRecordId.encode(o.scope_id as RecordId) : null;
-				return oScopeId === scopeId;
-			});
-		};
-
-		// Layer 2: server user override
-		const serverUserOverride = userOverrideForScope('server', null);
-		if (serverUserOverride) applyOverride(serverUserOverride);
-
-		if (!channelId) return perms;
-
-		// Resolve the channel's category
-		const categoryRef = await this.channels.findCategoryId(stringToRecordId.decode(channelId));
-		const categoryId = categoryRef ? stringToRecordId.encode(categoryRef) : null;
-
-		// Layer 3: role category overrides
-		if (categoryId) {
-			for (const o of roleOverridesForScope('category', categoryId)) applyOverride(o);
-		}
-
-		// Layer 4: role channel overrides
-		for (const o of roleOverridesForScope('channel', channelId)) applyOverride(o);
-
-		// Layer 5: user category override
-		if (categoryId) {
-			const catUserOverride = userOverrideForScope('category', categoryId);
-			if (catUserOverride) applyOverride(catUserOverride);
-		}
-
-		// Layer 6: user channel override (highest priority)
-		const chUserOverride = userOverrideForScope('channel', channelId);
-		if (chUserOverride) applyOverride(chUserOverride);
-
-		return perms;
+		const roleIds = member.role_ids ?? [];
+		return resolvePermissionFold({
+			userId,
+			roles: await this.roles.findMany({ server_id: ref }),
+			assignedRoleIds: new Set(roleIds.map((rid) => stringToRecordId.encode(rid))),
+			loadOverrides: () => this.permOverrides.findMany({ server_id: ref })
+		});
 	}
 
 	async hasPermission(userId: string, serverId: string, flag: bigint, channelId?: string): Promise<boolean> {
@@ -770,22 +720,34 @@ export class RoleService {
 		userId: string,
 		serverId: string
 	): Promise<Array<{ id: string; name: string; type: string }>> {
-		const perms = await this.computePermissions(userId, serverId);
-		const canRead = hasPermission(perms, Permissions.READ_MESSAGES);
-		if (!canRead) return [];
 		const ref = stringToRecordId.decode(serverId);
-		const channels = await this.channels.findLiveByServer(ref);
-		return channels.map((c) => ({
-			id: stringToRecordId.encode(c.id),
-			name: c.name ?? '',
-			type: c.type ?? 'text'
-		}));
+		// Scoped per channel, not server-wide: a category/channel override can
+		// deny READ_MESSAGES to someone who holds it at the server level — and
+		// grant it to someone who doesn't — so the server-level answer is not
+		// the visible set. Same evaluation buildPermissionTree's can_view uses.
+		// One fold for the whole server; the rows already carry `category_id`.
+		const [fold, channels] = await Promise.all([
+			this.loadPermissionFold(userId, serverId),
+			this.channels.findLiveByServer(ref)
+		]);
+		const visible: Array<{ id: string; name: string; type: string }> = [];
+		for (const c of channels) {
+			const id = stringToRecordId.encode(c.id);
+			const catId = c.category_id ? stringToRecordId.encode(c.category_id) : null;
+			const perms = fold.forChannel(id, catId);
+			if (!hasPermission(perms, Permissions.READ_MESSAGES)) continue;
+			visible.push({ id, name: c.name ?? '', type: c.type ?? 'text' });
+		}
+		return visible;
 	}
 
 	async buildPermissionTree(userId: string, serverId: string): Promise<PermissionTree> {
 		const ref = stringToRecordId.decode(serverId);
 
-		const serverPerms = await this.computePermissions(userId, serverId);
+		// One fold for the whole tree — every node below reads the same
+		// server-scoped state, so it is loaded once and replayed per channel.
+		const fold = await this.loadPermissionFold(userId, serverId);
+		const serverPerms = fold.serverPermissions;
 
 		const [allCategories, allChannels] = await Promise.all([
 			this.categories.findByServerOrdered(ref),
@@ -805,9 +767,11 @@ export class RoleService {
 			}
 		}
 
-		const buildChannelNode = async (ch: ChannelRow): Promise<PermissionTreeChannel> => {
+		// `categoryId` is threaded in from the row we already grouped by, so no
+		// channel costs an extra read of its own `category_id` column.
+		const buildChannelNode = (ch: ChannelRow, categoryId: string | null): PermissionTreeChannel => {
 			const chId = stringToRecordId.encode(ch.id as RecordId);
-			const perms = await this.computePermissions(userId, serverId, chId);
+			const perms = fold.forChannel(chId, categoryId);
 			return {
 				id: chId,
 				name: (ch.name as string) ?? '',
@@ -818,28 +782,24 @@ export class RoleService {
 			};
 		};
 
-		const categories = await Promise.all(
-			allCategories.map(async (cat) => {
-				const catId = stringToRecordId.encode(cat.id as RecordId);
-				const children = channelsByCategory.get(catId) ?? [];
-				const firstChannelId = children[0]
-					? stringToRecordId.encode(children[0].id as RecordId)
-					: undefined;
-				const catPerms = firstChannelId
-					? await this.computePermissions(userId, serverId, firstChannelId)
-					: serverPerms;
-				const channelNodes = await Promise.all(children.map(buildChannelNode));
-				return {
-					id: catId,
-					name: (cat.name as string) ?? '',
-					position: (cat.position as number) ?? 0,
-					permissions: catPerms.toString(),
-					channels: channelNodes
-				};
-			})
-		);
+		const categories = allCategories.map((cat) => {
+			const catId = stringToRecordId.encode(cat.id as RecordId);
+			const children = channelsByCategory.get(catId) ?? [];
+			// The category's own scope — not its first child's. `forChannel`
+			// would fold in that one channel's overrides, so a deny on it would
+			// render the whole category denied, and an empty category would fall
+			// back to `serverPerms` and lose the category overrides entirely.
+			const catPerms = fold.forCategory(catId);
+			return {
+				id: catId,
+				name: (cat.name as string) ?? '',
+				position: (cat.position as number) ?? 0,
+				permissions: catPerms.toString(),
+				channels: children.map((ch) => buildChannelNode(ch, catId))
+			};
+		});
 
-		const uncategorizedNodes = await Promise.all(uncategorized.map(buildChannelNode));
+		const uncategorizedNodes = uncategorized.map((ch) => buildChannelNode(ch, null));
 
 		return {
 			server: { permissions: serverPerms.toString() },
