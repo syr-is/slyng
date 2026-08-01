@@ -174,6 +174,54 @@ pub struct WsTypingStartPayload {
 	pub channel_id: String,
 }
 
+/// Longest `custom_status` the gateway accepts, in UTF-16 code units.
+///
+/// Exactly the `maxlength` the only UI that produces one already
+/// enforces — the "Custom status..." input in
+/// `packages/ts/ui/src/lib/components/fragments/status-picker.svelte`.
+/// Zod's `.max()` counts the same units the DOM's `maxlength` does, so
+/// every value that input can hold is accepted and nothing wider is.
+/// The gateway has no length check of its own and the value is
+/// broadcast to every server member and persisted on the user row, so
+/// the limit has to live in the contract or it does not exist.
+pub const CUSTOM_STATUS_MAX_LEN: usize = 128;
+
+/// Same, for the emoji slot beside it (the `🙂` input, `maxlength={4}`).
+///
+/// Four UTF-16 units covers a plain emoji, a regional-indicator flag
+/// and an emoji + skin-tone modifier. It does not cover longer ZWJ
+/// sequences — but neither does the input, so this rejects nothing a
+/// client can currently send. Raise both together.
+pub const CUSTOM_EMOJI_MAX_LEN: usize = 4;
+
+/// A `custom_status` string on the wire — a plain string, length-bounded.
+///
+/// `zod_gen` has no length attribute, so the bound rides on a newtype
+/// with a hand-written `ZodSchema`. `#[serde(transparent)]` keeps the
+/// JSON byte-identical to a bare string in both directions, and the
+/// `tsify(type = "string")` on the field below keeps the emitted
+/// `.d.ts` referring to `string` rather than to this wrapper.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct CustomStatusText(pub String);
+
+impl zod_gen::ZodSchema for CustomStatusText {
+	fn zod_schema() -> String {
+		format!("{}.max({CUSTOM_STATUS_MAX_LEN})", zod_gen::zod_string())
+	}
+}
+
+/// A `custom_emoji` string on the wire. See [`CustomStatusText`].
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct CustomStatusEmoji(pub String);
+
+impl zod_gen::ZodSchema for CustomStatusEmoji {
+	fn zod_schema() -> String {
+		format!("{}.max({CUSTOM_EMOJI_MAX_LEN})", zod_gen::zod_string())
+	}
+}
+
 /// Client → server presence patch (op 6).
 ///
 /// Every field is optional because the sender is a *patch*, not a full
@@ -188,9 +236,21 @@ pub struct WsTypingStartPayload {
 ///   (`packages/ts/ui/src/lib/components/fragments/status-picker.svelte:31,41`).
 ///
 /// Absent vs. empty string are *different* instructions to the handler:
-/// absent means "leave this alone", `""` means "clear it"
-/// (`apps/slyng/api/src/gateway/chat.gateway.ts:388`). So no field may
-/// ever gain a default — a default would erase that distinction.
+/// absent means "leave this alone", `""` means "clear it". See
+/// `handlePresenceUpdate` in `apps/slyng/api/src/gateway/chat.gateway.ts`
+/// — the two `data.<field> === undefined ? current.<field> : (…)`
+/// ternaries. So no field may ever gain a default; a default would erase
+/// that distinction and the status picker's Clear button with it.
+///
+/// "Optional" here means **key absent**, never an explicit `null` — the
+/// repo-wide rule the generator states at
+/// `packages/rust/slyng-types/src/bin/generate-zod.rs` ("omit, don't
+/// null"). JS callers cannot violate it by accident: the WASM realtime
+/// transport strips null-valued keys before the frame goes out
+/// (`Realtime::send` in `packages/rust/slyng-client/src/wasm.rs` →
+/// `body_from_jsv` → `transport::compact_nulls`), which turns a JS
+/// `{ status: undefined }` — `serde_wasm_bindgen` renders that as
+/// `Value::Null` — back into the absent key this schema expects.
 ///
 /// `status` keeps the full `PresenceStatus` enum, `offline` included,
 /// even though the handler only ever *acts* on
@@ -209,9 +269,11 @@ pub struct WsPresenceUpdatePayload {
 	#[serde(skip_serializing_if = "Option::is_none", default)]
 	pub status: Option<crate::presence::PresenceStatus>,
 	#[serde(skip_serializing_if = "Option::is_none", default)]
-	pub custom_status: Option<String>,
+	#[cfg_attr(target_arch = "wasm32", tsify(type = "string"))]
+	pub custom_status: Option<CustomStatusText>,
 	#[serde(skip_serializing_if = "Option::is_none", default)]
-	pub custom_emoji: Option<String>,
+	#[cfg_attr(target_arch = "wasm32", tsify(type = "string"))]
+	pub custom_emoji: Option<CustomStatusEmoji>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, ZodSchema)]

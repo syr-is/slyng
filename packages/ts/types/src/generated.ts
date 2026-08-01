@@ -1150,8 +1150,8 @@ export type WsPresenceUpdateBroadcastPayload = z.infer<typeof WsPresenceUpdateBr
 
 export const WsPresenceUpdatePayloadSchema = z.object({
   status: z.enum(['online', 'idle', 'dnd', 'invisible', 'offline']).optional(),
-  custom_status: z.string().optional(),
-  custom_emoji: z.string().optional()
+  custom_status: z.string().max(128).optional(),
+  custom_emoji: z.string().max(4).optional()
 });
 export type WsPresenceUpdatePayload = z.infer<typeof WsPresenceUpdatePayloadSchema>;
 
