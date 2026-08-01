@@ -8,8 +8,12 @@ import {
 	ServerBanRepository,
 	ServerRoleRepository
 } from '../server/server.repository';
-import { ChannelRepository, ChannelCategoryRepository } from '../channel/channel.repository';
-import { groupChannelTopicsByServer } from '../common/channel-topics';
+import {
+	ChannelRepository,
+	ChannelCategoryRepository,
+	ChannelParticipantRepository
+} from '../channel/channel.repository';
+import { groupChannelTopicsByServer, isChannelTopic } from '../common/channel-topics';
 import {
 	constantPermissionFold,
 	resolvePermissionFold,
@@ -36,7 +40,8 @@ export class MemberAccessService {
 		private readonly roles: ServerRoleRepository,
 		private readonly channels: ChannelRepository,
 		private readonly categories: ChannelCategoryRepository,
-		private readonly permOverrides: PermissionOverrideRepository
+		private readonly permOverrides: PermissionOverrideRepository,
+		private readonly participants: ChannelParticipantRepository
 	) {}
 
 	/**
@@ -51,7 +56,7 @@ export class MemberAccessService {
 			const exists = await this.servers.findById(topicId);
 			return exists ? topicId : null;
 		}
-		if (topicId.startsWith('channel:')) {
+		if (isChannelTopic(topicId)) {
 			const channel = await this.channels.findById(topicId);
 			if (!channel) return null;
 			const sid = channel.server_id as RecordId | string | undefined;
@@ -183,7 +188,34 @@ export class MemberAccessService {
 		const rows = await this.channels.findByIds([...new Set(channelIds)]);
 		const { unscoped, byServer, unresolved } = groupChannelTopicsByServer(channelIds, rows);
 
-		for (const id of unscoped) allowed.add(id);
+		// Unscoped channels are DMs and group DMs — no server, so no fold can
+		// answer them. Membership is the whole authorisation, and it is a real
+		// check: admitting these unconditionally let any authenticated socket
+		// subscribe to any DM id it could name and receive that conversation.
+		//
+		// One read for the caller's own participations rather than one per
+		// channel — the frame carries a client's whole DM list on every
+		// reconnect. A self-DM needs no special case: the user is a participant
+		// of it like any other.
+		if (unscoped.length) {
+			try {
+				const mine = await this.participants.findMany({ user_id: userId });
+				const participating = new Set(
+					mine.map((p) => stringToRecordId.encode(p.channel_id as RecordId))
+				);
+				for (const id of unscoped) {
+					if (participating.has(id)) allowed.add(id);
+				}
+			} catch (err) {
+				// Fail closed, and only for the DMs — the server-scoped folds
+				// below are unaffected by this read.
+				this.logger.warn(
+					`Participation lookup failed; denying ${unscoped.length} DM topic(s): ${
+						err instanceof Error ? err.message : String(err)
+					}`
+				);
+			}
+		}
 		if (unresolved.length) {
 			// Denied by omission, but worth a trace: a client asking about
 			// channels that no longer exist means its channel list has drifted.

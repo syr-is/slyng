@@ -90,6 +90,17 @@ export interface PermissionFold {
 	readonly hasChannelScopedOverrides: boolean;
 	/** Layers 3–6 replayed on top of `serverPermissions` for one channel. */
 	forChannel(channelId: string, categoryId: string | null): bigint;
+	/**
+	 * Layers 3 and 5 replayed on top of `serverPermissions` for one category,
+	 * with no channel in scope.
+	 *
+	 * A category is a scope in its own right, not a stand-in for any channel
+	 * inside it. Answering one with `forChannel(someChild, catId)` folds in that
+	 * child's channel-scoped overrides, so a deny on a single channel would
+	 * report the whole category as denied; answering an empty one with
+	 * `serverPermissions` drops the category overrides that do apply.
+	 */
+	forCategory(categoryId: string): bigint;
 }
 
 /** `perms = (perms & ~deny) | allow` — the single rule every layer applies. */
@@ -104,7 +115,8 @@ export function constantPermissionFold(permissions: bigint): PermissionFold {
 	return {
 		serverPermissions: permissions,
 		hasChannelScopedOverrides: false,
-		forChannel: () => permissions
+		forChannel: () => permissions,
+		forCategory: () => permissions
 	};
 }
 
@@ -237,6 +249,21 @@ export async function resolvePermissionFold(input: PermissionFoldInput): Promise
 			// Layer 6: user channel override (highest priority)
 			const chUserOverride = userChannelOverrides.get(channelId);
 			if (chUserOverride) perms = applyOverride(perms, chUserOverride);
+
+			return perms;
+		},
+		forCategory(categoryId: string): bigint {
+			// Layers 3 and 5 only — the category-scoped subset of `forChannel`,
+			// in the same order. Layers 4 and 6 are channel-scoped and there is
+			// no channel in scope here.
+			let perms = serverPermissions;
+
+			for (const o of roleCategoryOverrides.get(categoryId) ?? []) {
+				perms = applyOverride(perms, o);
+			}
+
+			const catUserOverride = userCategoryOverrides.get(categoryId);
+			if (catUserOverride) perms = applyOverride(perms, catUserOverride);
 
 			return perms;
 		}

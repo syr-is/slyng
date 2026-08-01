@@ -2,7 +2,11 @@ import { describe, expect, it, vi } from 'vitest';
 import { RecordId } from 'surrealdb';
 import { Permissions, stringToRecordId } from '@slyng/types';
 import { MemberAccessService } from './member-access.service';
-import type { ChannelRepository, ChannelCategoryRepository } from '../channel/channel.repository';
+import type {
+	ChannelRepository,
+	ChannelCategoryRepository,
+	ChannelParticipantRepository
+} from '../channel/channel.repository';
 import type {
 	ServerRepository,
 	ServerMemberRepository,
@@ -80,6 +84,14 @@ interface StubOptions {
 	failRolesFor?: string[];
 	/** Override rows, filtered by `server_id` the way the repository does. */
 	overrides?: PermissionOverrideRow[];
+	/**
+	 * Channels the user has a `channel_participant` row for. Defaults to the DM
+	 * fixture, which is the ordinary case — a client re-subscribing to its own
+	 * conversations. Set `[]` for someone naming a DM they are not in.
+	 */
+	participantOf?: RecordId[];
+	/** The participation read explodes. */
+	failParticipants?: boolean;
 }
 
 function makeService(opts: StubOptions = {}) {
@@ -132,6 +144,19 @@ function makeService(opts: StubOptions = {}) {
 		}
 	} as unknown as PermissionOverrideRepository;
 
+	const participants = {
+		async findMany(f: Record<string, unknown>) {
+			if (opts.failParticipants) throw new Error('surrealdb: connection reset');
+			// The service reads by user, once, rather than per channel.
+			expect(f).toEqual({ user_id: ALICE });
+			return (opts.participantOf ?? [CH_DM.id]).map((channel_id) => ({
+				id: new RecordId('channel_participant', `p-${channel_id.id}`),
+				channel_id,
+				user_id: ALICE
+			}));
+		}
+	} as unknown as ChannelParticipantRepository;
+
 	const svc = new MemberAccessService(
 		servers,
 		members,
@@ -139,7 +164,8 @@ function makeService(opts: StubOptions = {}) {
 		roles,
 		channels,
 		{} as unknown as ChannelCategoryRepository,
-		overrides
+		overrides,
+		participants
 	);
 	const warn = vi.fn();
 	const debug = vi.fn();
@@ -203,9 +229,33 @@ describe('MemberAccessService.canReadChannels', () => {
 		expect(debug.mock.calls[0][0]).toContain('channel:ghost');
 	});
 
-	it('passes DM channels through — no server scope, nothing to gate on', async () => {
-		const { svc } = makeService();
+	// A DM has no server, so no fold can answer it. Participation is the whole
+	// authorisation — and it is a real one: these used to be admitted on sight,
+	// so any authenticated socket could subscribe to any DM id it could name.
+	it('allows a DM the user is a participant of', async () => {
+		const { svc } = makeService({ participantOf: [CH_DM.id] });
 		expect(sorted(await svc.canReadChannels(ALICE, [enc(CH_DM.id)]))).toEqual([enc(CH_DM.id)]);
+	});
+
+	it('denies a DM the user is not a participant of', async () => {
+		const { svc } = makeService({ participantOf: [] });
+		expect(sorted(await svc.canReadChannels(ALICE, [enc(CH_DM.id)]))).toEqual([]);
+	});
+
+	it('denies a DM belonging to other people, while still answering server channels', async () => {
+		const { svc } = makeService({ participantOf: [] });
+		const allowed = await svc.canReadChannels(ALICE, ALL_IDS);
+		expect(allowed.has(enc(CH_DM.id))).toBe(false);
+		expect(sorted(allowed)).toEqual([enc(CH_A1.id), enc(CH_A2.id), enc(CH_B.id)]);
+	});
+
+	it('fails closed on the DMs alone when the participation read throws', async () => {
+		const { svc, warn } = makeService({ failParticipants: true });
+		const allowed = await svc.canReadChannels(ALICE, ALL_IDS);
+		// The DM is denied; the server-scoped folds are untouched by that read.
+		expect(sorted(allowed)).toEqual([enc(CH_A1.id), enc(CH_A2.id), enc(CH_B.id)]);
+		expect(warn).toHaveBeenCalledOnce();
+		expect(warn.mock.calls[0][0]).toContain('Participation lookup failed');
 	});
 
 	it('denies every channel of a server the user is banned from', async () => {

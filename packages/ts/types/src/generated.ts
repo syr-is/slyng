@@ -1144,13 +1144,15 @@ export type WsPinPayload = z.infer<typeof WsPinPayloadSchema>;
 export const WsPresenceUpdateBroadcastPayloadSchema = z.object({
   user_id: z.string(),
   status: z.enum(['online', 'idle', 'dnd', 'invisible', 'offline']),
-  custom_status: z.string().optional()
+  custom_status: z.string().optional(),
+  custom_emoji: z.string().optional()
 });
 export type WsPresenceUpdateBroadcastPayload = z.infer<typeof WsPresenceUpdateBroadcastPayloadSchema>;
 
 export const WsPresenceUpdatePayloadSchema = z.object({
-  status: z.enum(['online', 'idle', 'dnd', 'invisible', 'offline']),
-  custom_status: z.string().optional()
+  status: z.enum(['online', 'idle', 'dnd', 'invisible', 'offline']).optional(),
+  custom_status: z.string().max(128).optional(),
+  custom_emoji: z.string().max(4).optional()
 });
 export type WsPresenceUpdatePayload = z.infer<typeof WsPresenceUpdatePayloadSchema>;
 
@@ -1202,7 +1204,9 @@ export const WsReadyPayloadSchema = z.object({
 })),
   presences: z.array(z.object({
   user_id: z.string(),
-  status: z.enum(['online', 'idle', 'dnd', 'invisible', 'offline'])
+  status: z.enum(['online', 'idle', 'dnd', 'invisible', 'offline']),
+  custom_status: z.string().optional(),
+  custom_emoji: z.string().optional()
 })),
   unread: z.array(z.object({
   channel_id: z.string(),
@@ -1214,7 +1218,9 @@ export type WsReadyPayload = z.infer<typeof WsReadyPayloadSchema>;
 
 export const WsReadyPresenceSchema = z.object({
   user_id: z.string(),
-  status: z.enum(['online', 'idle', 'dnd', 'invisible', 'offline'])
+  status: z.enum(['online', 'idle', 'dnd', 'invisible', 'offline']),
+  custom_status: z.string().optional(),
+  custom_emoji: z.string().optional()
 });
 export type WsReadyPresence = z.infer<typeof WsReadyPresenceSchema>;
 
@@ -1266,14 +1272,16 @@ export const WsTypingStartPayloadSchema = z.object({
 export type WsTypingStartPayload = z.infer<typeof WsTypingStartPayloadSchema>;
 
 export const WsUnwatchProfilesPayloadSchema = z.object({
-  dids: z.array(z.string())
+  dids: z.array(z.string()).optional()
 });
 export type WsUnwatchProfilesPayload = z.infer<typeof WsUnwatchProfilesPayloadSchema>;
 
 export const WsVoiceStateUpdatePayloadSchema = z.object({
-  channel_id: z.string().optional(),
-  self_mute: z.boolean(),
-  self_deaf: z.boolean()
+  channel_id: z.union([z.string(), z.null()]),
+  self_mute: z.boolean().optional(),
+  self_deaf: z.boolean().optional(),
+  has_camera: z.boolean().optional(),
+  has_screen: z.boolean().optional()
 });
 export type WsVoiceStateUpdatePayload = z.infer<typeof WsVoiceStateUpdatePayloadSchema>;
 

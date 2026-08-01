@@ -148,6 +148,74 @@ No `prompt()`, no `confirm()`, no `alert()`. No `// TODO: implement later`. No h
 
 ---
 
+## Compound tasks — the parallel worktree tournament
+
+For a prompt that carries several independent fixes or features at once ("do all of these"), don't do them serially in one branch. Fan out, review adversarially, then merge by intent.
+
+```mermaid
+flowchart TD
+    A[Scout: split into tracks with DISJOINT files] --> B1[track 1 worktree]
+    A --> B2[track 2 worktree]
+    A --> B3[track 3 worktree]
+    B1 --> C1{2 adversaries}
+    B2 --> C2{2 adversaries}
+    B3 --> C3{2 adversaries}
+    C1 -->|findings| B1
+    C2 -->|findings| B2
+    C3 -->|findings| B3
+    C1 -->|0 findings| D[merge tournament]
+    C2 -->|0 findings| D
+    C3 -->|0 findings| D
+    D --> E[pairwise merge by INTENT]
+    E --> F[final verify]
+    F --> G[one PR]
+```
+
+**Foundation wave first, before anyone forks.** Some files every track touches: `packages/ts/types/src/index.ts`, the schema string in `db.service.ts`, the purge lists, this file. Fork before those settle and every branch edits the same lines — exactly the conflict the split was meant to avoid. Land shared vocabulary as **one agent, no parallelism**, merged before any worktree exists. Additive by default: existing rows must parse unchanged, and a new field on an existing entity is `.optional()`, never `.default()` (a default makes it required on the inferred output type and breaks every construction site).
+
+**Split by files, not by topic.** Tracks must own disjoint files or the merge becomes the whole job. Sharing one generated file is fine — see below. Sharing a hand-written file is not. Give each track an **explicit file territory** and say what happens at the boundary: out-of-territory problems get reported in the hand-off, never fixed. Where two tracks must touch one file, split it by function and name the exact lines each owns.
+
+**Scout before you fan out.** Prove the build recipe yourself first — three agents discovering the same environment gotcha is three times the cost and they may each "fix" it differently. A fresh worktree here has no `node_modules` and no built `dist/`, so the API typecheck fails on unresolvable `@slyng/*` types before the agent writes a line, and rebuilding `idp-crypto` means wasm-pack and a Rust toolchain. Seed the built dists from your main checkout and verify a clean baseline `tsc` **before** launching the agent:
+
+```bash
+MAIN_CHECKOUT=/absolute/path/to/your/main/checkout   # replace: the worktree you already build in
+
+git worktree add -b track/<name> ../.slyng-worktrees/<name> <integration-branch>
+cd ../.slyng-worktrees/<name>
+pnpm install --frozen-lockfile --prefer-offline
+
+# dist/ is gitignored, so it does not come across with the worktree. Copy each
+# package's dist to its OWN destination — `cp -R src/*/dist dest/*/` expands
+# both globs and merges every source into the last destination directory.
+for pkg in "$MAIN_CHECKOUT"/packages/ts/*/dist; do
+  name=$(basename "$(dirname "$pkg")")
+  [ -d "packages/ts/$name" ] && cp -R "$pkg" "packages/ts/$name/dist"
+done
+
+pnpm --filter @slyng/types build
+pnpm --filter @slyng/api exec tsc --noEmit -p tsconfig.json   # must be 0 before you start
+```
+
+Skip the copy and you get a wall of phantom `TS2307`s that have nothing to do with the task.
+
+**Two adversaries per track, with different lenses.** Technical (does it compile, does it hold, does the generated output match its source, edge cases, compiles-but-wrong) and vision (is this the right change at the right level for this codebase — rule compliance, layering, over-engineering, comment truth, scope discipline, and does every real user flow still work). Redundant reviewers find redundant bugs. The vision lens is the one that catches "the schema is beautiful and it broke leaving a voice call."
+
+Both must be told to REFUTE, and both must be told **a clean verdict is an acceptable outcome** — an adversary that believes it is judged on findings invents them. And an adversary must **rebuild the implementer's proof itself**: a differential harness written by the author of the change proves nothing about the author's blind spot, so the review only counts when the oracle was derived independently.
+
+**Loop to zero findings, but cap the rounds** and surface what's still open. Findings go back to the implementing agent, which fixes or rejects each **with a reason**, then both adversaries re-review. A track that exits at the cap with findings outstanding must say so — silently dropping them defeats the point.
+
+**If an adversary refutes a track's premise, drop the track — do not patch it.** A change whose justification turned out to be false is not salvageable by rewriting its comment; shipping it leaves churn plus a docstring that installs a false belief in the next reader. Killing a track is a successful round.
+
+**Verify the findings yourself before acting on them.** Adversaries produce stale and overstated findings. In the WS-contract run, of two findings left open at the cap, one was already fixed by a later merge and the other was real but far narrower than claimed. Fixing the first would have been wasted work; trusting the summary would have shipped the second.
+
+**Merge by intent, not by text.** When two branches come back clean they pair up: a merge agent takes both diffs **plus each branch's stated intent** — what it changed about the product, what it changed about the code, what it deliberately did not change — and produces one branch. Winners keep pairing until one remains. Deterministic rules beat judgement where they exist: machine-generated files (`packages/ts/types/src/generated.ts`) are never hand-merged — take either side, re-run `pnpm gen`, commit the result. That single rule is what makes tracks sharing a generated file tractable.
+
+**Check the merged result, not just the parts.** Two individually-clean diffs can typecheck apart and not together, so the repo checks run on the final branch. Then rebuild and restart the dev containers so the work can be reviewed running live.
+
+**Agents don't push.** No `git push`, no `gh`, no PR edits from a subagent. The final diff gets read by one accountable reviewer before anything leaves the machine.
+
+---
+
 ## Architecture cheat sheet
 
 ### Auth guard stack (request order)
@@ -181,84 +249,6 @@ Clients subscribe to the current server's topic + every channel topic on `loadSe
 - Don't skip error toasts — every async action that can fail calls `toast.error(...)`.
 - Don't log secrets (session tokens, DIDs of third parties beyond necessary, WebRTC SDPs in full).
 - Don't write docs / planning files / summaries unprompted — user's convention: work from conversation context.
-
----
-
-## Parallel workstreams — compound prompts
-
-When one prompt asks for changes to **several independent systems**, don't work
-through them serially. Fan out, review adversarially, then merge.
-
-### 1. Foundation wave first — before anyone forks
-
-Some files every track touches: `packages/ts/types/src/index.ts`, the schema
-string in `db.service.ts`, the purge lists, `AI.md`. If tracks fork before those
-settle, every branch edits the same lines and the merge is exactly the conflict
-the split was meant to avoid. So land shared vocabulary — types, enums,
-`DEFINE TABLE`/`DEFINE INDEX` + purge rows, request DTOs, docs — as **one agent,
-no parallelism**, merged into the integration branch before any worktree exists.
-Additive by default: existing rows must parse unchanged, and a new field on an
-existing entity is `.optional()`, never `.default()` (a default makes it required
-on the inferred output type and breaks every construction site).
-
-### 2. One track per system, one worktree each
-
-Branch from **the branch under work**, not `main`:
-
-```
-git worktree add -b track/<name> ../.slyng-worktrees/<name> <integration-branch>
-cd ../.slyng-worktrees/<name> && pnpm install --prefer-offline
-cp -R <main-checkout>/packages/ts/*/dist packages/ts/*/   # dist/ is gitignored
-```
-
-That last line is not optional. A fresh worktree has no `packages/ts/*/dist`, so
-the API typecheck fails on unresolvable `@slyng/*` types before the agent writes
-a line — and rebuilding `idp-crypto` means wasm-pack and a Rust toolchain. Seed
-the built dists from the main checkout and verify a clean baseline `tsc` BEFORE
-launching the agent, or you will spend the round debugging the harness.
-
-Give each track an **explicit file territory** and say what happens at the
-boundary: out-of-territory problems get **reported in the hand-off, never
-fixed**. Where two tracks must touch one file, split it by function and name the
-exact lines each owns.
-
-### 3. Two adversaries per track, distinct lenses
-
-- **Technical** — correctness, regressions, edge cases, compiles-but-wrong.
-- **Vision** — is this the right change, at the right level, for this codebase?
-  Rule compliance, layering, over-engineering, comment truth, scope discipline.
-
-Both must be told to REFUTE, and both must be told **a clean verdict is an
-acceptable outcome** — an adversary that believes it is judged on findings
-invents them.
-
-An adversary must **rebuild the implementer's proof itself**. A differential
-harness written by the author of the change proves nothing about the author's
-blind spot; the review only counts when the oracle was copied independently out
-of the original source.
-
-### 4. Loop until both come back empty
-
-Findings go back to the implementing agent, which fixes or rejects each **with a
-reason**, then both adversaries re-review. Cap at two or three rounds and
-surface anything still contested rather than looping forever.
-
-**If an adversary refutes a track's premise, drop the track — do not patch it.**
-A change whose justification turned out to be false is not salvageable by
-rewriting its comment; shipping it leaves churn plus a docstring that installs a
-false belief in the next reader. Killing a track is a successful round.
-
-### 5. Merge tournament
-
-When two branches come back clean they pair up: a merge agent takes both
-diffs **plus each branch's stated intent** — what it changed about the product,
-what it changed about the code, what it deliberately did not change — and
-produces one branch. Winners keep pairing until one remains, which merges into
-the integration branch. Run the repo checks on the **merged** result, not just
-per-worktree: two individually-clean diffs can typecheck apart and not together.
-
-Then rebuild and restart the dev containers so the work can be reviewed running
-live, and report what changed per system.
 
 ---
 

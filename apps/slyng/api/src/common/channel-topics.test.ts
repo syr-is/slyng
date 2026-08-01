@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { RecordId } from 'surrealdb';
 import { stringToRecordId } from '@slyng/types';
-import { groupChannelTopicsByServer, parseTopicIds, type ChannelScopeRow } from './channel-topics';
+import { groupChannelTopicsByServer, isChannelTopic, type ChannelScopeRow } from './channel-topics';
 
 const S1 = new RecordId('server', 's1');
 const S2 = new RecordId('server', 's2');
@@ -18,53 +18,6 @@ const chan = (
 });
 
 const id = (name: string) => stringToRecordId.encode(new RecordId('channel', name));
-
-describe('parseTopicIds', () => {
-	it('passes a well-formed frame through and reports it on-contract', () => {
-		expect(parseTopicIds({ channel_ids: ['channel:a', 'server:s1'] })).toEqual({
-			ids: ['channel:a', 'server:s1'],
-			offered: 2,
-			offContract: false
-		});
-		expect(parseTopicIds({ channel_ids: [] })).toEqual({
-			ids: [],
-			offered: 0,
-			offContract: false
-		});
-	});
-
-	// Each of these reached `.filter` / `for…of` before the parse existed and
-	// rejected out of a fire-and-forget dispatch, taking the process with it.
-	it('salvages the valid entries of a frame with a bad one, and flags it', () => {
-		expect(parseTopicIds({ channel_ids: [123, 'channel:ok'] })).toEqual({
-			ids: ['channel:ok'],
-			offered: 2,
-			offContract: true
-		});
-		expect(parseTopicIds({ channel_ids: [null, 'channel:ok', {}, true, undefined] })).toEqual({
-			ids: ['channel:ok'],
-			offered: 5,
-			offContract: true
-		});
-	});
-
-	it('yields nothing when there is no array of topics to salvage', () => {
-		for (const payload of [
-			{ channel_ids: 'channel:abc' },
-			{},
-			{ channel_ids: null },
-			{ channel_ids: 42 }
-		]) {
-			expect(parseTopicIds(payload)).toEqual({ ids: [], offered: 0, offContract: true });
-		}
-	});
-
-	it('survives a payload that is not an object at all', () => {
-		for (const payload of [undefined, null, 0, '', 'nope', true, [], [1, 2]]) {
-			expect(parseTopicIds(payload)).toEqual({ ids: [], offered: 0, offContract: true });
-		}
-	});
-});
 
 describe('groupChannelTopicsByServer', () => {
 	it('buckets each channel under the server whose cascade decides it', () => {
@@ -108,7 +61,9 @@ describe('groupChannelTopicsByServer', () => {
 		expect(g.unresolved).toEqual(['channel:ghost', 'nocolon']);
 	});
 
-	it('separates rows with no server scope — DM channels gate on nothing', () => {
+	// Unscoped is a bucket, not a verdict: no server fold can answer these, so
+	// `MemberAccessService.canReadChannels` gates them on participation instead.
+	it('separates rows with no server scope — DM channels, answered elsewhere', () => {
 		const { unscoped, byServer, unresolved } = groupChannelTopicsByServer(
 			[id('dm'), id('a')],
 			[chan('dm'), chan('a', S1)]
@@ -160,6 +115,34 @@ describe('groupChannelTopicsByServer', () => {
 		expect(g.byServer.size).toBe(0);
 	});
 
+	// `findByIds` runs `WHERE id IN $ids` with no soft-delete predicate, so a
+	// deleted channel arrives here looking exactly like a live one. If it were
+	// grouped, its server's fold could grant READ_MESSAGES on a deleted channel.
+	it('treats a soft-deleted channel as unresolved, not as a live one', () => {
+		const { unscoped, byServer, unresolved } = groupChannelTopicsByServer(
+			[id('gone'), id('dmgone'), id('a')],
+			[
+				{ ...chan('gone', S1), deleted: true },
+				{ ...chan('dmgone'), deleted: true },
+				chan('a', S1)
+			]
+		);
+		expect(unresolved).toEqual([id('gone'), id('dmgone')]);
+		expect(byServer.get('server:s1')?.map((c) => c.id)).toEqual([id('a')]);
+		expect(unscoped).toEqual([]);
+	});
+
+	// The column postdates the rows created before soft-delete existed, which is
+	// why `findLiveByServer` matches `deleted = NONE OR deleted = false`.
+	it('keeps rows where deleted is absent or false', () => {
+		const { byServer, unresolved } = groupChannelTopicsByServer(
+			[id('legacy'), id('live')],
+			[chan('legacy', S1), { ...chan('live', S1), deleted: false }]
+		);
+		expect(byServer.get('server:s1')?.map((c) => c.id)).toEqual([id('legacy'), id('live')]);
+		expect(unresolved).toEqual([]);
+	});
+
 	it('ignores rows nobody asked for', () => {
 		const { byServer, unresolved } = groupChannelTopicsByServer(
 			[id('a')],
@@ -168,5 +151,15 @@ describe('groupChannelTopicsByServer', () => {
 		expect(byServer.get('server:s1')?.map((c) => c.id)).toEqual([id('a')]);
 		expect(byServer.has('server:s2')).toBe(false);
 		expect(unresolved).toEqual([]);
+	});
+});
+
+describe('isChannelTopic', () => {
+	it('is true only for channel topics', () => {
+		expect(isChannelTopic('channel:abc')).toBe(true);
+		expect(isChannelTopic('channel:')).toBe(true);
+		expect(isChannelTopic('server:s1')).toBe(false);
+		expect(isChannelTopic('')).toBe(false);
+		expect(isChannelTopic('nocolon')).toBe(false);
 	});
 });

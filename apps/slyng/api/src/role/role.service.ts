@@ -785,12 +785,11 @@ export class RoleService {
 		const categories = allCategories.map((cat) => {
 			const catId = stringToRecordId.encode(cat.id as RecordId);
 			const children = channelsByCategory.get(catId) ?? [];
-			const firstChannelId = children[0]
-				? stringToRecordId.encode(children[0].id as RecordId)
-				: undefined;
-			const catPerms = firstChannelId
-				? fold.forChannel(firstChannelId, catId)
-				: serverPerms;
+			// The category's own scope — not its first child's. `forChannel`
+			// would fold in that one channel's overrides, so a deny on it would
+			// render the whole category denied, and an empty category would fall
+			// back to `serverPerms` and lose the category overrides entirely.
+			const catPerms = fold.forCategory(catId);
 			return {
 				id: catId,
 				name: (cat.name as string) ?? '',
