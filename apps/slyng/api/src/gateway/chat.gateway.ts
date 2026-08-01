@@ -17,6 +17,7 @@ import { UserRepository } from '../auth/user.repository';
 import { MemberAccessService } from '../auth/member-access.service';
 import { ProfileWatcherService } from '../profile-watcher/profile-watcher.service';
 import { serializeForWire } from '../common/serialize';
+import { describeError } from '../common/describe-error';
 
 interface ClientState {
 	userId: string | null;
@@ -122,35 +123,67 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
 	) {
 		const state = this.clients.get(client);
 		this.logger.log(`WS recv op=${msg.op} userId=${state?.userId?.slice(0, 24) ?? 'NONE'}`);
-		switch (msg.op) {
-			case WsOp.IDENTIFY:
-				this.handleIdentify(client, msg.d as { token: string });
-				break;
-			case WsOp.HEARTBEAT:
-				this.handleHeartbeat(client);
-				break;
-			case WsOp.SUBSCRIBE:
-				this.handleSubscribe(client, msg.d as { channel_ids: string[] });
-				break;
-			case WsOp.UNSUBSCRIBE:
-				this.handleUnsubscribe(client, msg.d as { channel_ids: string[] });
-				break;
-			case WsOp.TYPING_START:
-				this.handleTypingStart(client, msg.d as { channel_id: string });
-				break;
-			case WsOp.PRESENCE_UPDATE:
-				this.handlePresenceUpdate(client, msg.d as { status: string });
-				break;
-			case WsOp.VOICE_STATE_UPDATE:
-				this.handleVoiceStateUpdate(client, msg.d as any);
-				break;
-			case WsOp.WATCH_PROFILES:
-				this.handleWatchProfiles(client, msg.d as { profiles: { did: string; instance_url: string }[] });
-				break;
-			case WsOp.UNWATCH_PROFILES:
-				this.handleUnwatchProfiles(client, msg.d as { dids?: string[] });
-				break;
-			// Ops 100-102 (WebRTC signaling) removed — LiveKit handles media routing
+		try {
+			switch (msg.op) {
+				case WsOp.IDENTIFY:
+					this.settle(msg.op, this.handleIdentify(client, msg.d as { token: string }));
+					break;
+				case WsOp.HEARTBEAT:
+					this.handleHeartbeat(client);
+					break;
+				case WsOp.SUBSCRIBE:
+					this.settle(msg.op, this.handleSubscribe(client, msg.d as { channel_ids: string[] }));
+					break;
+				case WsOp.UNSUBSCRIBE:
+					this.handleUnsubscribe(client, msg.d as { channel_ids: string[] });
+					break;
+				case WsOp.TYPING_START:
+					this.handleTypingStart(client, msg.d as { channel_id: string });
+					break;
+				case WsOp.PRESENCE_UPDATE:
+					this.settle(msg.op, this.handlePresenceUpdate(client, msg.d as { status: string }));
+					break;
+				case WsOp.VOICE_STATE_UPDATE:
+					this.settle(
+						msg.op,
+						this.handleVoiceStateUpdate(
+							client,
+							msg.d as { channel_id?: string; self_mute?: boolean; self_deaf?: boolean }
+						)
+					);
+					break;
+				case WsOp.WATCH_PROFILES:
+					this.handleWatchProfiles(client, msg.d as { profiles: { did: string; instance_url: string }[] });
+					break;
+				case WsOp.UNWATCH_PROFILES:
+					this.handleUnwatchProfiles(client, msg.d as { dids?: string[] });
+					break;
+				// Ops 100-102 (WebRTC signaling) removed — LiveKit handles media routing
+			}
+		} catch (err) {
+			// Synchronous handlers. Nest's ws adapter already swallows these, but
+			// silently — a thrown frame would vanish with no record of it.
+			this.logger.error(`WS op=${msg.op} handler threw: ${describeError(err)}`);
+		}
+	}
+
+	/**
+	 * Keeps an async handler's failure scoped to the frame that caused it.
+	 *
+	 * `handleMessage` is synchronous and `@nestjs/platform-ws` wraps only the
+	 * synchronous call, so a promise rejected by one of the handlers below has
+	 * nowhere to go: Node's default turns an unhandled rejection into a process
+	 * exit. Every payload here is a client-supplied `unknown` behind a cast, so
+	 * one malformed frame from any authenticated socket was enough to take the
+	 * API down — `{"op":6,"d":null}` reaching `data.status` did it.
+	 *
+	 * Handlers are dispatched fire-and-forget on purpose: a frame must not block
+	 * the socket's read loop. So the fix is to give the rejection somewhere to
+	 * go, not to await it.
+	 */
+	private settle(op: number, result: unknown) {
+		if (result instanceof Promise) {
+			result.catch((err) => this.logger.error(`WS op=${op} handler failed: ${describeError(err)}`));
 		}
 	}
 
