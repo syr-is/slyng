@@ -6,6 +6,7 @@ import { apiReference } from '@scalar/nestjs-api-reference';
 import { cleanupOpenApiDoc } from 'nestjs-zod';
 import { WsAdapter } from '@nestjs/platform-ws';
 import cookieParser from 'cookie-parser';
+import type { CorsOptions } from '@nestjs/common/interfaces/external/cors-options.interface';
 import { AppModule } from './app.module';
 
 /**
@@ -88,29 +89,72 @@ async function bootstrap() {
 	})();
 	const allowed = new Set([...tauriOrigins, ...extraOrigins, ...(publicOrigin ? [publicOrigin] : [])]);
 	const denied = new Set<string>();
-	app.enableCors({
-		origin: (origin: string | undefined, cb: (err: Error | null, allow?: boolean) => void) => {
-			// No Origin header: same-origin navigation, curl, server-to-server.
-			// Not a browser cross-origin request, so there is nothing to gate.
-			if (!origin) return cb(null, true);
-			if (allowed.has(origin)) return cb(null, true);
-			if (!isProd) return cb(null, true);
-			// `false`, not an Error: omitting the header is the correct refusal.
-			// Throwing would turn a blocked page into a 500 in the API's logs.
-			// Logged once per origin so a misconfigured client is visible without
-			// handing an attacker a way to fill the disk.
-			if (!denied.has(origin)) {
-				denied.add(origin);
-				logger.warn(
-					`CORS: denied ${origin} — add it to SLYNG_ALLOWED_ORIGINS if this is one of yours`
-				);
+
+	/**
+	 * The federated read surface: every `@Public()` GET another instance — or
+	 * its browser client — is meant to be able to read.
+	 *
+	 * Anonymous by design, so these are served `Access-Control-Allow-Origin: *`
+	 * with credentials OFF. That is what makes them safe to open: without
+	 * credentials the browser attaches no `slyng_session`, so the response is
+	 * exactly what an unauthenticated caller would get. A path listed here in
+	 * error leaks nothing — it answers 401 like any other anonymous request.
+	 *
+	 * Note this is *stricter* than reflecting the origin with credentials on,
+	 * which is what shipped before: federation never needed a session, and the
+	 * browser spec forbids `*` together with credentials precisely because the
+	 * two are different trust levels.
+	 *
+	 * `identity/remote-root` is deliberately absent — it is not `@Public()`.
+	 */
+	const PUBLIC_FEDERATION_READS = [
+		/^\/\.well-known\/syr(?:\/[^/]+)?$/,
+		/^\/\.well-known\/did\/[^/]+$/,
+		/^\/api\/public\//,
+		/^\/api\/identity\/[^/]+\/(?:document|rotations)$/
+	];
+	const isFederationRead = (req: { method?: string; path?: string; url?: string }): boolean => {
+		const method = (req.method ?? 'GET').toUpperCase();
+		// OPTIONS is the preflight for the GET, so it has to match too.
+		if (method !== 'GET' && method !== 'HEAD' && method !== 'OPTIONS') return false;
+		const path = (req.path ?? req.url ?? '').split('?')[0];
+		return PUBLIC_FEDERATION_READS.some((re) => re.test(path));
+	};
+
+	app.enableCors(
+		(
+			req: { method?: string; path?: string; url?: string },
+			cb: (err: Error | null, options?: CorsOptions) => void
+		) => {
+			if (isFederationRead(req)) {
+				return cb(null, { origin: '*', credentials: false, methods: ['GET', 'HEAD', 'OPTIONS'] });
 			}
-			return cb(null, false);
-		},
-		credentials: true
-	});
+			cb(null, {
+				origin: (origin: string | undefined, ocb: (err: Error | null, allow?: boolean) => void) => {
+					// No Origin header: same-origin navigation, curl, and the
+					// server-to-server fetches federation actually runs on. Not a
+					// browser cross-origin request, so there is nothing to gate.
+					if (!origin) return ocb(null, true);
+					if (allowed.has(origin)) return ocb(null, true);
+					if (!isProd) return ocb(null, true);
+					// `false`, not an Error: omitting the header is the correct
+					// refusal. Throwing would turn a blocked page into a 500 in our
+					// own logs. Logged once per origin so a misconfigured client is
+					// visible without handing an attacker a way to fill the disk.
+					if (!denied.has(origin)) {
+						denied.add(origin);
+						logger.warn(
+							`CORS: denied ${origin} on a credentialed route — add it to SLYNG_ALLOWED_ORIGINS if this is one of yours`
+						);
+					}
+					return ocb(null, false);
+				},
+				credentials: true
+			});
+		}
+	);
 	if (isProd) {
-		logger.log(`CORS allowlist: ${[...allowed].join(', ')}`);
+		logger.log(`CORS: credentialed allowlist ${[...allowed].join(', ')}; public federation reads open to *`);
 	}
 
 	const swaggerConfig = new DocumentBuilder()
