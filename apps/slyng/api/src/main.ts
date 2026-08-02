@@ -65,10 +65,11 @@ async function bootstrap() {
 	// readable API session belonging to whoever visits it — not merely CSRF,
 	// which at least cannot read the response.
 	//
-	// The list is closed in production. It stays open in development because the
-	// same box commonly serves syr and slyng on different ports and hostnames,
-	// and a closed list there costs a debugging session for no security gain on
-	// a machine with no real sessions.
+	// The list is closed in production. Development additionally allows RFC1918
+	// and localhost hosts, because the same box commonly serves syr and slyng on
+	// different ports — but only those, not any origin, since a hostile page
+	// visited on a developer's machine would otherwise get a credentialed
+	// session against their local instance.
 	const isProd = config.get('NODE_ENV', 'development') === 'production';
 	const extraOrigins = (config.get<string>('SLYNG_ALLOWED_ORIGINS') ?? '')
 		.split(',')
@@ -90,6 +91,22 @@ async function bootstrap() {
 	const allowed = new Set([...tauriOrigins, ...extraOrigins, ...(publicOrigin ? [publicOrigin] : [])]);
 	const denied = new Set<string>();
 
+	/** RFC1918 + localhost, copied from syr's `DEV_LAN_PATTERNS`. Dev only. */
+	const DEV_LAN = [
+		/^10\.\d{1,3}\.\d{1,3}\.\d{1,3}$/,
+		/^172\.(1[6-9]|2\d|3[01])\.\d{1,3}\.\d{1,3}$/,
+		/^192\.168\.\d{1,3}\.\d{1,3}$/,
+		/^localhost$/i,
+		/^127\.0\.0\.1$/
+	];
+	const isDevLanOrigin = (origin: string): boolean => {
+		try {
+			return DEV_LAN.some((re) => re.test(new URL(origin).hostname));
+		} catch {
+			return false;
+		}
+	};
+
 	/**
 	 * The federated read surface: every `@Public()` GET another instance — or
 	 * its browser client — is meant to be able to read.
@@ -107,6 +124,14 @@ async function bootstrap() {
 	 *
 	 * `identity/remote-root` is deliberately absent — it is not `@Public()`.
 	 */
+	// Opt-in, and default off — the same call syr makes with the same flag name
+	// (`CORS_REFLECT_ANY_ORIGIN_PUBLIC_API`, `apps/syr/app/src/lib/config.ts`).
+	// Federation is overwhelmingly server-to-server, and those requests carry no
+	// `Origin` at all, so the closed default costs nothing in the normal case;
+	// this exists for a consumer that reads these routes straight from a browser.
+	const publicApiOpen = ['true', '1'].includes(
+		(config.get<string>('CORS_REFLECT_ANY_ORIGIN_PUBLIC_API') ?? '').trim().toLowerCase()
+	);
 	const PUBLIC_FEDERATION_READS = [
 		/^\/\.well-known\/syr(?:\/[^/]+)?$/,
 		/^\/\.well-known\/did\/[^/]+$/,
@@ -114,6 +139,7 @@ async function bootstrap() {
 		/^\/api\/identity\/[^/]+\/(?:document|rotations)$/
 	];
 	const isFederationRead = (req: { method?: string; path?: string; url?: string }): boolean => {
+		if (!publicApiOpen) return false;
 		const method = (req.method ?? 'GET').toUpperCase();
 		// OPTIONS is the preflight for the GET, so it has to match too.
 		if (method !== 'GET' && method !== 'HEAD' && method !== 'OPTIONS') return false;
@@ -136,7 +162,12 @@ async function bootstrap() {
 					// browser cross-origin request, so there is nothing to gate.
 					if (!origin) return ocb(null, true);
 					if (allowed.has(origin)) return ocb(null, true);
-					if (!isProd) return ocb(null, true);
+					// Development allows RFC1918 + localhost only — not any origin.
+					// Mirrors syr's `isOriginAllowed` (packages/ts/utils/src/origins.ts),
+					// which scopes the dev affordance to hosts a developer actually
+					// serves from. Reflecting *any* origin in dev would still hand a
+					// hostile page a credentialed session on the developer's machine.
+					if (!isProd && isDevLanOrigin(origin)) return ocb(null, true);
 					// `false`, not an Error: omitting the header is the correct
 					// refusal. Throwing would turn a blocked page into a 500 in our
 					// own logs. Logged once per origin so a misconfigured client is
@@ -154,7 +185,11 @@ async function bootstrap() {
 		}
 	);
 	if (isProd) {
-		logger.log(`CORS: credentialed allowlist ${[...allowed].join(', ')}; public federation reads open to *`);
+		logger.log(
+			`CORS: credentialed allowlist ${[...allowed].join(', ')}; public federation reads ${
+				publicApiOpen ? 'open to *' : 'closed (set CORS_REFLECT_ANY_ORIGIN_PUBLIC_API=true to open)'
+			}`
+		);
 	}
 
 	const swaggerConfig = new DocumentBuilder()
