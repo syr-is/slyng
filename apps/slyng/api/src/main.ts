@@ -6,6 +6,7 @@ import { apiReference } from '@scalar/nestjs-api-reference';
 import { cleanupOpenApiDoc } from 'nestjs-zod';
 import { WsAdapter } from '@nestjs/platform-ws';
 import cookieParser from 'cookie-parser';
+import type { CorsOptions } from '@nestjs/common/interfaces/external/cors-options.interface';
 import { AppModule } from './app.module';
 
 /**
@@ -56,23 +57,140 @@ async function bootstrap() {
 	app.setGlobalPrefix('api', {
 		exclude: ['.well-known/syr', '.well-known/syr/:did', '.well-known/did/:did']
 	});
-	// Allow same-origin (web), configured origins, and the Tauri webview origins
-	// for the native app. `origin: true` reflects the request origin which
-	// satisfies all three; we only need to ensure credentials flow.
+	// Who may send a *credentialed* cross-origin request.
+	//
+	// `credentials: true` means the browser attaches `slyng_session` and, if the
+	// response allows the origin, lets the calling page read the body. Reflecting
+	// every origin therefore hands any site on the internet an authenticated,
+	// readable API session belonging to whoever visits it — not merely CSRF,
+	// which at least cannot read the response.
+	//
+	// The list is closed in production. Development additionally allows RFC1918
+	// and localhost hosts, because the same box commonly serves syr and slyng on
+	// different ports — but only those, not any origin, since a hostile page
+	// visited on a developer's machine would otherwise get a credentialed
+	// session against their local instance.
+	const isProd = config.get('NODE_ENV', 'development') === 'production';
 	const extraOrigins = (config.get<string>('SLYNG_ALLOWED_ORIGINS') ?? '')
 		.split(',')
 		.map((s) => s.trim())
 		.filter(Boolean);
 	const tauriOrigins = ['tauri://localhost', 'https://tauri.localhost', 'http://tauri.localhost'];
-	app.enableCors({
-		origin: (origin: string | undefined, cb: (err: Error | null, allow?: boolean) => void) => {
-			if (!origin) return cb(null, true); // same-origin / curl / native fetch
-			if (tauriOrigins.includes(origin)) return cb(null, true);
-			if (extraOrigins.includes(origin)) return cb(null, true);
-			return cb(null, true); // permissive default — tighten in prod via SLYNG_ALLOWED_ORIGINS
-		},
-		credentials: true
-	});
+	// The SPA is same-origin with the API in prod, so it never reaches the check;
+	// it is listed anyway for the split-host and dev cases, where it does.
+	const publicOrigin = (() => {
+		const raw = config.get<string>('PUBLIC_URL');
+		if (!raw) return null;
+		try {
+			return new URL(raw).origin;
+		} catch {
+			logger.warn(`PUBLIC_URL is not a valid URL (${raw}); it will not be CORS-allowed`);
+			return null;
+		}
+	})();
+	const allowed = new Set([...tauriOrigins, ...extraOrigins, ...(publicOrigin ? [publicOrigin] : [])]);
+	const denied = new Set<string>();
+
+	/** RFC1918 + localhost, copied from syr's `DEV_LAN_PATTERNS`. Dev only. */
+	const DEV_LAN = [
+		/^10\.\d{1,3}\.\d{1,3}\.\d{1,3}$/,
+		/^172\.(1[6-9]|2\d|3[01])\.\d{1,3}\.\d{1,3}$/,
+		/^192\.168\.\d{1,3}\.\d{1,3}$/,
+		/^localhost$/i,
+		/^127\.0\.0\.1$/
+	];
+	const isDevLanOrigin = (origin: string): boolean => {
+		try {
+			return DEV_LAN.some((re) => re.test(new URL(origin).hostname));
+		} catch {
+			return false;
+		}
+	};
+
+	/**
+	 * The federated read surface: every `@Public()` GET another instance — or
+	 * its browser client — is meant to be able to read.
+	 *
+	 * Anonymous by design, so these are served `Access-Control-Allow-Origin: *`
+	 * with credentials OFF. That is what makes them safe to open: without
+	 * credentials the browser attaches no `slyng_session`, so the response is
+	 * exactly what an unauthenticated caller would get. A path listed here in
+	 * error leaks nothing — it answers 401 like any other anonymous request.
+	 *
+	 * Note this is *stricter* than reflecting the origin with credentials on,
+	 * which is what shipped before: federation never needed a session, and the
+	 * browser spec forbids `*` together with credentials precisely because the
+	 * two are different trust levels.
+	 *
+	 * `identity/remote-root` is deliberately absent — it is not `@Public()`.
+	 */
+	// Opt-in, and default off — the same call syr makes with the same flag name
+	// (`CORS_REFLECT_ANY_ORIGIN_PUBLIC_API`, `apps/syr/app/src/lib/config.ts`).
+	// Federation is overwhelmingly server-to-server, and those requests carry no
+	// `Origin` at all, so the closed default costs nothing in the normal case;
+	// this exists for a consumer that reads these routes straight from a browser.
+	const publicApiOpen = ['true', '1'].includes(
+		(config.get<string>('CORS_REFLECT_ANY_ORIGIN_PUBLIC_API') ?? '').trim().toLowerCase()
+	);
+	const PUBLIC_FEDERATION_READS = [
+		/^\/\.well-known\/syr(?:\/[^/]+)?$/,
+		/^\/\.well-known\/did\/[^/]+$/,
+		/^\/api\/public\//,
+		/^\/api\/identity\/[^/]+\/(?:document|rotations)$/
+	];
+	const isFederationRead = (req: { method?: string; path?: string; url?: string }): boolean => {
+		if (!publicApiOpen) return false;
+		const method = (req.method ?? 'GET').toUpperCase();
+		// OPTIONS is the preflight for the GET, so it has to match too.
+		if (method !== 'GET' && method !== 'HEAD' && method !== 'OPTIONS') return false;
+		const path = (req.path ?? req.url ?? '').split('?')[0];
+		return PUBLIC_FEDERATION_READS.some((re) => re.test(path));
+	};
+
+	app.enableCors(
+		(
+			req: { method?: string; path?: string; url?: string },
+			cb: (err: Error | null, options?: CorsOptions) => void
+		) => {
+			if (isFederationRead(req)) {
+				return cb(null, { origin: '*', credentials: false, methods: ['GET', 'HEAD', 'OPTIONS'] });
+			}
+			cb(null, {
+				origin: (origin: string | undefined, ocb: (err: Error | null, allow?: boolean) => void) => {
+					// No Origin header: same-origin navigation, curl, and the
+					// server-to-server fetches federation actually runs on. Not a
+					// browser cross-origin request, so there is nothing to gate.
+					if (!origin) return ocb(null, true);
+					if (allowed.has(origin)) return ocb(null, true);
+					// Development allows RFC1918 + localhost only — not any origin.
+					// Mirrors syr's `isOriginAllowed` (packages/ts/utils/src/origins.ts),
+					// which scopes the dev affordance to hosts a developer actually
+					// serves from. Reflecting *any* origin in dev would still hand a
+					// hostile page a credentialed session on the developer's machine.
+					if (!isProd && isDevLanOrigin(origin)) return ocb(null, true);
+					// `false`, not an Error: omitting the header is the correct
+					// refusal. Throwing would turn a blocked page into a 500 in our
+					// own logs. Logged once per origin so a misconfigured client is
+					// visible without handing an attacker a way to fill the disk.
+					if (!denied.has(origin)) {
+						denied.add(origin);
+						logger.warn(
+							`CORS: denied ${origin} on a credentialed route — add it to SLYNG_ALLOWED_ORIGINS if this is one of yours`
+						);
+					}
+					return ocb(null, false);
+				},
+				credentials: true
+			});
+		}
+	);
+	if (isProd) {
+		logger.log(
+			`CORS: credentialed allowlist ${[...allowed].join(', ')}; public federation reads ${
+				publicApiOpen ? 'open to *' : 'closed (set CORS_REFLECT_ANY_ORIGIN_PUBLIC_API=true to open)'
+			}`
+		);
+	}
 
 	const swaggerConfig = new DocumentBuilder()
 		.setTitle('Slyng Chat API')
