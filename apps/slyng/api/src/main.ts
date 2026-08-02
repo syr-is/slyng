@@ -56,23 +56,62 @@ async function bootstrap() {
 	app.setGlobalPrefix('api', {
 		exclude: ['.well-known/syr', '.well-known/syr/:did', '.well-known/did/:did']
 	});
-	// Allow same-origin (web), configured origins, and the Tauri webview origins
-	// for the native app. `origin: true` reflects the request origin which
-	// satisfies all three; we only need to ensure credentials flow.
+	// Who may send a *credentialed* cross-origin request.
+	//
+	// `credentials: true` means the browser attaches `slyng_session` and, if the
+	// response allows the origin, lets the calling page read the body. Reflecting
+	// every origin therefore hands any site on the internet an authenticated,
+	// readable API session belonging to whoever visits it — not merely CSRF,
+	// which at least cannot read the response.
+	//
+	// The list is closed in production. It stays open in development because the
+	// same box commonly serves syr and slyng on different ports and hostnames,
+	// and a closed list there costs a debugging session for no security gain on
+	// a machine with no real sessions.
+	const isProd = config.get('NODE_ENV', 'development') === 'production';
 	const extraOrigins = (config.get<string>('SLYNG_ALLOWED_ORIGINS') ?? '')
 		.split(',')
 		.map((s) => s.trim())
 		.filter(Boolean);
 	const tauriOrigins = ['tauri://localhost', 'https://tauri.localhost', 'http://tauri.localhost'];
+	// The SPA is same-origin with the API in prod, so it never reaches the check;
+	// it is listed anyway for the split-host and dev cases, where it does.
+	const publicOrigin = (() => {
+		const raw = config.get<string>('PUBLIC_URL');
+		if (!raw) return null;
+		try {
+			return new URL(raw).origin;
+		} catch {
+			logger.warn(`PUBLIC_URL is not a valid URL (${raw}); it will not be CORS-allowed`);
+			return null;
+		}
+	})();
+	const allowed = new Set([...tauriOrigins, ...extraOrigins, ...(publicOrigin ? [publicOrigin] : [])]);
+	const denied = new Set<string>();
 	app.enableCors({
 		origin: (origin: string | undefined, cb: (err: Error | null, allow?: boolean) => void) => {
-			if (!origin) return cb(null, true); // same-origin / curl / native fetch
-			if (tauriOrigins.includes(origin)) return cb(null, true);
-			if (extraOrigins.includes(origin)) return cb(null, true);
-			return cb(null, true); // permissive default — tighten in prod via SLYNG_ALLOWED_ORIGINS
+			// No Origin header: same-origin navigation, curl, server-to-server.
+			// Not a browser cross-origin request, so there is nothing to gate.
+			if (!origin) return cb(null, true);
+			if (allowed.has(origin)) return cb(null, true);
+			if (!isProd) return cb(null, true);
+			// `false`, not an Error: omitting the header is the correct refusal.
+			// Throwing would turn a blocked page into a 500 in the API's logs.
+			// Logged once per origin so a misconfigured client is visible without
+			// handing an attacker a way to fill the disk.
+			if (!denied.has(origin)) {
+				denied.add(origin);
+				logger.warn(
+					`CORS: denied ${origin} — add it to SLYNG_ALLOWED_ORIGINS if this is one of yours`
+				);
+			}
+			return cb(null, false);
 		},
 		credentials: true
 	});
+	if (isProd) {
+		logger.log(`CORS allowlist: ${[...allowed].join(', ')}`);
+	}
 
 	const swaggerConfig = new DocumentBuilder()
 		.setTitle('Slyng Chat API')
