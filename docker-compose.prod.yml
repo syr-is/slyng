@@ -87,6 +87,57 @@ services:
       - UPLOAD_MAX_BYTES=${UPLOAD_MAX_BYTES:-524288000}
       - PROXY_MAX_BYTES=${PROXY_MAX_BYTES:-104857600}
       - PROXY_TIMEOUT_MS=${PROXY_TIMEOUT_MS:-10000}
+      # ── Identity secrets — required ──────────────────────────────────
+      # These were absent from this block entirely, so setting them in the
+      # deployment environment did nothing: the container never received
+      # them. `PLATFORM_DELEGATE_SECRET` gates the local-IdP crypto, and
+      # its absence surfaces only as `500 Registration failed` — every
+      # other route keeps working, which is why it read as a database or
+      # packaging fault for a long time.
+      #
+      # `:?` on purpose: an unset secret fails the deploy with the name of
+      # the variable, instead of a 500 that names nothing. Generate with
+      # `openssl rand -hex 32`.
+      - PLATFORM_DELEGATE_SECRET=${PLATFORM_DELEGATE_SECRET:?required, min 32 chars — openssl rand -hex 32}
+      - SLYNG_JWT_SECRET=${SLYNG_JWT_SECRET:?required, min 32 chars — openssl rand -hex 32}
+      # Optional, and empty is handled: both readers test truthiness and
+      # fall back. Unset means OAuth state and issued tokens are keyed to a
+      # per-process random, so every restart invalidates them — set these in
+      # prod even though nothing forces you to.
+      - SLYNG_SESSION_SECRET=${SLYNG_SESSION_SECRET:-}
+      - SLYNG_STATE_SECRET=${SLYNG_STATE_SECRET:-}
+      # ── Instance policy ─────────────────────────────────────────────
+      # The DB value wins over this; the env is the fallback (account.service).
+      - SLYNG_REGISTRATION_MODE=${SLYNG_REGISTRATION_MODE:-open}
+      - SLYNG_ADMIN_USERNAMES=${SLYNG_ADMIN_USERNAMES:-}
+      - SLYNG_ALLOWED_ORIGINS=${SLYNG_ALLOWED_ORIGINS:-}
+      # ── Delegation lifetimes — defaults mirror the code ─────────────
+      - PLATFORM_TOKEN_EXPIRES_IN=${PLATFORM_TOKEN_EXPIRES_IN:-86400}
+      - PLATFORM_REGISTRATION_EXPIRES_IN=${PLATFORM_REGISTRATION_EXPIRES_IN:-600}
+      - INDEPENDENT_LOGIN_CALLBACK_TTL=${INDEPENDENT_LOGIN_CALLBACK_TTL:-300}
+      # Empty reads as strict — the guard is `=== 'true' || === '1'`, so an
+      # unset value keeps private-IP fetches blocked rather than opening SSRF.
+      - PROXY_ALLOW_PRIVATE_IPS=${PROXY_ALLOW_PRIVATE_IPS:-}
+      # ── GIF provider (optional) ─────────────────────────────────────
+      # KLIPY_WEB is the API key and the only one that switches the feature
+      # on — `KlipyProvider.available` is `!!key`. Without it the picker
+      # renders a "not configured" panel rather than failing.
+      # The key is used as a URL *path segment*, so a pasted secret carrying
+      # a newline or wrapping quotes 404s every request while still reading
+      # as configured; the provider trims and strips quotes defensively.
+      - KLIPY_WEB=${KLIPY_WEB:-}
+      - KLIPY_API_BASE=${KLIPY_API_BASE:-}
+      # Salts the per-user Klipy id. Defaults to a public constant, which
+      # would let anyone precompute a user's id from their DID — set it.
+      - KLIPY_CUSTOMER_SALT=${KLIPY_CUSTOMER_SALT:-}
+      - KLIPY_MEDIA_HOSTS=${KLIPY_MEDIA_HOSTS:-}
+      # ── Embeds ──────────────────────────────────────────────────────
+      # Twitch requires the embedding host in `parent=`. Read as
+      # `process.env.PUBLIC_HOSTNAME ?? 'localhost'`, and `??` does not fire
+      # on the empty string compose would produce from `:-`, so this carries
+      # a real default: empty here means every Twitch embed asks Twitch to
+      # render for `parent=`, which it refuses.
+      - PUBLIC_HOSTNAME=${PUBLIC_HOSTNAME:-app.slyng.gg}
     depends_on:
       surrealdb:
         condition: service_healthy

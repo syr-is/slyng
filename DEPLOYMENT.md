@@ -117,6 +117,33 @@ well-known consumers may need the default handling.
 
 ## Environment Variables
 
+> **Required in production.** The API refuses to start or fails at request
+> time without these, and `docker-compose.prod.yml` now fails the deploy by
+> name rather than letting them default:
+>
+> | Variable | Why | Generate |
+> |---|---|---|
+> | `PLATFORM_DELEGATE_SECRET` | Unlocks the local-IdP delegate key. Missing = `500 Registration failed`, **and nothing else breaks** — every other route keeps serving, so it does not look like a config fault. | `openssl rand -hex 32` |
+> | `SLYNG_JWT_SECRET` | Signs issued tokens. `IdpJwtService.getSecret()` throws outright when `NODE_ENV=production`. | `openssl rand -hex 32` |
+>
+> Strongly recommended: `SLYNG_SESSION_SECRET` and `SLYNG_STATE_SECRET`.
+> Unset, both fall back to a **per-process random**, so OAuth state and
+> issued tokens are invalidated by every restart — including every deploy.
+>
+> **These have to be in the compose `environment:` block, not just in the
+> deployment environment.** They were absent from it for a while, so setting
+> them in Dokploy did nothing: the container never received them. If you add
+> a variable the API reads, add it in both places. To check for drift:
+>
+> ```bash
+> grep -rhoE "config\.get(<[^>]*>)?\('[A-Z0-9_]+'" apps/slyng/api/src --include='*.ts' \
+>   | grep -oE "'[A-Z0-9_]+'" | tr -d "'" | sort -u > /tmp/api_env.txt
+> sed -n '/slyng-api:/,/^  slyng:/p' docker-compose.prod.yml \
+>   | grep -oE "^      - [A-Z0-9_]+" | sed 's/.*- //' | sort -u > /tmp/compose_env.txt
+> comm -23 /tmp/api_env.txt /tmp/compose_env.txt   # read by the API, never passed in
+> ```
+
+
 ```env
 NODE_ENV=production
 PORT=5174
