@@ -117,6 +117,56 @@ well-known consumers may need the default handling.
 
 ## Environment Variables
 
+> **Required in production.** The API refuses to start or fails at request
+> time without these, and `docker-compose.prod.yml` now fails the deploy by
+> name rather than letting them default:
+>
+> | Variable | Why | Generate |
+> |---|---|---|
+> | `PLATFORM_DELEGATE_SECRET` | Unlocks the local-IdP delegate key. Missing or shorter than 32 chars produced `500 Registration failed` on the observed deployment while unrelated routes continued to serve, which obscured the configuration error. | `openssl rand -hex 32` |
+> | `SLYNG_JWT_SECRET` | Signs issued tokens. `IdpJwtService.getSecret()` throws outright when `NODE_ENV=production`. | `openssl rand -hex 32` |
+>
+> Both are length-checked at boot (`assertSecrets` in `main.ts`): under 32 chars, the process refuses to start. Compose's `${VAR:?}` cannot do this — it rejects unset and empty values only, so `SLYNG_JWT_SECRET=x` would otherwise deploy cleanly as a one-character signing key.
+>
+> Strongly recommended: `SLYNG_SESSION_SECRET` and `SLYNG_STATE_SECRET`.
+> Unset, both fall back to a **per-process random**, so OAuth state and
+> issued tokens are invalidated by every restart — including every deploy.
+>
+> **These have to be in the compose `environment:` block, not just in the
+> deployment environment.** They were absent from it for a while, so setting
+> them in Dokploy did nothing: the container never received them. If you add
+> a variable the API reads, add it in both places. To check for drift:
+>
+> ```bash
+> # Reads every `config.get('X')` AND `process.env.X`, collapsing whitespace
+> # first — chained calls span lines, which is how KLIPY_WEB (the key that
+> # enables the GIF picker) hid from a line-based grep.
+> python3 - <<'EOF'
+> import re, pathlib
+> api = {}
+> for f in pathlib.Path('apps/slyng/api/src').rglob('*.ts'):
+>     if f.name.endswith('.test.ts'): continue
+>     flat = re.sub(r'\s+', ' ', f.read_text(errors='ignore'))
+>     for m in re.finditer(r"config\s*\.\s*get\s*(?:<[^>]*>)?\s*\(\s*'([A-Z0-9_]+)'", flat):
+>         api[m.group(1)] = 1
+>     for m in re.finditer(r"process\s*\.\s*env\s*(?:\.\s*([A-Z0-9_]+)|\[\s*'([A-Z0-9_]+)')", flat):
+>         api[m.group(1) or m.group(2)] = 1
+> compose = set(re.findall(r'^      - ([A-Z0-9_]+)=',
+>     re.search(r'  slyng-api:.*?(?=\n  slyng:)', open('docker-compose.prod.yml').read(), re.S).group(0), re.M))
+> example = set(re.findall(r'^#? *([A-Z0-9_]+)=', open('.env.example').read(), re.M))
+> print('read by API, NOT passed by compose :', sorted(set(api) - compose) or 'none')
+> print('read by API, NOT in .env.example   :', sorted(set(api) - example) or 'none')
+> print('in compose, never read by the API  :', sorted(compose - set(api)) or 'none')
+> EOF
+> ```
+>
+> The first two must be empty. The third catches the opposite drift — a
+> variable still passed in after the code stopped reading it — and has one
+> known entry today: `SYR_INSTANCE_URL` is declared in both compose files and
+> read nowhere in the repo. Left in place deliberately rather than deleted on
+> the strength of a grep; treat any *other* name appearing there as drift.
+
+
 ```env
 NODE_ENV=production
 PORT=5174

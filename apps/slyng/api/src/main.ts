@@ -8,10 +8,42 @@ import { WsAdapter } from '@nestjs/platform-ws';
 import cookieParser from 'cookie-parser';
 import { AppModule } from './app.module';
 
+/**
+ * Secrets that must be real before the process serves anything.
+ *
+ * Compose can only assert presence — `${VAR:?}` rejects unset and empty and
+ * nothing else — so `SLYNG_JWT_SECRET=x` satisfies the deploy and yields a
+ * one-character HS256 signing key. Length has to be checked here.
+ *
+ * Failing at boot rather than at first use is the point. `PLATFORM_DELEGATE_SECRET`
+ * is read only on the registration path, so a too-short value passes the deploy,
+ * passes every health check, serves every other route, and surfaces as
+ * `500 Registration failed` — the exact failure this validation exists to stop
+ * anyone rediscovering.
+ */
+function assertSecrets(config: ConfigService, logger: Logger) {
+	if (config.get('NODE_ENV', 'development') !== 'production') return;
+
+	const MIN = 32;
+	const problems: string[] = [];
+	for (const name of ['PLATFORM_DELEGATE_SECRET', 'SLYNG_JWT_SECRET'] as const) {
+		const v = config.get<string>(name)?.trim() ?? '';
+		if (!v) problems.push(`${name} is not set`);
+		else if (v.length < MIN) problems.push(`${name} is ${v.length} chars, needs >= ${MIN}`);
+	}
+	// Never log the values, only the names and lengths — these are the keys that
+	// encrypt delegate keys at rest and sign every session token.
+	if (problems.length) {
+		logger.error(`Refusing to start: ${problems.join('; ')}. Generate with: openssl rand -hex 32`);
+		throw new Error(`Invalid secret configuration: ${problems.join('; ')}`);
+	}
+}
+
 async function bootstrap() {
 	const app = await NestFactory.create(AppModule);
 	const logger = new Logger('Bootstrap');
 	const config = app.get(ConfigService);
+	assertSecrets(config, logger);
 
 	// Disable ETag — API responses are dynamic, 304s with stale browser cache
 	// caused servers/channels to render with stale data
