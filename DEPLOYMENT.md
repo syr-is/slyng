@@ -160,11 +160,10 @@ well-known consumers may need the default handling.
 > EOF
 > ```
 >
-> The first two must be empty. The third catches the opposite drift — a
-> variable still passed in after the code stopped reading it — and has one
-> known entry today: `SYR_INSTANCE_URL` is declared in both compose files and
-> read nowhere in the repo. Left in place deliberately rather than deleted on
-> the strength of a grep; treat any *other* name appearing there as drift.
+> All three must be empty. The third catches the opposite drift — a variable
+> still passed in after the code stopped reading it, which is how
+> `SYR_INSTANCE_URL` lingered in both compose files and this document long
+> after the local IdP replaced it.
 
 
 ```env
@@ -180,7 +179,6 @@ SURREALDB_PASS=<openssl rand -base64 32>
 
 SLYNG_API_PORT=5175
 SLYNG_API_URL=https://app.slyng.gg
-SYR_INSTANCE_URL=https://app.syr.is
 
 S3_PROVIDER=minio
 S3_ENDPOINT=http://minio:9000

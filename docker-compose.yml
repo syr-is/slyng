@@ -130,7 +130,6 @@ services:
       - S3_SECRET_ACCESS_KEY=${S3_SECRET_ACCESS_KEY:-slyng-secret-key}
       - S3_CORS_ORIGINS=${S3_CORS_ORIGINS:-*}
       - PUBLIC_URL=${PUBLIC_URL:-http://localhost:5174}
-      - SYR_INSTANCE_URL=${SYR_INSTANCE_URL:-http://localhost:5173}
       # Local identity-provider secrets — must match a host-run API to keep
       # existing accounts/delegations decryptable. Dev defaults mirror
       # .env.example; set real values in .env.
