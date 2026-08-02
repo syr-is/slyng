@@ -59,5 +59,17 @@ export const WsOp = {
 	SERVER_EMOJI_UPDATE: 59,
 
 	/** The recipient was mentioned in a message — drives the mention inbox + count. */
-	MENTION_ADD: 60
+	MENTION_ADD: 60,
+
+	/**
+	 * A server's invite set changed (created, edited, or revoked) — holders of
+	 * MANAGE_INVITES re-fetch the list.
+	 *
+	 * Carries `{ server_id }` and nothing else, deliberately. `emitToServer`
+	 * reaches every member of the server, and an invite code is a credential:
+	 * putting the row on the wire would hand it to members who cannot read
+	 * `GET /servers/:id/invites`. Recipients re-fetch through the
+	 * permission-gated route instead, exactly like `SERVER_EMOJI_UPDATE`.
+	 */
+	INVITE_UPDATE: 61
 } as const;
