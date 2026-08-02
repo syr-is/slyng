@@ -1,4 +1,5 @@
 <script lang="ts">
+	import AuditLogSheet from './audit-log-sheet.svelte';
 	import { Hash, Volume2, ChevronDown, ChevronRight, Settings, UserPlus, MoreVertical, ScrollText, LogOut } from '@lucide/svelte';
 	import { goto } from '$app/navigation';
 	import { Separator } from '@slyng/ui/separator';
@@ -94,6 +95,12 @@
 		else next.add(catId);
 		collapsed = next;
 	}
+
+	// Audit log opens as a sheet over the current channel — `null` closed,
+	// `{}` server-wide, `{ channelId }` scoped to one channel. The full page
+	// still exists and the sheet's expand button navigates to it, so a
+	// deep-linked /audit-log URL keeps working.
+	let auditSheet = $state<{ channelId?: string } | null>(null);
 </script>
 
 {#snippet channelRow(channel: { id: string; name?: string; type: string; topic?: string }, active: boolean)}
@@ -123,12 +130,7 @@
 					<MoreVertical class="h-4 w-4" />
 				</DropdownMenu.Trigger>
 				<DropdownMenu.Content class="w-44">
-					<DropdownMenu.Item
-						onclick={() =>
-							goto(
-								`/channels/${encodeURIComponent(serverState.activeServerId ?? '')}/audit-log?channel_id=${encodeURIComponent(channel.id)}`
-							)}
-					>
+					<DropdownMenu.Item onclick={() => (auditSheet = { channelId: channel.id })}>
 						<ScrollText class="mr-2 h-4 w-4" />
 						Audit Log
 					</DropdownMenu.Item>
@@ -179,12 +181,7 @@
 				{#if perms.canCreateInvites || perms.canManageServer}
 					<DropdownMenu.Separator />
 				{/if}
-				<DropdownMenu.Item
-					onclick={() =>
-						goto(
-							`/channels/${encodeURIComponent(serverState.activeServerId ?? '')}/audit-log`
-						)}
-				>
+				<DropdownMenu.Item onclick={() => (auditSheet = {})}>
 					<ScrollText class="mr-2 h-4 w-4" />
 					Audit Log
 				</DropdownMenu.Item>
@@ -271,3 +268,11 @@
 		</Dialog.Footer>
 	</Dialog.Content>
 </Dialog.Root>
+
+{#if auditSheet}
+	<AuditLogSheet
+		serverId={serverState.activeServerId ?? ''}
+		channelId={auditSheet.channelId}
+		onClose={() => (auditSheet = null)}
+	/>
+{/if}

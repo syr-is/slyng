@@ -1,4 +1,5 @@
 <script lang="ts">
+	import AuditLogSheet from '@slyng/ui/fragments/audit-log-sheet.svelte';
 	import { onDestroy } from 'svelte';
 	import { Hash, Users, Pin, ScrollText, Eye, EyeOff, Search } from '@lucide/svelte';
 	import { goto } from '$app/navigation';
@@ -455,6 +456,11 @@
 			requestAnimationFrame(() => requestAnimationFrame(() => jumpToMessage(id)));
 		}
 	}
+
+	// The channel-header icon opens the log over the conversation rather than
+	// replacing it — checking who deleted a message should not cost your place
+	// in the channel. The sheet's expand button still navigates to the page.
+	let auditSheetOpen = $state(false);
 </script>
 
 <div class="flex min-h-0 min-w-0 flex-1">
@@ -534,10 +540,7 @@
 							{#snippet child({ props })}
 								<button
 									{...props}
-									onclick={() =>
-										goto(
-											`/channels/${encodeURIComponent(serverId)}/audit-log?channel_id=${encodeURIComponent(channelId)}`
-										)}
+									onclick={() => (auditSheetOpen = true)}
 									aria-label="Channel audit log"
 									class="flex size-11 shrink-0 items-center justify-center rounded text-muted-foreground transition-colors hover:text-foreground motion-safe:active:scale-95"
 								>
@@ -656,3 +659,7 @@
 	onClose={() => (showSearch = false)}
 	onJump={ensureAndJump}
 />
+
+{#if auditSheetOpen}
+	<AuditLogSheet {serverId} {channelId} onClose={() => (auditSheetOpen = false)} />
+{/if}
