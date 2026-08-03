@@ -75,7 +75,8 @@ export class CategoryController {
 		const userId = req.user?.id;
 		if (!userId) throw new HttpException('Unauthorized', 401);
 		try {
-			return await this.categories.reorder(serverId, body.categoryIds, userId);
+			await this.categories.reorder(serverId, body.categoryIds, userId);
+			return { success: true };
 		} catch (err) {
 			throw new HttpException(err instanceof Error ? err.message : 'Failed', 400);
 		}

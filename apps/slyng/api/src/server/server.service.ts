@@ -582,6 +582,11 @@ export class ServerService {
 			code: inv.code as string,
 			created_by: inv.created_by as string,
 			created_at: inv.created_at,
+			// Required by ServerInviteSchema, and by the Rust client's
+			// `ServerInvite` — which has no default for it, so omitting it made
+			// `Page<ServerInvite>` fail to deserialize and the invites table
+			// render empty however many invites existed.
+			updated_at: inv.updated_at ?? inv.created_at,
 			expires_at: inv.expires_at ?? null,
 			max_uses: inv.max_uses ?? 0,
 			uses: inv.uses ?? 0,
