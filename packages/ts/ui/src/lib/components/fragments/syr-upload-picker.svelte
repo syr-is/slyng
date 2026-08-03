@@ -5,7 +5,7 @@
 	import { toast } from 'svelte-sonner';
 	import { getAuth } from '@slyng/app-core/stores/auth.svelte';
 	import type { Attachment } from '@slyng/app-core/upload/upload-client';
-	import { apiUrl } from '@slyng/app-core/host';
+	import { idpFetch } from '@slyng/app-core/idp-fetch';
 
 	interface SyrUpload {
 		id: string;
@@ -44,12 +44,14 @@
 		loading = true;
 		error = null;
 		try {
-			// Proxy through slyng API — direct cross-origin fetch won't send syr cookies
+			// Proxied through slyng's API, not fetched from syr directly: the
+			// user's syr cookie would never travel cross-origin. `/syr-proxy` is
+			// authenticated on our side — `@SkipServerAccess()` without
+			// `@Public()`, and it reads `req.user.platform_token` — so it needs
+			// `idpFetch` for the Bearer. A bare cookie fetch stops working from
+			// the native webview once the session cookie is SameSite=Lax.
 			const syrPath = '/api/uploads?limit=60&sort_field=created_at&sort_order=desc';
-			const res = await fetch(
-				apiUrl(`/syr-proxy?path=${encodeURIComponent(syrPath)}`),
-				{ credentials: 'include' }
-			);
+			const res = await idpFetch(`/syr-proxy?path=${encodeURIComponent(syrPath)}`);
 			if (!res.ok) throw new Error(`Failed: ${res.status}`);
 			const body = await res.json();
 			const all: SyrUpload[] = Array.isArray(body.data) ? body.data : [];

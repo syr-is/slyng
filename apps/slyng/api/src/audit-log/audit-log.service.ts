@@ -211,7 +211,12 @@ export class AuditLogService {
 			metadata: row.metadata ?? {},
 			reason: row.reason ?? null,
 			batch_id: row.batch_id ?? null,
-			created_at: row.created_at
+			created_at: row.created_at,
+			// Required by AuditLogSchema and by the Rust `AuditLog`, which has no
+			// default for it. Omitting it made `Page<AuditLog>` fail to
+			// deserialize, so the audit log rendered empty however many entries
+			// existed — the same fault that emptied the invites table.
+			updated_at: row.updated_at ?? row.created_at
 		};
 	}
 }

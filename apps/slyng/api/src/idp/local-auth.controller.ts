@@ -26,13 +26,24 @@ export class LocalAuthController {
 	) {}
 
 	private setSessionCookie(res: Response, sessionId: string): void {
-		// Same options as the OAuth callback (auth.controller.ts) — secure
-		// is tied to prod because sameSite=none requires it.
+		// Same options as the OAuth callback (auth.controller.ts).
 		res.cookie(SESSION_COOKIE, sessionId, {
 			path: '/',
 			httpOnly: true,
 			secure: this.authService.isProduction(),
-			sameSite: 'none',
+			// `lax`, not `none`. `none` sends this cookie on every cross-site request,
+			// which is the whole CSRF surface: CORS blocks an attacker *reading* the
+			// reply, but a cross-site form POST is a simple request with no preflight,
+			// so bodyless authenticated POSTs still execute.
+			//
+			// `lax` still allows top-level GET navigations, which is what the OAuth
+			// callback and the platform-consent redirect actually rely on, and
+			// same-origin is unaffected — that is how the web app reaches the API.
+			//
+			// Cross-site clients keep working: the Tauri webview and the Rust/WASM
+			// client send `Authorization: Bearer`, which `auth.guard.ts` accepts as
+			// the same session at the same trust level.
+			sameSite: 'lax',
 			maxAge: 30 * 24 * 60 * 60 * 1000
 		});
 	}
