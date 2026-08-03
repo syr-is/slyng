@@ -11,6 +11,7 @@
 	 * Expanding hands the page everything the sheet was showing, channel filter
 	 * included, so the transition is continuous rather than a reset.
 	 */
+	import { untrack } from 'svelte';
 	import { ScrollText, Hash, X, Maximize2 } from '@lucide/svelte';
 	import { goto } from '$app/navigation';
 	import * as Sheet from '@slyng/ui/sheet';
@@ -24,21 +25,38 @@
 		onClose
 	}: {
 		serverId: string;
-		/** Present when opened from a channel — scopes the log to it. */
+		/** The channel the log was opened from — the filter's starting value. */
 		channelId?: string;
 		onClose: () => void;
 	} = $props();
 
 	const serverState = getServerState();
 	const server = $derived(serverState.activeServer);
+
+	// The prop seeds the filter, it does not pin it. Opening from a channel
+	// starts scoped to that channel, because that is what you came to look at;
+	// clearing the chip widens to the whole server without reopening from a
+	// different entry point. Server-wide entries pass no channelId and start
+	// unfiltered.
+	// `untrack` states the intent the bare read cannot: seed once, then own it.
+	// Without it Svelte warns that only the initial value is captured — which is
+	// precisely what is wanted here, since re-syncing to the prop would undo a
+	// cleared filter on the next render. Each open remounts the sheet, so a
+	// fresh entry point always seeds afresh.
+	let activeChannelId = $state<string | undefined>(untrack(() => channelId));
+
 	const channelInfo = $derived(
-		channelId ? serverState.channels.find((c) => c.id === channelId) : undefined
+		activeChannelId ? serverState.channels.find((c) => c.id === activeChannelId) : undefined
 	);
-	const mode = $derived<'server' | 'channel'>(channelId ? 'channel' : 'server');
+	const mode = $derived<'server' | 'channel'>(activeChannelId ? 'channel' : 'server');
 
 	function expand() {
 		const base = `/channels/${encodeURIComponent(serverId)}/audit-log`;
-		const url = channelId ? `${base}?channel_id=${encodeURIComponent(channelId)}` : base;
+		// Carry the filter as it stands now, not as it arrived — clearing the
+		// chip and then expanding should land on the server-wide page.
+		const url = activeChannelId
+			? `${base}?channel_id=${encodeURIComponent(activeChannelId)}`
+			: base;
 		// Close first: the sheet is a modal layer, and leaving it mounted across
 		// the navigation traps focus on a route that no longer owns it.
 		onClose();
@@ -57,17 +75,31 @@
 				<span class="min-w-0 truncate">{server?.name ?? 'Server'} · Audit Log</span>
 				{#if channelInfo}
 					<span
-						class="inline-flex min-w-0 max-w-[14ch] items-center gap-1 rounded-md border border-border bg-muted/50 px-2 py-0.5 text-xs font-normal text-muted-foreground"
+						class="inline-flex min-w-0 max-w-[16ch] items-center gap-1 rounded-md border border-border bg-muted/50 py-0.5 pl-2 pr-1 text-xs font-normal text-muted-foreground"
 					>
 						<Hash class="h-3 w-3 shrink-0" />
 						<span class="truncate font-mono">{channelInfo.name}</span>
+						<!--
+							The chip is the filter's off switch, not decoration. Sized to
+							the 44px tap target on touch (§6) while staying compact with a
+							mouse, so it is dismissible without a hover reveal.
+						-->
+						<button
+							type="button"
+							onclick={() => (activeChannelId = undefined)}
+							aria-label="Show actions from the whole server"
+							title="Clear channel filter"
+							class="ml-0.5 flex size-5 shrink-0 items-center justify-center rounded hover:bg-accent hover:text-foreground tap:size-8 motion-safe:active:scale-95"
+						>
+							<X class="h-3 w-3" />
+						</button>
 					</span>
 				{/if}
 			</Sheet.Title>
 			<Sheet.Description class="text-xs">
 				{#if channelInfo}
-					Moderation actions scoped to <span class="font-mono">#{channelInfo.name}</span>. Expand to
-					see everything across the server.
+					Moderation actions scoped to <span class="font-mono">#{channelInfo.name}</span>. Clear the
+					filter to see everything across the server.
 				{:else}
 					Every moderation action on this server, newest first.
 				{/if}
@@ -87,8 +119,14 @@
 		</Sheet.Header>
 
 		<div class="min-h-0 flex-1 overflow-y-auto p-4">
-			{#key channelId ?? 'server'}
-				<AuditLogPanel {mode} {serverId} {channelId} />
+			<!--
+				Keyed on the active filter so clearing the chip remounts the panel:
+				it owns its own pagination and query state, and re-scoping a live
+				table would otherwise leave page 3 of one channel showing under a
+				server-wide heading.
+			-->
+			{#key activeChannelId ?? 'server'}
+				<AuditLogPanel {mode} {serverId} channelId={activeChannelId} />
 			{/key}
 		</div>
 	</Sheet.Content>

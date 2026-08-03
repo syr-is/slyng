@@ -110,8 +110,9 @@
 				<button
 					type="button"
 					onclick={clearChannelFilter}
-					class="ml-1 rounded hover:bg-accent hover:text-foreground"
+					aria-label="Show actions from the whole server"
 					title="Clear channel filter"
+					class="ml-0.5 flex size-5 shrink-0 items-center justify-center rounded hover:bg-accent hover:text-foreground tap:size-8 motion-safe:active:scale-95"
 				>
 					<X class="h-3 w-3" />
 				</button>
