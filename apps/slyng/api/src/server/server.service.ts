@@ -317,6 +317,23 @@ export class ServerService {
 		return this.servers.findByIds(serverIds);
 	}
 
+	/**
+	 * Tell the server its invite set moved. Signal only — `{ server_id }` and
+	 * nothing more.
+	 *
+	 * `emitToServer` fans out to every member, and an invite code is a
+	 * credential: putting the row on the wire would hand it to members who
+	 * cannot call `GET /servers/:id/invites`. Recipients re-fetch through that
+	 * permission-gated route instead. Same shape as
+	 * `ServerMediaService.notify`.
+	 */
+	private notifyInvites(serverId: string): void {
+		this.gateway?.emitToServer(serverId, {
+			op: WsOp.INVITE_UPDATE,
+			d: { server_id: serverId }
+		});
+	}
+
 	async createInvite(
 		serverId: string,
 		createdBy: string,
@@ -392,6 +409,7 @@ export class ServerService {
 			}
 		});
 
+		this.notifyInvites(serverId);
 		return { code };
 	}
 
@@ -473,6 +491,7 @@ export class ServerService {
 			}
 		});
 		this.logger.log(`Invite updated: ${code} by ${actorUserId}`);
+		this.notifyInvites(serverId);
 		return this.serializeInvite(updated);
 	}
 
@@ -511,6 +530,7 @@ export class ServerService {
 			}
 		});
 		this.logger.log(`Invite deleted: ${code}`);
+		this.notifyInvites(serverId);
 	}
 
 	/**

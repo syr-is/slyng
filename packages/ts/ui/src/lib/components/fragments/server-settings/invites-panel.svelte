@@ -9,6 +9,9 @@
 	import { getMembers } from '@slyng/app-core/stores/members.svelte';
 	import { proxied } from '@slyng/app-core/utils/proxy';
 	import * as Tooltip from '@slyng/ui/tooltip';
+	import { onWsEvent } from '@slyng/app-core/stores/ws.svelte';
+	import { WsOp } from '@slyng/types';
+	import { onDestroy } from 'svelte';
 	import PaginatedTable from '../paginated-table.svelte';
 	import CreateInviteForm from './create-invite-form.svelte';
 
@@ -33,6 +36,38 @@
 
 	let refreshSignal = $state(0);
 	let copiedCode = $state<string | null>(null);
+
+	// Invites are created from two places: the form below, and the invite
+	// dialog on the server banner. The banner sits in a different component
+	// tree, so its `onCreated` can never reach this panel's `refreshSignal` —
+	// which is why an invite made from the banner never appeared here.
+	// The server broadcasts INVITE_UPDATE on create/edit/revoke and the list
+	// re-fetches, so it no longer matters which surface made the change, or
+	// whether this one made it at all.
+	//
+	// Debounced like members-panel: a burst of edits should cost one refetch.
+	let pendingRefresh: ReturnType<typeof setTimeout> | null = null;
+	function scheduleRefresh() {
+		if (pendingRefresh) clearTimeout(pendingRefresh);
+		pendingRefresh = setTimeout(() => {
+			refreshSignal++;
+			pendingRefresh = null;
+		}, 150);
+	}
+
+	// Filtered on `server_id`: the payload carries it so recipients can tell
+	// whose invites moved, and a socket can hold subscriptions to more than one
+	// server topic — a reconnect re-subscribes before the previous server's are
+	// dropped. Refetching this server's list because another server's invites
+	// changed is a wasted round trip on a MANAGE_INVITES-gated route.
+	const unsubInvites = onWsEvent(WsOp.INVITE_UPDATE, (raw) => {
+		const d = raw as { server_id?: string } | null;
+		if (d?.server_id === serverId) scheduleRefresh();
+	});
+	onDestroy(() => {
+		unsubInvites();
+		if (pendingRefresh) clearTimeout(pendingRefresh);
+	});
 
 	function load(params: { limit: number; offset: number; sort?: string; order?: 'asc' | 'desc'; q?: string }) {
 		return api.servers.listInvites(serverId, params).then((p) => ({
