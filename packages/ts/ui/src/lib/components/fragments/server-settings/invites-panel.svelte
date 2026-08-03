@@ -55,7 +55,15 @@
 		}, 150);
 	}
 
-	const unsubInvites = onWsEvent(WsOp.INVITE_UPDATE, () => scheduleRefresh());
+	// Filtered on `server_id`: the payload carries it so recipients can tell
+	// whose invites moved, and a socket can hold subscriptions to more than one
+	// server topic — a reconnect re-subscribes before the previous server's are
+	// dropped. Refetching this server's list because another server's invites
+	// changed is a wasted round trip on a MANAGE_INVITES-gated route.
+	const unsubInvites = onWsEvent(WsOp.INVITE_UPDATE, (raw) => {
+		const d = raw as { server_id?: string } | null;
+		if (d?.server_id === serverId) scheduleRefresh();
+	});
 	onDestroy(() => {
 		unsubInvites();
 		if (pendingRefresh) clearTimeout(pendingRefresh);
