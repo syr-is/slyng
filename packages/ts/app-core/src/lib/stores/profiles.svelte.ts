@@ -11,7 +11,7 @@ import { SvelteMap } from 'svelte/reactivity';
 import { WsOp, type RemoteRootResponse } from '@slyng/types';
 import { onWsEvent, send } from './ws.svelte';
 import { proxied } from '../utils/proxy';
-import { apiUrl } from '../host.js';
+import { idpFetch } from '../idp-fetch';
 
 export interface Profile {
 	did: string;
@@ -106,11 +106,18 @@ export async function resolveRemoteRoot(
 
 	let result: RemoteRootResponse | null = null;
 	try {
-		const url = `${apiUrl('/identity/remote-root')}?did=${encodeURIComponent(did)}&instance=${encodeURIComponent(instanceUrl)}`;
-		const res = await fetch(url, {
-			headers: { Accept: 'application/json' },
-			credentials: 'include'
-		});
+		// `/identity/remote-root` is authenticated — `@SkipServerAccess()` without
+		// `@Public()`, and the handler calls `requireDid(req)`. A bare fetch
+		// carries only the cookie, which a cross-site native webview will not
+		// send once the cookie is SameSite=Lax; `idpFetch` adds the Bearer that
+		// the native and WASM clients authenticate with everywhere else.
+		//
+		// It fails silently if it regresses: the catch below caches `null`, so
+		// P12 root-key verification simply stops resolving with no error surfaced.
+		const res = await idpFetch(
+			`/identity/remote-root?did=${encodeURIComponent(did)}&instance=${encodeURIComponent(instanceUrl)}`,
+			{ headers: { Accept: 'application/json' } }
+		);
 		if (res.ok) {
 			const body = (await res.json()) as { data?: RemoteRootResponse };
 			result = body.data ?? null;

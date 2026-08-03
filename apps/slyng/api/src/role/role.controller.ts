@@ -61,7 +61,8 @@ export class RoleController {
 		const userId = req.user?.id;
 		if (!userId) throw new HttpException('Unauthorized', 401);
 		try {
-			return await this.roles.swapPositions(roleId, otherRoleId, userId);
+			await this.roles.swapPositions(roleId, otherRoleId, userId);
+			return { success: true };
 		} catch (err) {
 			throw new HttpException(err instanceof Error ? err.message : 'Failed', 400);
 		}
@@ -78,7 +79,8 @@ export class RoleController {
 		const userId = req.user?.id;
 		if (!userId) throw new HttpException('Unauthorized', 401);
 		try {
-			return await this.roles.reorder(serverId, body.roleIds, userId);
+			await this.roles.reorder(serverId, body.roleIds, userId);
+			return { success: true };
 		} catch (err) {
 			throw new HttpException(err instanceof Error ? err.message : 'Failed', 400);
 		}
@@ -144,7 +146,8 @@ export class RoleController {
 		const actor = req.user?.id;
 		if (!actor) throw new HttpException('Unauthorized', 401);
 		try {
-			return await this.roles.assignToMember(serverId, targetUserId, roleId, actor);
+			await this.roles.assignToMember(serverId, targetUserId, roleId, actor);
+			return { success: true };
 		} catch (err) {
 			throw new HttpException(err instanceof Error ? err.message : 'Failed', 400);
 		}
@@ -162,7 +165,8 @@ export class RoleController {
 		const actor = req.user?.id;
 		if (!actor) throw new HttpException('Unauthorized', 401);
 		try {
-			return await this.roles.unassignFromMember(serverId, targetUserId, roleId, actor);
+			await this.roles.unassignFromMember(serverId, targetUserId, roleId, actor);
+			return { success: true };
 		} catch (err) {
 			throw new HttpException(err instanceof Error ? err.message : 'Failed', 400);
 		}

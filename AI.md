@@ -95,11 +95,14 @@ Actions surface in the audit-log page + moderation sheet via `AUDIT_LOG_APPEND` 
 ### 7. Privacy: federated media proxy
 
 Every client-side fetch or render of a remote asset (avatar, banner, profile JSON, stories, emojis, GIFs, message attachments, embed thumbnails) goes through `proxied(url)` from `$lib/utils/proxy`. The only exceptions are:
-- `syr-upload-picker.svelte` (fetches the user's own syr with their cookie)
 - user-initiated outbound `<SafeLink>` clicks (opt-in external navigation)
 - backend `ProfileWatcher` polls (server-side; no browser)
 
-The proxy is auth-gated (`slyng_session` cookie), 100 MB cap, SSRF guard. Oversize assets render a "Load directly" opt-in via `<SafeMedia>` — the user explicitly consents to the IP leak.
+**The proxy is `@Public()`, not auth-gated** — `proxy.controller.ts` carries `@Public()` on both routes. It has to be: `proxied()` feeds `<img src>` and `<Avatar.Image src>` directly, and an `<img>` cannot send an `Authorization` header. The native app is cross-origin, so it cannot send the session cookie either now that it is `SameSite=Lax`. Gating the proxy would blank every avatar, banner, emoji and GIF in the native app.
+
+What guards it instead: a 100 MB cap, an SSRF policy that blocks loopback and (in production) private ranges, a request timeout, and a rate-limit bucket that throttles unauthenticated callers. Oversize assets render a "Load directly" opt-in via `<SafeMedia>` — the user explicitly consents to the IP leak.
+
+`syr-upload-picker.svelte` is **not** an exception to the proxy rule, despite what this said previously: it calls slyng's own `/syr-proxy`, which *is* authenticated (`@SkipServerAccess()` without `@Public()`, and it reads `req.user.platform_token`), so it goes through `idpFetch` for the Bearer.
 
 ### 8. Profile data is never stored
 

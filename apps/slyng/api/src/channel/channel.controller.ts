@@ -90,7 +90,8 @@ export class ChannelController {
 			throw new HttpException('channelIds must be a non-empty array', 400);
 		}
 		try {
-			return await this.channelService.reorder(serverId, body.channelIds, userId, body.categoryId);
+			await this.channelService.reorder(serverId, body.channelIds, userId, body.categoryId);
+			return { success: true };
 		} catch (err) {
 			throw new HttpException(err instanceof Error ? err.message : 'Failed', 403);
 		}
