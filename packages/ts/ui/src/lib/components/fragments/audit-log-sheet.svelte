@@ -15,7 +15,6 @@
 	import { ScrollText, Hash, X, Maximize2 } from '@lucide/svelte';
 	import { goto } from '$app/navigation';
 	import * as Sheet from '@slyng/ui/sheet';
-	import { Button } from '@slyng/ui/button';
 	import { getServerState } from '@slyng/app-core/stores/servers.svelte';
 	import AuditLogPanel from './audit-log-panel.svelte';
 
@@ -69,8 +68,23 @@
 		side="right"
 		class="flex w-full flex-col gap-0 p-0 pt-[var(--slyng-sai-top,env(safe-area-inset-top,0px))] pb-[var(--slyng-sai-bottom,env(safe-area-inset-bottom,0px))] sm:max-w-2xl"
 	>
+		<!--
+			Sits beside the sheet's own close control rather than on a row of its
+			own: it is a secondary way to reach the same data, not an action worth
+			a full-width button above the table. Always visible and labelled, so
+			it stays reachable on touch where a hover reveal would not (§6).
+		-->
+		<button
+			type="button"
+			onclick={expand}
+			aria-label="Open the audit log as a full page"
+			title="Open full page"
+			class="absolute right-12 top-2 z-10 flex size-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground tap:top-0.5 tap:size-11 motion-safe:active:scale-95"
+		>
+			<Maximize2 class="h-4 w-4" />
+		</button>
 		<Sheet.Header class="border-b border-border p-4">
-			<Sheet.Title class="flex items-center gap-2 pr-8">
+			<Sheet.Title class="flex items-center gap-2 pr-16">
 				<ScrollText class="h-4 w-4 shrink-0 text-muted-foreground" />
 				<span class="min-w-0 truncate">{server?.name ?? 'Server'} · Audit Log</span>
 				{#if channelInfo}
@@ -104,18 +118,6 @@
 					Every moderation action on this server, newest first.
 				{/if}
 			</Sheet.Description>
-			<!--
-				Expand sits in the header rather than the footer so it stays
-				reachable without scrolling the table, and is a real button with a
-				label — an icon-only affordance discoverable on hover alone is a
-				no-op on touch (AI.md §6).
-			-->
-			<div class="flex justify-end pt-1">
-				<Button variant="outline" size="sm" class="h-7 gap-1.5 text-xs" onclick={expand}>
-					<Maximize2 class="h-3.5 w-3.5" />
-					Open full page
-				</Button>
-			</div>
 		</Sheet.Header>
 
 		<div class="min-h-0 flex-1 overflow-y-auto p-4">
