@@ -127,6 +127,12 @@
 	const relationState = $derived(isSelf ? 'self' : relations.state(did));
 
 	let viewerOpen = $state(false);
+	// The "Open profile" SafeLink renders its leaving-slyng confirmation as a
+	// child of this popover. Opening a dialog reads as an interact-outside to
+	// the popover, which closed the card and unmounted the link mid-click,
+	// taking the confirmation with it — it appeared to open and vanish. Held
+	// open the same way `viewerOpen` holds it for the avatar lightbox.
+	let linkConfirmOpen = $state(false);
 	let busy = $state(false);
 
 	// ── Card open/close ──
@@ -147,7 +153,7 @@
 	const active = getActiveProfileCard();
 	const hoverOpen = $derived(active.value === cardId);
 	let menuOpen = $state(false);
-	const cardOpen = $derived(hoverOpen || menuOpen || viewerOpen);
+	const cardOpen = $derived(hoverOpen || menuOpen || viewerOpen || linkConfirmOpen);
 
 	function openCard() {
 		setActiveProfileCard(cardId);
@@ -183,7 +189,7 @@
 	}
 
 	function scheduleClose() {
-		if (menuOpen || viewerOpen) return;
+		if (menuOpen || viewerOpen || linkConfirmOpen) return;
 		cancelTimer();
 		hoverTimer = setTimeout(() => { closeCard(); }, CLOSE_DELAY);
 	}
@@ -194,6 +200,13 @@
 
 	function handlePopoverOpenChange(next: boolean) {
 		if (!next) {
+			// The leaving-slyng confirmation is a child of this popover, so its
+			// own overlay reads as an interact-outside dismiss. Ignoring it here
+			// keeps the card's shared-store entry intact, so once the user
+			// answers the confirmation the card is still the active one and
+			// behaves normally, rather than being orphaned open by the derived
+			// `cardOpen` alone.
+			if (linkConfirmOpen) return;
 			// Click-outside dismiss — always close, even if menu was open.
 			cancelTimer();
 			closeCard();
@@ -439,6 +452,7 @@
 					<SafeLink
 						href={profile.web_profile_url}
 						class="inline-flex items-center gap-1 text-xs text-primary hover:underline"
+						onConfirmOpenChange={(v) => (linkConfirmOpen = v)}
 					>
 						<Newspaper class="h-3 w-3" />
 						Open profile

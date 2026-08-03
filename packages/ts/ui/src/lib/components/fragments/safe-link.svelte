@@ -9,14 +9,29 @@
 	const {
 		href,
 		class: className = 'text-primary hover:underline',
-		children
+		children,
+		onConfirmOpenChange
 	}: {
 		href: string;
 		class?: string;
 		children: Snippet;
+		/**
+		 * Fired when the leaving-slyng confirmation opens or closes.
+		 *
+		 * Only matters when this link lives inside something dismissible. The
+		 * dialog is a child of this component, so if a popover containing it
+		 * closes on interact-outside — which opening a dialog looks like — the
+		 * link unmounts and takes the confirmation with it before it can be
+		 * read. Containers use this to hold themselves open for the duration.
+		 */
+		onConfirmOpenChange?: (open: boolean) => void;
 	} = $props();
 
 	let confirmOpen = $state(false);
+	function setConfirm(open: boolean) {
+		confirmOpen = open;
+		onConfirmOpenChange?.(open);
+	}
 	let trustDomain = $state(false);
 
 	const host = $derived(originHost(href));
@@ -28,7 +43,7 @@
 			return;
 		}
 		trustDomain = false;
-		confirmOpen = true;
+		setConfirm(true);
 	}
 
 	function proceed() {
@@ -38,7 +53,7 @@
 		try {
 			window.open(href, '_blank', 'noopener,noreferrer');
 		} finally {
-			confirmOpen = false;
+			setConfirm(false);
 		}
 	}
 </script>
@@ -56,7 +71,7 @@
 	{@render children()}
 </a>
 
-<Dialog.Root bind:open={confirmOpen}>
+<Dialog.Root open={confirmOpen} onOpenChange={setConfirm}>
 	<Dialog.Content class="sm:max-w-md">
 		<Dialog.Header>
 			<Dialog.Title class="flex items-center gap-2">
@@ -77,7 +92,7 @@
 			Always trust <span class="font-mono">{host}</span>
 		</label>
 		<Dialog.Footer class="gap-2 sm:gap-2">
-			<Button variant="outline" onclick={() => (confirmOpen = false)}>Cancel</Button>
+			<Button variant="outline" onclick={() => setConfirm(false)}>Cancel</Button>
 			<Button onclick={proceed}>
 				<ExternalLink class="mr-1.5 h-4 w-4" />
 				Continue
